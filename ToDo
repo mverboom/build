@@ -1,0 +1,44 @@
+ToDo list
+
+Items to do:
+
+- remote build
+- set buildrc defaults if no file found or mandatory option not found
+- auto build configuration entry in recipies
+- auto build option
+- check if directories exist
+- all error to stderr
+- revisit all variable names for consistency
+- check required commands available
+- fixed setuid bits
+- define distro names to insert package to
+- svn import
+- hardening of input
+- review all return code checks
+- BASEDIR in recipe zetten ipv global config?
+- all functions local variables
+- review config section names
+- auto install compile dependancies if configured and sudo available
+- packaging add capability for running scripts for a package.
+- check torepo=n
+- recipe with "package ready" needs fixing
+- change dpkg substitute parameters with B_
+- compressed caching support (save diskspace)
+
+Done:
+
+v create function for git repo version
+v clean up function names
+v Improve help output
+v Install/remove build dependancies
+v check recipe section exists
+v ID en B_ARCH scheiden
+v pkg build functies splitsen
+v to repository functie
+v start documentation
+v external configuration file
+v require per package type
+v rm -rf build dir after error during build
+v external configuration file
+v fix getpart function change to recipe_section_get
+

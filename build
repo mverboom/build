@@ -5,44 +5,22 @@
 # Support script to automate software builds outside of base distribution
 # packages
 #
-# Mark Verboom
+# Copyright 2011-2017 Mark Verboom
 #
-# ToDo:
-# v clean up function names
-# - set buildrc defaults if no file found or mandatory option not found
-# v create function for git repo version
-# v Improve help output
-# v Install/remove build dependancies
-# - auto build configuration entry in recipies
-# - auto build option
-# - check if directories exist
-# - all error to stderr
-# - revisit all variable names for consistency
-# v check recipe section exists
-# - check required commands available
-# - fixed setuid bits
-# v ID en B_ARCH scheiden
-# v pkg build functies splitsen
-# v to repository functie
-# - define distro names to insert package to
-# v start documentation
-# - svn import
-# v external configuration file
-# - hardening of input
-# v require per package type
-# v rm -rf build dir after error during build
-# - review all return code checks
-# v external configuration file
-# - BASEDIR in recipe zetten ipv global config?
-# - all functions local variables
-# - review config section names
-# v fix getpart function change to recipe_section_get
-# - auto install compile dependancies if configured and sudo available
-# - packaging add capability for running scripts for a package.
-# - check torepo=n
-# - recipe with "package ready" needs fixing
-# - change dpkg substitute parameters with B_
-# - compressed caching support (save diskspace)
+# This file is part of Build.
+# 
+#     Build is free software: you can redistribute it and/or modify
+#     it under the terms of the GNU General Public License as published by
+#     the Free Software Foundation, either version 3 of the License, or
+#     (at your option) any later version.
+# 
+#     Build is distributed in the hope that it will be useful,
+#     but WITHOUT ANY WARRANTY; without even the implied warranty of
+#     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#     GNU General Public License for more details.
+# 
+#     You should have received a copy of the GNU General Public License
+#     along with Build.  If not, see <http://www.gnu.org/licenses/>.
 
 require_software() {
    echo awk grep git
