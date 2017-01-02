@@ -1,0 +1,22 @@
+#!/bin/bash
+build -f -b -v 5.51 openvas-nmap
+build -p -v 5.51 openvas-nmap
+sudo dpkg -i openvas-nmap*.deb
+build -f -b openvas-smb
+build -p openvas-smb
+sudo dpkg -i openvas-smb*.deb
+build -f -b openvas-libraries
+build -p openvas-libraries
+sudo dpkg -i openvas-libraries*.deb
+build -f -v -v 1.4.2 openvas-cli
+build -p -v 1.4.2 openvas-cli
+sudo dpkg -i openvas-cli*.deb
+build -f -b openvas-manager
+build -p openvas-manager
+sudo dpkg -i openvas-manager*.deb
+build -f -b openvas-scanner
+build -p openvas-scanner
+sudo dpkg -i openvas-scanner*.deb
+build -f -b openvas-gsa
+build -p openvas-gsa
+sudo dpkg -i openvas-gsa*.deb

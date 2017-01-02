@@ -1,0 +1,15 @@
+#!/bin/bash
+#
+# Add package file to repository
+#
+# 20150726 MV: Initial version for freight
+# 20151106 MV: Delete removal of original file
+#              Get filename from possible path given as argument
+# 20161119 MV: Removed wheeze from target repositories
+#
+set -e
+test $# -ne 1 && { echo "Usage: torepo <filename>"; exit 1; }
+test -f $1 || { echo "No such file."; exit 1; }
+filename=$( basename $1 )
+scp -q $1 repo@repo:/tmp
+ssh repo@repo "freight add /tmp/$filename apt/jessie; freight cache; rm /tmp/$filename"

@@ -1,0 +1,463 @@
+#!/bin/bash
+#
+# Build script
+#
+# Support script to automate software builds outside of base distribution
+# packages
+#
+# Mark Verboom
+#
+# ToDo:
+# v clean up function names
+# - set buildrc defaults if no file found or mandatory option not found
+# v create function for git repo version
+# v Improve help output
+# v Install/remove build dependancies
+# - auto build configuration entry in recipies
+# - auto build option
+# - check if directories exist
+# - all error to stderr
+# - revisit all variable names for consistency
+# v check recipe section exists
+# - check required commands available
+# - fixed setuid bits
+# v ID en B_ARCH scheiden
+# v pkg build functies splitsen
+# v to repository functie
+# - define distro names to insert package to
+# v start documentation
+# - svn import
+# v external configuration file
+# - hardening of input
+# v require per package type
+# v rm -rf build dir after error during build
+# - review all return code checks
+# v external configuration file
+# - BASEDIR in recipe zetten ipv global config?
+# - all functions local variables
+# - review config section names
+# v fix getpart function change to recipe_section_get
+# - auto install compile dependancies if configured and sudo available
+# - packaging add capability for running scripts for a package.
+# - check torepo=n
+# - recipe with "package ready" needs fixing
+# - change dpkg substitute parameters with B_
+# - compressed caching support (save diskspace)
+
+require_software() {
+   echo awk grep git
+}
+
+distro_get() {
+   if test "$( which dpkg-query)"
+   then
+      echo debian
+      exit 0
+   fi
+   echo unknown
+   exit 1
+}
+
+recipe_section_get() {
+   local recipe=$1
+   local label=$2
+   local opt=$3
+
+   test ! -f $recipe && { test "$opt" = "" && { >&2 echo "Recipe $recipe does not exist."; exit 1; } }
+
+   grep "^\[$label\]" $recipe > /dev/null 2>&1  || { test "$opt" = "" &&  { >&2 echo "No section $label found in recipe $recipe"; exit 1; } }
+   awk "BEGIN {found=0;} /^\[/ {found=0;} {if (found==1) { print \$0;}}; /\[$label\]/ { found=1;}" $recipe
+}
+
+build_require() {
+   pkgs=$*
+   missing=0
+   toinst=""
+
+   for pkg in $pkgs
+   do
+      #dpkg-query -W -f='${Status}\n' $pkg > /dev/null 2>&1
+      dpkg-query -s $pkg > /dev/null 2>&1
+      if test $? -ne 0
+      then
+         echo "Package $pkg required for build, but not installed."
+         if test "$INSTDEP" = "yes" 
+         then
+            toinst="$toinst $pkg"
+         else
+            missing=1
+         fi
+      fi
+   done
+   if test "$toinst" != "" 
+   then
+      sudo apt-get -qq -y install $toinst > /dev/null || { echo "Error installing dependancies ($toinst)."; exit 1 ;}
+   fi
+   test $missing -eq 1 && exit 1
+}
+
+build_require_remove() {
+   sudo apt-get -qq -y --purge remove $pkgs > /dev/null
+}
+
+build() {
+   B_NAME=$1
+   B_VERSION=$2
+   if test "$B_INSTANCE" != ""
+   then
+      versiondir=$B_VERSION-$B_INSTANCE
+   else
+      versiondir=$B_VERSION
+   fi
+   local pkgs=$( recipe_section_get $RECIPE REQUIRED opt ) || exit 1
+   test $? -eq 0 && build_require $pkgs
+
+   test "$B_INSTANCE" != "" && ID=${B_NAME}_${B_VERSION}-${B_INSTANCE}_${B_ARCH} || ID=${B_NAME}_${B_VERSION}_${B_ARCH}
+   B_BUILDNR=$( package_buildnr_get $ID )
+   local CMD=$( recipe_section_get $RECIPE BUILD ) || exit 1
+   test $? -ne 0 && { echo $CMD ; exit 1; }
+   local TMP=$( mktemp -p $TMPDIR -d )
+   B_INSTALLDIR=$DESTDIR/$B_ARCH/$NAME-$versiondir
+   test $FORCE -eq 1 && rm -rf $B_INSTALLDIR
+   mkdir -p $B_INSTALLDIR
+   # Define build environment variables and functions
+   B_CACHEDIR=$CACHEDIR
+   test -d ${RECIPE/.recipe/.files\/B_BUILD} && B_FILES=${RECIPE/.recipe/.files\/B_BUILD}
+   B_PKGLIST=$PKGLIST
+   # export B_VERSION B_INSTALLDIR B_ARCH B_DESTDIR B_INSTANCE B_CACHEDIR B_NAME B_BUILDNR B_PKGLIST
+   export B_VERSION B_INSTALLDIR B_ARCH B_INSTANCE B_CACHEDIR B_NAME B_BUILDNR B_FILES
+   B_GET() {
+      test $# -ne 3 && { >&2 echo "Insufficient arguments to B_GET."; exit 1; }
+      local method=$1
+      local url=$2
+      local fn=$3
+      local targetdir=$B_CACHEDIR/$B_ARCH/$B_NAME-$B_VERSION
+      local target=$targetdir/$fn
+      case $method in
+      "http")
+         if ! test -f $target
+         then
+            test -d $targetdir || mkdir -p $targetdir
+            wget -O $target $url || rm $target
+         fi
+         cp $target $fn
+      ;;
+      "git")
+         #local commit=$( git ls-remote $url HEAD | cut -f 1)
+         #test "$commit" = "" && commit=$( git ls-remote $url refs/heads/master | cut -f 1)
+         #test "$commit" = "" && { echo "Unable to determine last GIT commit id. Aborting."; exit 1; }
+         if ! test -f $target
+         then
+            test -d $targetdir || mkdir -p $targetdir
+            mkdir /tmp/git-dl.$$
+            cd /tmp/git-dl.$$
+            git clone $url $fn
+            tar cfz $target $fn
+            cd -
+            rm -rf /tmp/git-dl.$$
+         fi
+         tar xzf $target
+      ;;
+      esac
+   }
+   export -f B_GET
+   B_UPDATEPKGBLD() {
+      test -f ~/.buildrc && . ~/.buildrc
+      if test "$B_INSTANCE" != ""
+      then
+         local ID=${B_NAME}_${B_VERSION}-${B_INSTANCE}_${B_ARCH}
+      else
+         local ID=${B_NAME}_${B_VERSION}_${B_ARCH}
+      fi
+      grep "^$ID" $PKGLIST > /dev/null && sed -i "/^$ID/d" $PKGLIST
+      echo -e "$ID\t$B_BUILDNR" >> $PKGLIST
+   }
+   export -f B_UPDATEPKGBLD
+
+   echo "Building $NAME version $B_VERSION."
+   cd $TMP
+   test "$QUIET" = "1" && bash $DEBUG -e -c "$CMD" > /dev/null 2>&1 || bash $DEBUG -e -c "$CMD"
+   result=$?
+   cd -
+   rm -rf $TMP
+   if test $result -ne 0
+   then
+      echo "Build of $NAME failed."
+      rm -rf $B_INSTALLDIR
+      exit 1
+   fi
+   echo "Build complete."
+   test "$pkgs" != "" -a "$DEINSTDEP" = "yes" && build_require_remove $pkgs
+}
+
+usage() {
+   echo "Usage: build [OPTION...] [RECIPE]"
+   echo
+   echo "Operation mode:"
+   echo "   -b  Run the build section for a recipe (build/compile software)."
+   echo "   -p  Run the package section for a recipe (package software)."
+   echo "   -c  Run the version section for a recipe (check version)."
+   echo "   -a  Build/package all recipes where auto build is set (autobuild)."
+   echo
+   echo "Operation options:"
+   echo "   -v  Specify specific version for action. If not specified, latest version will be used."
+   echo "   -x  Enable verbose output"
+   echo "   -q  Quiet"
+   echo "   -f  Force build process, even if version already exists"
+   echo "   -i  Specify an instance to build"
+   echo "   -h  This help message"
+   echo
+   exit 1
+}
+
+arch_get() {
+   case $(uname -m) in
+   "i686")
+     echo i386
+     ;;
+   "x86_64")
+     echo amd64
+   esac
+}
+
+package_buildnr_get() {
+   ID=$1
+   test -f $PKGLIST || touch $PKGLIST
+   BUILDNR=$(grep "^$ID" $PKGLIST | cut -d'	' -f 2 )
+   test "$BUILDNR" = "" && BUILDNR=0
+   echo $(( $BUILDNR + 1 ))
+}
+
+package_torepo() {
+   type=$1
+   shift
+   pkgname=$*
+   case "$type" in
+   "deb")
+      $TODEBREPO $pkgname
+   ;;
+   *)
+      echo "Copy to repository not implemented for type $type"
+      exit 1
+   ;;
+   esac
+}
+
+package() {
+   test "$PKGDIR" = "" && { echo "PGKDIR not defined, aborting."; exit 1; }
+   test -d $PKGDIR || { echo "PKGDIR $PKGDIR does not exist, aborting."; exit 1; }
+   version=$( version_get ) || exit 1
+   test "$FORCEVERSION" != "" && version=$FORCEVERSION
+   if test "$B_INSTANCE" != ""
+   then
+      ID=$NAME-$version-$B_INSTANCE
+   else
+      ID=$NAME-$version
+   fi
+   test ! -d "$DESTDIR/$B_ARCH/$ID" && { >&2 echo "Version $version of $NAME is not available for packaging." ; exit 1; }
+
+   if test "$B_INSTANCE" != ""
+   then
+      ID=${version}-${B_INSTANCE}
+   else
+      ID=${version}
+   fi
+   P_PKGNAME=${NAME}_${ID}_${B_ARCH}
+   P_PKGDIR=${NAME}-${ID}
+   P_BUILDNR=$( package_buildnr_get ${P_PKGNAME} )
+   eval $( recipe_section_get $RECIPE PKG ) || exit 1
+   for pkgtype in ${type/,/ }
+   do
+      case $pkgtype in
+      "deb")
+         package_debian
+      ;;
+      *)
+         echo "Unknown package type ($pkgtype)."
+         exit 1
+      ;;
+      esac
+   done
+}
+
+package_debian() {
+   # Do we need to build the package?
+   if test "$pkgready" = ""
+   then
+      INFO=$(recipe_section_get $RECIPE DEB) || exit 1
+      test $? -ne 0 && { echo $INFO ; exit 1; }
+      TMP=$( mktemp -p $TMPDIR -d )
+      mkdir -p $TMP/DEBIAN
+      pkgversion=${version//\-/}-$P_BUILDNR
+      echo "$INFO" | sed "s/VERSION/$pkgversion/" | sed "s/ARCH/$B_ARCH/" > $TMP/DEBIAN/control
+      cd $DESTDIR/$B_ARCH/$NAME-$version
+      tar pcfB - . | (cd $TMP ; tar pxfB - )
+      cd - > /dev/null
+      cd $TMP
+      find . -path "*/etc/*" -type f | sed "s/^\.//" > DEBIAN/conffiles
+      if test -d $RECIPEDIR/$NAME.files/B_DEBIAN
+      then
+         ( cd $RECIPEDIR/$NAME.files/B_DEBIAN ; tar cf - . ) | tar xf -
+      fi
+      cd - > /dev/null
+      fakeroot dpkg --build $TMP . > $TMP.buildoutput
+      result=$?
+      file=$( cat $TMP.buildoutput | cut -d '`' -f 3 | cut -d \' -f 1 )
+      rm -rf $TMP $TMP.buildoutput
+      if test $result -ne 0
+      then
+         echo "Error while building package."
+         exit 1
+      fi
+      grep "^${P_PKGNAME}_${B_ARCH}" $PKGLIST > /dev/null && sed -i "/^${P_PKGNAME}_${B_ARCH}/d" $PKGLIST
+      echo -e "${P_PKGNAME}_${B_ARCH}\t$P_BUILDNR" >> $PKGLIST
+      mv $file $PKGDIR
+      pkgfile=$PKGDIR/$file
+   else
+      if test -f "$( echo $DESTDIR/$B_ARCH/${P_PKGDIR}/*.deb )" = "$DESTDIR/$B_ARCH/${P_PKGDIR}/*.deb"
+      then
+         echo "Recipe indicates package should be in build dir, but it isn't."
+         exit 1
+      else
+         file="$DESTDIR/$B_ARCH/${P_PKGDIR}/*.deb"
+         cp $file $PKGDIR
+         pkfile=$PKGDIR/$(basename $DESTDIR/$B_ARCH/${P_PKGDIR}/*.deb)
+      fi
+   fi
+   if test "${torepo,,}" = "y"
+   then
+      package_torepo $type $pkgfile
+   else
+      echo $pkgfile
+   fi
+}
+
+version_get() {
+   export B_ARCH=$( arch_get )
+   B_GITVER() {
+      git ls-remote --tags $1 | grep -v '{}' | grep -v -e preview -e rc | cut -d '/' -f 3  | sed "s/^v//" | sort -t. -k 1,1n -k 2,2n -k 3,3n -k 4,4n | tail -1
+   }
+   export -f B_GITVER
+   CMD=$( recipe_section_get $RECIPE VERSION ) || exit 1
+   test $? -ne 0 && { echo $CMD ; exit 1; }
+   ver=$( bash $DEBUG -e -c "$CMD" )
+   test $? -ne 0 && { >&2 echo "Error while running version command for $NAME." ; exit 1 ; }
+   test "$ver" = "" && { >&2 echo "Version command returned no output." ; exit 1 ; }
+   echo $ver
+   return 0
+}
+
+parse_options() {
+   ACTION=
+   FORCE=0
+   QUIET=0
+   DEBUG=
+   while test "$1" != ""
+   do
+      case $1 in
+      "-a")
+         ACTION="autobuild"
+      ;;
+      "-c")
+         ACTION="check"
+      ;;
+      "-b")
+         ACTION="build"
+      ;;
+      "-i")
+         shift
+         B_INSTANCE="$1"
+      ;;
+      "-p")
+         ACTION="package"
+      ;;
+      "-x")
+         set -x
+         DEBUG=-x
+      ;;
+      "-q")
+         QUIET=1
+      ;;
+      "-f")
+         FORCE=1
+      ;;
+      "-h")
+         usage
+      ;;
+      "-v")
+         shift
+         FORCEVERSION=$1
+      ;;
+      *)
+         NAME=$1
+      ;;
+      esac
+      shift
+   done
+   if test "$ACTION" != "" -a "$NAME" = ""
+   then
+      echo "No name specified."
+      exit 1
+   fi
+   RECIPE=$RECIPEDIR/$NAME.recipe
+}
+
+sanity_check() {
+   missing=""
+   for name in $( require_software)
+   do
+      if ! which $name > /dev/null 2>&1
+      then
+         missing="$missing $name"
+      fi
+   done
+   test "$missing" != "" && { echo "Missing required software to run script:$missing" ; exit 1;}
+}
+
+main() {
+   #set -e
+   test -f ~/.buildrc && . ~/.buildrc || { echo "No configuration file found."; exit 1;}
+   sanity_check
+   parse_options "$@"
+   B_ARCH=$( arch_get )
+
+   case $ACTION in
+   "package")
+      package
+   ;;
+   "check")
+      version=$( version_get ) || exit 1
+      if test "$FORCEVERSION" != ""
+      then
+         if test -d "$DESTDIR/$B_ARCH/$NAME-$FORCEVERSION"
+         then
+            echo "Version $FORCEVERSION of $NAME is available"
+         else
+            echo "Version $FORCEVERSION of $NAME is not available"
+            exit 1
+         fi
+      else
+         test -d "$DESTDIR/$B_ARCH/$NAME-$version" && { echo "No new version of $NAME is available (current $version)." ; exit 1 ;}
+         echo "New version ($version) of $NAME is available"
+      fi
+   ;;
+   "build")
+      version=$( version_get ) || exit 1
+      test "$FORCEVERSION" != "" && version=$FORCEVERSION
+      if test "$B_INSTANCE" != ""
+      then
+         ID=$NAME-$version-$B_INSTANCE
+      else
+         ID=$NAME-$version
+      fi
+      test -d "$DESTDIR/$B_ARCH/$ID" -a $FORCE -ne 1 && { echo "Version $version of $NAME is already built." ; exit 1 ;}
+      build $NAME $version
+   ;;
+   *)
+      echo "No action specified, nothing to do."
+      usage
+   ;;
+   esac
+}
+
+main "$@"

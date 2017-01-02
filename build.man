@@ -1,0 +1,95 @@
+CONFIG FILE
+
+The script uses a configuration file which is located at:
+
+~/.buildrc
+
+This file should contian the following variables:
+
+# Destination directory where compiled software should be put
+DESTDIR=~/build
+# Download cache directory
+CACHEDIR=~/cache
+# Temporary build directory
+TMPDIR=~/temp
+# Directory where software should be installed to
+BASEDIR=/opt
+# Directory with recipes
+RECIPEDIR=~/recipes
+# File with package administration
+PKGLIST=$RECIPEDIR/pkglist
+# Directory where built packages are placed
+PKGDIR=~/packages
+# Script to use to publish Debian package to repository (optional)
+TODEBREPO=~/bin/torepo
+# Set to yes to try and automatically install build dependancies (optional)
+INSTDEP=yes
+# Set to yes to try and automatically uninstall build dependancies (optional)
+DEINSTDEP=yes
+
+BUILDING PACKAGE
+
+recipes/<recipename>.files/B_BUILD
+If this directory exists, the B_FILES variable will be made available during the
+build phase, pointing to this directory. Files here can be used during the build
+of the software and could be patches, configurations etc.
+
+recipes/<recipename>.files/B_DEBIAN
+If exists, all files will be copied to the root of the package setup. This is
+done after the standard control file generation. If
+any package configuration files in the DEBIAN directory need to be overwritten
+or added, it can be put in this directory.
+
+RECIPE
+
+The recipe to build a piece of software can have multiple sections. Below is
+a description of the possible sections.
+
+[VERSION] (mandatory)
+
+This section should contain commands that, when executed, return the latest
+available version of the software. This usually consists of some clever wget
+or git commands to figure out the version.
+
+[BUILD] (mandatory)
+
+This section contains all commands that are needed to download the specific
+version of the software, compile/create it and install it to the destination
+directory. To assist in building, the following environment variables and 
+functions are made available:
+
+Variables:
+B_ARCH : Architecture software is being build for
+B_CACHEDIR : Directory where files can be downloaded
+B_NAME : Name of the software that needs to be build
+B_VERSION : Version of the software being build
+B_INSTANCE : Instance name of software being build (optional)
+B_BUILDNR : The number of the build of this current version
+B_INSTALLDIR : Software installation directory
+B_FILES: Points to directory where files can be stored to use during build.
+
+Functions:
+B_GET : download software and check if it is already in the cache
+B_UPDATEPKGBLD : update package build number
+
+[REQUIRED] (optional for software building)
+
+This section can specify the required installed packages that need to be
+available in order to be able to build the software. This is a space seperated
+list of package names.
+
+[PKG] (optional for package building)
+
+This section contains some meta information on the type of package that needs
+to be build from the result of the BUILD section of the recipe. The following
+options can be specified:
+
+type=<pacakge type>
+This specifies the type of package that should be build. Currently supported
+is:
+  deb
+
+torepo=<y|n>
+When set to y the package will be pushed to a repository after the package is
+created.
+
