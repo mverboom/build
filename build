@@ -58,7 +58,7 @@ build_require() {
       dpkg-query -s $pkg > /dev/null 2>&1
       if test $? -ne 0
       then
-         echo "Package $pkg required for build, but not installed."
+         test QUIET -eq 0 && echo "Package $pkg required for build, but not installed."
          if test "$INSTDEP" = "yes" 
          then
             toinst="$toinst $pkg"
