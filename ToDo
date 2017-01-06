@@ -2,6 +2,8 @@ ToDo list
 
 Items to do:
 
+- test all recipes
+- daily build all recipes? -> auto build flag oid?
 - nginx recipe tegen git https://github.com/nginx/nginx
 - verify recipe dependancies
 - harden output of version command (ook voor niet bestaand pakket!)
