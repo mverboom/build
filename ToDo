@@ -2,6 +2,12 @@ ToDo list
 
 Items to do:
 
+- nginx recipe tegen git https://github.com/nginx/nginx
+- verify recipe dependancies
+- harden output of version command (ook voor niet bestaand pakket!)
+- script naar github
+- script integreren
+- example script
 - update documentation for sudo rights
 - create readme.md for publication on github
 - remote build to zones
