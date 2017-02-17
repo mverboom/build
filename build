@@ -36,6 +36,16 @@ distro_get() {
    exit 1
 }
 
+recipe_item_get() {
+   local recipe=$RECIPEDIR/$1.recipe
+   local label=$2
+   local item=$3
+   local value
+   value = $( recipe_section_get $1 $label | grep "^${item}=" )
+   echo $value
+   test "$value" = "" && return 0 || return 1
+}
+
 recipe_section_get() {
    local recipe=$RECIPEDIR/$1.recipe
    local label=$2
