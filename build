@@ -94,7 +94,6 @@ build_require_remove() {
       list="$list ${pkg/*@/}"
    done
    sudo apt-get -qq -y --purge remove $list > /dev/null
-   sudo apt-get -qq -y --purge autoremove > /dev/null
 }
 
 build() {
@@ -177,6 +176,7 @@ build() {
    cd - > /dev/null
    rm -rf $TMP
    test "$pkgs" != "" -a "$DEINSTDEP" = "yes" && build_require_remove "$pkgs"
+   test "$POSTBUILD" != "" && $POSTBUILD
    if test $result -ne 0
    then
       output "Build of $B_NAME failed."
