@@ -1,6 +1,6 @@
 #!/bin/bash
 
-PKGS="nginx stunnel firefox firefox-esr firejail thinlinc openvpn mysqltuner mitmproxy"
+PKGS="nginx stunnel firefox firefox-esr firejail firetools thinlinc openvpn mysqltuner mitmproxy pdns syncthing"
 
 buildnew() {
    pkg=$1

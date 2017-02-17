@@ -21,6 +21,8 @@ PKGLIST=$RECIPEDIR/pkglist
 # Directory where built packages are placed
 PKGDIR=~/packages
 # Script to use to publish Debian package to repository (optional)
+# will get -q parameter passed if build is called with -q
+# can be called with multiple package names in 1 go
 TODEBREPO=~/bin/torepo
 # Set to yes to try and automatically install build dependancies (optional)
 INSTDEP=yes
