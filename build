@@ -41,8 +41,8 @@ recipe_item_get() {
    local label=$2
    local item=$3
    local value
-   value = $( recipe_section_get $1 $label | grep "^${item}=" )
-   echo $value
+   value=$( recipe_section_get $1 $label | grep "^${item}=" )
+   echo ${value/*=/}
    test "$value" = "" && return 0 || return 1
 }
 
@@ -202,6 +202,7 @@ usage() {
    echo "   -q  Quiet"
    echo "   -f  Force build process, even if version already exists"
    echo "   -i  Specify an instance to build"
+   echo "   -nr Override any torepo setting to no"
    echo "   -h  This help message"
    echo
    exit 1
@@ -226,7 +227,7 @@ package_buildnr_get() {
 }
 
 package_torepo() {
-   packages_torepo[$1]="${packages_torepo[$1]} $2"
+   test $O_TOREPO -ne 1 && packages_torepo[$1]="${packages_torepo[$1]} $2"
 }
 
 package_torepo_copy() {
@@ -290,7 +291,10 @@ package() {
    P_PKGNAME=${pkg}_${ID}_${B_ARCH}
    P_PKGDIR=${pkg}-${ID}
    P_BUILDNR=$( package_buildnr_get ${P_PKGNAME} )
-   eval $( recipe_section_get $pkg PKG ) || return 1
+   type=$( recipe_item_get $pkg PKG type )
+   pkgready=$( recipe_item_get $pkg PKG pkgready )
+   torepo=$( recipe_item_get $pkg PKG torepo )
+   #eval $( recipe_section_get $pkg PKG ) || return 1
    for pkgtype in ${type/,/ }
    do
       case $pkgtype in
@@ -378,7 +382,7 @@ version_get() {
 }
 
 parse_options() {
-   ACTION= ; FORCE=0 ; QUIET=0 ; DEBUG= ; PKGS= ; FORCEVERSION=
+   ACTION= ; FORCE=0 ; QUIET=0 ; DEBUG= ; PKGS= ; FORCEVERSION= ; O_TOREPO=0
    while test "$1" != ""
    do
       case $1 in
@@ -407,6 +411,9 @@ parse_options() {
       ;;
       "-f")
          FORCE=1
+      ;;
+      "-nr")
+         O_TOREPO=1
       ;;
       "-h")
          usage
