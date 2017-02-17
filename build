@@ -294,7 +294,6 @@ package() {
    type=$( recipe_item_get $pkg PKG type )
    pkgready=$( recipe_item_get $pkg PKG pkgready )
    torepo=$( recipe_item_get $pkg PKG torepo )
-   #eval $( recipe_section_get $pkg PKG ) || return 1
    for pkgtype in ${type/,/ }
    do
       case $pkgtype in
@@ -514,9 +513,7 @@ main() {
       for recipe in $RECIPEDIR/*.recipe
       do
          pkg=$( basename -s .recipe $recipe )
-         autobuild=1
-         local info=$( recipe_section_get $pkg INFO opt )
-         eval $( echo $info | grep "^autobuild=" )
+         autobuild=$( recipe_item_get $pkg INFO autobuild )
          if test $autobuild -eq 1 && test $FORCE -eq 1 || check_new_version $pkg > /dev/null
          then
             version=$( version_get $pkg ) || continue
