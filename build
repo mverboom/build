@@ -23,7 +23,7 @@
 #     along with Build.  If not, see <http://www.gnu.org/licenses/>.
 
 require_software() {
-   echo awk grep git wget fakeroot
+   echo awk grep git wget fakeroot bzip2
 }
 
 distro_get() {
@@ -497,8 +497,8 @@ main() {
       for recipe in $RECIPEDIR/*.recipe
       do
          pkg=$( basename -s .recipe $recipe )
-         local info=$( recipe_section_get $pkg INFO opt )
          autobuild=1
+         local info=$( recipe_section_get $pkg INFO opt )
          eval $( echo $info | grep "^autobuild=" )
          if test $autobuild -eq 1 && test $FORCE -eq 1 || check_new_version $pkg > /dev/null
          then
