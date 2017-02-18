@@ -41,8 +41,13 @@ recipe_item_get() {
    local label=$2
    local item=$3
    local value
-   value=$( recipe_section_get $1 $label | grep "^${item}=" )
-   echo ${value/*=/}
+   value=$( recipe_section_get $1 $label optional | grep "^${item}=" )
+   if test "$value" = "" -a "$#" = 4
+   then
+      echo $4
+   else
+      echo ${value/*=/}
+   fi
    test "$value" = "" && return 0 || return 1
 }
 
@@ -171,7 +176,11 @@ build() {
 
    output "Building $B_NAME version $B_VERSION."
    cd $TMP
-   test "$QUIET" = "1" && bash $DEBUG -e -c "$CMD" > /dev/null 2>&1 || bash $DEBUG -e -c "$CMD"
+   if test "$QUIET" = "1"; then
+      bash $DEBUG -e -c "$CMD" > /dev/null 2>&1
+   else
+      bash $DEBUG -e -c "$CMD"
+   fi
    result=$?
    cd - > /dev/null
    rm -rf $TMP
@@ -513,8 +522,8 @@ main() {
       for recipe in $RECIPEDIR/*.recipe
       do
          pkg=$( basename -s .recipe $recipe )
-         autobuild=$( recipe_item_get $pkg INFO autobuild )
-         if test $autobuild -eq 1 && test $FORCE -eq 1 || check_new_version $pkg > /dev/null
+         autobuild=$( recipe_item_get $pkg INFO autobuild 1 )
+         if test $autobuild -eq 1 && ( test $FORCE -eq 1 || check_new_version $pkg > /dev/null )
          then
             version=$( version_get $pkg ) || continue
             build $pkg $version
