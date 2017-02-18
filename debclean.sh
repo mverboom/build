@@ -24,9 +24,12 @@ case $1 in
    if test -f $BASE
    then
       dpkg -l | grep "^.i" | awk '{print $2}' > $CUR
-      diff $BASE $CUR | grep '>' | cut -d' ' -f2 | xargs sudo apt-get -qq --purge -y remove
-      sudo apt-get -qq -y --purge autoremove
-      diff $BASE $CUR | grep '<' | cut -d' ' -f2 | xargs sudo apt-get -qq -y install
+      diff $BASE $CUR | grep '<' | cut -d' ' -f2 | xargs sudo apt-get -qq -y install > /dev/null 2>&1
+      test ${PIPESTATUS[3] -ne 0 && echo "Error installing missing packages."
+      sudo apt-get -qq -y --purge autoremove > /dev/null 2>&1
+      test $? -ne 0 && echo "Error removing no longer required packages."
+      diff $BASE $CUR | grep '>' | cut -d' ' -f2 | xargs sudo apt-get -qq --purge -y remove > /dev/null 2>&1
+      test ${PIPESTATUS[3] -ne 0 && echo "Error removing extra packages."
       rm -f $CUR
    else
       echo "No base list is available for this system."
