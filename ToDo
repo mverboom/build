@@ -2,13 +2,17 @@ ToDo list
 
 Items to do:
 
-- test all recipes
-- daily build all recipes? -> auto build flag oid?
+- change over to new process flow
+- create different levels of output
+- instance should be change to a recipe name modifier
+v check recipes into svn
+v test all recipes
+v daily build all recipes? -> auto build flag oid?
 - nginx recipe tegen git https://github.com/nginx/nginx
 - verify recipe dependancies
 - harden output of version command (ook voor niet bestaand pakket!)
 - script naar github
-- script integreren
+v script integreren
 - example script
 - update documentation for sudo rights
 - create readme.md for publication on github
@@ -19,14 +23,14 @@ Items to do:
 - check if directories exist
 - all error to stderr
 - revisit all variable names for consistency
-- check required commands available
+v check required commands available
 - fixed setuid bits
 - define distro names to insert package to
-- svn import
+v svn import
 - hardening of input
-- review all return code checks
+v review all return code checks
 - BASEDIR in recipe zetten ipv global config?
-- all functions local variables
+v all functions local variables
 - review config section names
 - auto install compile dependancies if configured and sudo available
 - packaging add capability for running scripts for a package.

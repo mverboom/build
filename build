@@ -483,6 +483,15 @@ main() {
    B_ARCH=$( arch_get )
 
    if test "$DO_CHECK"; then
+      check_found=0
+      for pkg in $PKGS
+      do
+         check_version_built $pkg
+         test $? -eq 0 && check_found=$(( $check_found + 1 ))
+      done
+   fi
+
+   if test "$DO_BUILD"; then
       for pkg in $PKGS
       do
          check_version_built $pkg || RET=1
@@ -491,14 +500,14 @@ main() {
    fi
 
    case $ACTION in
-   "check")
-      RET=0
-      for pkg in $PKGS
-      do
-         check_version_built $pkg || RET=1
-      done
-      exit $RET
-   ;;
+   #"check")
+   #   RET=0
+   #   for pkg in $PKGS
+   #   do
+   #      check_version_built $pkg || RET=1
+   #   done
+   #   exit $RET
+   #;;
    "build")
       for pkg in $PKGS
       do

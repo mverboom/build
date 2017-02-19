@@ -95,3 +95,40 @@ torepo=<y|n>
 When set to y the package will be pushed to a repository after the package is
 created.
 
+Changeover:
+
+WORKLIST[0] = recipe name
+
+from arguments passed to script:
+work_recipes[0...] = recipename
+for loop over number of items in work_recipes ${#work_recipes[@]} in each action.
+
+main actions:
+DO_CHECK: check if a new version is available that hasn't been built yet. -c
+arguments: 1 or multiple recipe names
+return: output: recipe name with new version for packages found
+        code: number of packages found with a newer version
+generates work_version[index] = version if needs to be built.
+
+DO_BUILD: build a recipe. -b
+if no version is specified with -v then -b implies -c
+requires  work_version[index]
+generates work_built[index] = 1 if is built.
+
+DO_PACKAGE: package for a recipe. -p
+if no version is specified with -v then -p implies -c
+requires  work_built[index]
+generates work_packaged[index] = 1 if package was created
+
+DO_REPO: send to repo for a recipe. -r
+requires  work_packaged[index]
+generated work_torepo[index] = 1 if package was sent to repo
+
+modifiers:
+-a perform on all packges.
+-v do for specific version (only useful when specifying 1 recipe)
+-f force build (if build was already done for version)
+
+examples
+for all recipes where there are new versions, build, package and push to repo.
+  build -b -p -r -a
