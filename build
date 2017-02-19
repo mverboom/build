@@ -398,7 +398,8 @@ parse_options() {
          ACTION="autobuild"
       ;;
       "-c")
-         ACTION="check"
+         #ACTION="check"
+         DO_CHECK=1
       ;;
       "-b")
          ACTION="build"
@@ -460,23 +461,16 @@ output() {
    echo "$1"
 }
 
-check_new_version() {
+check_version_built() {
    local pkg=$1
    local RET=0
 
-   version=$( version_get $pkg ) || return 1
-   if test "$FORCEVERSION" != ""
-   then
-      if test -d "$DESTDIR/$B_ARCH/$pkg-$FORCEVERSION"
-      then
-         output "Version $FORCEVERSION of $pkg is available"
-      else
-         output  "Version $FORCEVERSION of $pkg is not available"
-         RET=1
-      fi
+   if test "$FORCEVERSION" != ""; then
+      version=$FORCEVERSION
    else
-      test -d "$DESTDIR/$B_ARCH/$pkg-$version" && { output "No new version of $pkg is available (current $version)." ; RET=1 ;} || output "New version ($version) of $pkg is available"
+      version=$( version_get $pkg ) || return 1
    fi
+   test -d "$DESTDIR/$B_ARCH/$pkg-$version" && { output "$pkg $version (already built)" ; RET=1 ;} || output "$pkg $version (not built)"
    return $RET
 }
 
@@ -488,19 +482,20 @@ main() {
    parse_options "$@"
    B_ARCH=$( arch_get )
 
-   case $ACTION in
-   "package")
+   if test "$DO_CHECK"; then
       for pkg in $PKGS
       do
-         package $pkg
+         check_version_built $pkg || RET=1
       done
-      package_torepo_copy
-   ;;
+      exit $RET
+   fi
+
+   case $ACTION in
    "check")
       RET=0
       for pkg in $PKGS
       do
-         check_new_version $pkg || RET=1
+         check_version_built $pkg || RET=1
       done
       exit $RET
    ;;
@@ -518,12 +513,19 @@ main() {
          test -d "$DESTDIR/$B_ARCH/$ID" -a $FORCE -ne 1 && output "Version $version of $pkg is already built." || build $pkg $version
       done
    ;;
+   "package")
+      for pkg in $PKGS
+      do
+         package $pkg
+      done
+      package_torepo_copy
+   ;;
    "autobuild")
       for recipe in $RECIPEDIR/*.recipe
       do
          pkg=$( basename -s .recipe $recipe )
          autobuild=$( recipe_item_get $pkg INFO autobuild 1 )
-         if test $autobuild -eq 1 && ( test $FORCE -eq 1 || check_new_version $pkg > /dev/null )
+         if test $autobuild -eq 1 && ( test $FORCE -eq 1 || check_version_built $pkg > /dev/null )
          then
             version=$( version_get $pkg ) || continue
             build $pkg $version
