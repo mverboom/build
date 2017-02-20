@@ -236,60 +236,49 @@ package_buildnr_get() {
 }
 
 package_torepo() {
-   test $O_TOREPO -ne 1 && packages_torepo[$1]="${packages_torepo[$1]} $2"
-}
-
-package_torepo_copy() {
    local type
    local options=""
+   local pkgs="$*"
+   local splittype
+   declare -A splittype
 
    test $QUIET -eq 1 && options="$options -q"
 
-   for type in ${!packages_torepo[@]}
+   for pkg in $pkgs
+   do
+      type=${pkg/*./}
+      splittype[$type]="${splittype[$type]} $pkg"
+   done
+
+   cd $PKGDIR
+   RET=0
+   for type in ${!splittype[@]}
    do
       case "$type" in
       "deb")
-         $TODEBREPO $options ${packages_torepo[$type]}
+         $TODEBREPO $options ${splittype[$type]}
+         test $? -ne 0 && RET=1
       ;;
       *)
-         output "Copy to repository not implemented for type $type"
-         return 1
+         ERR=1 output "Copy to repository not implemented for type $type"
+         RET=1
       ;;
       esac
    done
-}
-
-
-package_torepo_old() {
-   local type=$1
-   shift
-   local pkgname=$*
-   case "$type" in
-   "deb")
-      test $QUIET -ne 1 && $TODEBREPO $pkgname || $TODEBREPO -q $pkgname
-   ;;
-   *)
-      output "Copy to repository not implemented for type $type"
-      return 1
-   ;;
-   esac
+   return $RET
 }
 
 package() {
-   test "$PKGDIR" = "" && { output "PGKDIR not defined, aborting."; return 1; }
-   test -d $PKGDIR || { output "PKGDIR $PKGDIR does not exist, aborting."; return 1; }
-
    local pkg=$1
+   local version=$2
 
-   local version=$( version_get $pkg ) || return 1
-   test "$FORCEVERSION" != "" && local version=$FORCEVERSION
    if test "$B_INSTANCE" != ""
    then
       ID=$pkg-$version-$B_INSTANCE
    else
       ID=$pkg-$version
    fi
-   test ! -d "$DESTDIR/$B_ARCH/$ID" && { >&2 output "Version $version of $pkg is not available for packaging." ; return 1; }
+   test ! -d "$DESTDIR/$B_ARCH/$ID" && { ERR=1 output "Version $version of $pkg is not available for packaging." ; return 1; }
 
    if test "$B_INSTANCE" != ""
    then
@@ -297,21 +286,17 @@ package() {
    else
       ID=${version}
    fi
-   P_PKGNAME=${pkg}_${ID}_${B_ARCH}
-   P_PKGDIR=${pkg}-${ID}
-   P_BUILDNR=$( package_buildnr_get ${P_PKGNAME} )
    type=$( recipe_item_get $pkg PKG type )
-   pkgready=$( recipe_item_get $pkg PKG pkgready )
-   torepo=$( recipe_item_get $pkg PKG torepo )
    for pkgtype in ${type/,/ }
    do
       case $pkgtype in
       "deb")
          package_debian $pkg
+         return $?
       ;;
       *)
-         output "Unknown package type ($pkgtype)."
-         exit 1
+         ERR=1 output "Unknown package type ($pkgtype)."
+         return 1
       ;;
       esac
    done
@@ -319,44 +304,45 @@ package() {
 
 package_debian() {
    local pkg=$1
+   pkgready=$( recipe_item_get $pkg PKG pkgready )
    # Do we need to build the package?
    if test "$pkgready" = ""
    then
-      output "Building debian package..."
-      INFO=$(recipe_section_get $pkg DEB) || return 1
-      test $? -ne 0 && { output $INFO ; return 1; }
-      TMP=$( mktemp -p $TMPDIR -d )
+      local P_PKGNAME=${pkg}_${ID}_${B_ARCH}
+      local P_PKGDIR=${pkg}-${ID}
+      local P_BUILDNR=$( package_buildnr_get ${P_PKGNAME} )
+      local INFO=$(recipe_section_get $pkg DEB) || return 1
+      local TMP=$( mktemp -p $TMPDIR -d )
       mkdir -p $TMP/DEBIAN
       pkgversion=${version//\-/}-$P_BUILDNR
       test "$PKGPOSTFIX" != "" && INFO=$( echo "$INFO" | sed "/^Package:/ s/$/-$PKGPOSTFIX/" )
       echo "$INFO" | sed "s/VERSION/$pkgversion/" | sed "s/ARCH/$B_ARCH/" > $TMP/DEBIAN/control
       cd $DESTDIR/$B_ARCH/$pkg-$version
       tar pcfB - . | (cd $TMP ; tar pxfB - )
-      cd - > /dev/null
-      cd $TMP
       if test -d $RECIPEDIR/$pkg.files/B_DEBIAN
       then
          ( cd $RECIPEDIR/$pkg.files/B_DEBIAN ; tar cf - . ) | tar xf -
       fi
+      cd $TMP
       find . -path "*/etc/*" -type f | sed "s/^\.//" > DEBIAN/conffiles
-      cd - > /dev/null
+      cd $TMPDIR
       fakeroot dpkg --build $TMP . > $TMP.buildoutput
       result=$?
-      file=$( cat $TMP.buildoutput | cut -d '`' -f 3 | cut -d \' -f 1 )
+      local pkgfile=$( cat $TMP.buildoutput | cut -d '`' -f 3 | cut -d \' -f 1 )
+      pkgfile=${pkgfile/*\//}
       rm -rf $TMP $TMP.buildoutput
       if test $result -ne 0
       then
-         output "Error while building package."
+         ERR=1 output "Error while building package."
          return 1
       fi
       grep "^${P_PKGNAME}_${B_ARCH}" $PKGLIST > /dev/null && sed -i "/^${P_PKGNAME}_${B_ARCH}/d" $PKGLIST
       echo -e "${P_PKGNAME}_${B_ARCH}\t$P_BUILDNR" >> $PKGLIST
-      mv $file $PKGDIR
-      pkgfile=$PKGDIR/$file
+      mv $TMPDIR/$pkgfile $PKGDIR
    else
       if test -f "$( echo $DESTDIR/$B_ARCH/${P_PKGDIR}/*.deb )" = "$DESTDIR/$B_ARCH/${P_PKGDIR}/*.deb"
       then
-         output "Recipe indicates package should be in build dir, but it isn't."
+         ERR=1 output "Recipe indicates package should be in build dir, but it isn't."
          return 1
       else
          file="$DESTDIR/$B_ARCH/${P_PKGDIR}/*.deb"
@@ -364,13 +350,7 @@ package_debian() {
          pkfile=$PKGDIR/$(basename $DESTDIR/$B_ARCH/${P_PKGDIR}/*.deb)
       fi
    fi
-   if test "${torepo,,}" = "y"
-   then
-      output "Adding package to repo..."
-      package_torepo $type $pkgfile
-   else
-      output $pkgfile
-   fi
+   echo $pkgfile
 }
 
 version_get() {
@@ -395,22 +375,33 @@ parse_options() {
    do
       case $1 in
       "-a")
-         ACTION="autobuild"
+         local recipe
+         for recipe in $RECIPEDIR/*.recipe
+         do
+            work_recipes+=($( basename -s .recipe $recipe ) )
+         done
       ;;
       "-c")
-         #ACTION="check"
          DO_CHECK=1
       ;;
       "-b")
-         ACTION="build"
+         DO_CHECK=2
+         DO_BUILD=1
       ;;
       "-i")
          shift
          B_INSTANCE="$1"
       ;;
       "-p")
-         ACTION="package"
+         DO_CHECK=2
+         DO_PACKAGE=1
       ;;
+      "-r")
+         DO_CHECK=2
+         DO_PACKAGE=2
+         DO_REPO=1
+      ;;
+
       "-x")
          set -x
          DEBUG=-x
@@ -432,16 +423,17 @@ parse_options() {
          FORCEVERSION=$1
       ;;
       *)
-         PKGS="$PKGS $1"
+         work_recipes+=($1)
       ;;
       esac
       shift
    done
-   if test "$ACTION" != "autobuild" -a "$ACTION" != "" -a "$PKGS" = ""
+   if test ${#work_recipes[@]} -eq 0
    then
-      output "No name specified."
+      output "No recipe(s) specified."
       exit 1
    fi
+   # ToDo: check for no action defined
 }
 
 sanity_check() {
@@ -454,11 +446,13 @@ sanity_check() {
       fi
    done
    test "$missing" != "" && { output "Missing required software to run script:$missing" ; exit 1;}
+   test "$PKGDIR" = ""  && { ERR=1 output "PKGDIR not defined"; exit 1;}
+   test -d $PKGDIR || { ERR=1 output "PKGDIR $PKGDIR does not exist, aborting."; exit 1; }
 }
 
 output() {
    test $QUIET -eq 1 && return
-   echo "$1"
+   test "$ERR" != "" && (>&2 echo "$1") || echo "$1"
 }
 
 check_version_built() {
@@ -470,84 +464,54 @@ check_version_built() {
    else
       version=$( version_get $pkg ) || return 1
    fi
-   test -d "$DESTDIR/$B_ARCH/$pkg-$version" && { output "$pkg $version (already built)" ; RET=1 ;} || output "$pkg $version (not built)"
+   test -d "$DESTDIR/$B_ARCH/$pkg-$version" && { output "$version" ; RET=1 ;} || output "$version"
    return $RET
 }
 
 main() {
    QUIET=0
+   local i
    declare -A packages_torepo
+
    test -f ~/.buildrc && . ~/.buildrc || { echo "No configuration file found."; exit 1;}
    sanity_check
    parse_options "$@"
    B_ARCH=$( arch_get )
 
+   # ToDo: check for >1 values for actions
+
    if test "$DO_CHECK"; then
       check_found=0
-      for pkg in $PKGS
+      for i in ${!work_recipes[@]}
       do
-         check_version_built $pkg
-         test $? -eq 0 && check_found=$(( $check_found + 1 ))
+         work_version[$i]=$( check_version_built ${work_recipes[$i]} )
+         work_built[$i]=$?
+         test ${work_built[$i]} -eq 1 && output "${work_recipes[$i]} ${work_version[$i]} (already built)" || output "${work_recipes[$i]} ${work_version[$i]} (not built)"; 
       done
    fi
 
    if test "$DO_BUILD"; then
-      for pkg in $PKGS
+      for i in ${!work_recipes[@]}
       do
-         check_version_built $pkg || RET=1
+         if test ${work_built[$i]} -eq 0
+         then
+            echo "Building ${work_recipes[$i]} ${work_version[$i]}"
+            echo build ${work_recipes[$i]} ${work_version[$i]}
+            test $? -eq 1 && { output "${work_recipes[$i]} ${work_version[$i]} (build failed)"; work_built[$i]=0; } || { work_built[$i]=1; output "${work_recipes[$i]} ${work_version[$i]} (build succeeded)"; }
+         fi
       done
-      exit $RET
    fi
 
-   case $ACTION in
-   #"check")
-   #   RET=0
-   #   for pkg in $PKGS
-   #   do
-   #      check_version_built $pkg || RET=1
-   #   done
-   #   exit $RET
-   #;;
-   "build")
-      for pkg in $PKGS
+   if test "$DO_PACKAGE"; then
+      for i in ${!work_recipes[@]}
       do
-         version=$( version_get $pkg ) || exit 1
-         test "$FORCEVERSION" != "" && version=$FORCEVERSION
-         if test "$B_INSTANCE" != ""
-         then
-            ID=$pkg-$version-$B_INSTANCE
-         else
-            ID=$pkg-$version
-         fi
-         test -d "$DESTDIR/$B_ARCH/$ID" -a $FORCE -ne 1 && output "Version $version of $pkg is already built." || build $pkg $version
+         work_package[$i]=$(package ${work_recipes[$i]} ${work_version[$i]})
       done
-   ;;
-   "package")
-      for pkg in $PKGS
-      do
-         package $pkg
-      done
-      package_torepo_copy
-   ;;
-   "autobuild")
-      for recipe in $RECIPEDIR/*.recipe
-      do
-         pkg=$( basename -s .recipe $recipe )
-         autobuild=$( recipe_item_get $pkg INFO autobuild 1 )
-         if test $autobuild -eq 1 && ( test $FORCE -eq 1 || check_version_built $pkg > /dev/null )
-         then
-            version=$( version_get $pkg ) || continue
-            build $pkg $version
-            test $? -ne 0 && echo "Autobuild $pkg version $version failed." || { echo "Autobuild $pkg version $version succeeded." ; package $pkg ; }
-         fi
-      done
-      package_torepo_copy
-   ;;
-   *)
-      echo "No action specified, nothing to do."
-      usage
-   ;;
-   esac
+   fi
+
+   if test "$DO_REPO"; then
+      package_torepo ${work_package[@]}
+   fi
 }
 
 main "$@"

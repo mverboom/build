@@ -9,7 +9,7 @@
 #
 set -e
 test "$1" = "-q" && { QUIET="> /dev/null 2>&1" ; shift; }
-test $# -ne 1 && { echo "Usage: torepo <filename>"; exit 1; }
+test $# -lt 1 && { echo "Usage: torepo <filename>"; exit 1; }
 for pkg in $*
 do
    test -f $pkg || { echo "No such file $pkg."; exit 1; }

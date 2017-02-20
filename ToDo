@@ -2,6 +2,12 @@ ToDo list
 
 Items to do:
 
+- logging?
+- all error messages to stderr
+v output for error messages
+- seperate out all sanity checks
+- torepo optie verwijderen
+- change argument parsing
 - change over to new process flow
 - create different levels of output
 - instance should be change to a recipe name modifier
