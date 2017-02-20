@@ -197,21 +197,21 @@ build() {
 }
 
 usage() {
-   echo "Usage: build [OPTION...] [RECIPE]"
+   echo "Usage: build [OPTION]... [RECIPE]..."
    echo
    echo "Operation mode:"
-   echo "   -b  Run the build section for a recipe (build/compile software)."
-   echo "   -p  Run the package section for a recipe (package software)."
-   echo "   -c  Run the version section for a recipe (check version)."
-   echo "   -a  Build/package all recipes where auto build is set (autobuild)."
+   echo "   -c  Check version, runs the version check section of the specified recipe(s)."
+   echo "   -b  Build, runs the build version of the specified recipe(s)."
+   echo "   -p  Package, runs the package secition of the specified recipe(s)."
+   echo "   -r  To repository, creates packages and copies to repository for specfified recipe(s)"
    echo
-   echo "Operation options:"
-   echo "   -v  Specify specific version for action. If not specified, latest version will be used."
-   echo "   -x  Enable verbose output"
-   echo "   -q  Quiet"
-   echo "   -f  Force build process, even if version already exists"
-   echo "   -i  Specify an instance to build"
-   echo "   -nr Override any torepo setting to no"
+   echo "Operation modifiers:"
+   echo "   -a  Select all recipes available."
+   echo "   -v  Specify specific version, will prevent from running version section of recipe(s)"
+   echo "   -q  Quiet output"
+   echo "   -x  Enable debugging output"
+   echo "   -f  Force build for recipe, even if complete build is already available."
+   echo "   -i  Specify an instance for a recipe"
    echo "   -h  This help message"
    echo
    exit 1
@@ -370,27 +370,16 @@ version_get() {
 }
 
 parse_options() {
-   ACTION= ; FORCE=0 ; QUIET=0 ; DEBUG= ; PKGS= ; FORCEVERSION= ; O_TOREPO=0
+   ACTION= ; FORCE=0 ; QUIET=0 ; DEBUG= ; PKGS= ; FORCEVERSION=
    while test "$1" != ""
    do
       case $1 in
-      "-a")
-         local recipe
-         for recipe in $RECIPEDIR/*.recipe
-         do
-            work_recipes+=($( basename -s .recipe $recipe ) )
-         done
-      ;;
       "-c")
          DO_CHECK=1
       ;;
       "-b")
          DO_CHECK=2
          DO_BUILD=1
-      ;;
-      "-i")
-         shift
-         B_INSTANCE="$1"
       ;;
       "-p")
          DO_CHECK=2
@@ -401,7 +390,17 @@ parse_options() {
          DO_PACKAGE=2
          DO_REPO=1
       ;;
-
+      "-a")
+         local recipe
+         for recipe in $RECIPEDIR/*.recipe
+         do
+            work_recipes+=($( basename -s .recipe $recipe ) )
+         done
+      ;;
+      "-i")
+         shift
+         B_INSTANCE="$1"
+      ;;
       "-x")
          set -x
          DEBUG=-x
@@ -411,9 +410,6 @@ parse_options() {
       ;;
       "-f")
          FORCE=1
-      ;;
-      "-nr")
-         O_TOREPO=1
       ;;
       "-h")
          usage
