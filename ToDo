@@ -2,11 +2,13 @@ ToDo list
 
 Items to do:
 
+- Test set maken?
+- Test error in version command
 - logging?
 - all error messages to stderr
 v output for error messages
 - seperate out all sanity checks
-- torepo optie verwijderen
+v torepo optie verwijderen
 - change argument parsing
 - change over to new process flow
 - create different levels of output

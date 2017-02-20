@@ -433,7 +433,11 @@ parse_options() {
       output "No recipe(s) specified."
       exit 1
    fi
-   # ToDo: check for no action defined
+   if test "$DO_CHECK" = "" -a "$DO_BUILD" = "" -a "$DO_PACKAGE" = "" -a "$DO_REPO" = ""
+   then
+      output "No action specified."
+      exit 1
+   fi
 }
 
 sanity_check() {
@@ -479,6 +483,8 @@ main() {
    B_ARCH=$( arch_get )
 
    # ToDo: check for >1 values for actions
+
+   # ToDo: check for not required filled arrays
 
    if test "$DO_CHECK"; then
       check_found=0
