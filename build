@@ -394,7 +394,8 @@ parse_options() {
          local recipe
          for recipe in $RECIPEDIR/*.recipe
          do
-            work_recipes+=($( basename -s .recipe $recipe ) )
+            recipe=$( basename -s .recipe $recipe )
+            test "$( recipe_item_get $recipe INFO excludefromall )" != "1" && work_recipes+=( $recipe )
          done
       ;;
       "-i")
