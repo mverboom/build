@@ -116,7 +116,7 @@ build() {
    test "$B_INSTANCE" != "" && ID=${B_NAME}_${B_VERSION}-${B_INSTANCE}_${B_ARCH} || ID=${B_NAME}_${B_VERSION}_${B_ARCH}
    B_BUILDNR=$( package_buildnr_get $ID )
    local CMD=$( recipe_section_get $B_NAME BUILD ) || return 1
-   test $? -ne 0 && { output $CMD ; return 1; }
+   test $? -ne 0 && { ERR=1 output $CMD ; return 1; }
    local TMP=$( mktemp -p $TMPDIR -d )
    B_INSTALLDIR=$DESTDIR/$B_ARCH/$B_NAME-$versiondir
    test $FORCE -eq 1 && rm -rf $B_INSTALLDIR
@@ -174,7 +174,7 @@ build() {
    }
    export -f B_UPDATEPKGBLD
 
-   output "Building $B_NAME version $B_VERSION."
+   #output "Building $B_NAME version $B_VERSION."
    cd $TMP
    if test "$QUIET" = "1"; then
       bash $DEBUG -e -c "$CMD" > /dev/null 2>&1
@@ -188,12 +188,10 @@ build() {
    test "$POSTBUILD" != "" && $POSTBUILD
    if test $result -ne 0
    then
-      output "Build of $B_NAME failed."
       rm -rf $B_INSTALLDIR
       return 1
-   else
-      output "Build complete."
    fi
+   return 0
 }
 
 usage() {
@@ -489,17 +487,16 @@ main() {
       do
          work_version[$i]=$( check_version_built ${work_recipes[$i]} )
          work_built[$i]=$?
-         test ${work_built[$i]} -eq 1 && output "${work_recipes[$i]} ${work_version[$i]} (already built)" || output "${work_recipes[$i]} ${work_version[$i]} (not built)"; 
+         test $DO_CHECK -eq 1 && { test ${work_built[$i]} -eq 1 && output "${work_recipes[$i]} ${work_version[$i]} (already built)" || output "${work_recipes[$i]} ${work_version[$i]} (not built)"; }
       done
    fi
 
    if test "$DO_BUILD"; then
       for i in ${!work_recipes[@]}
       do
-         if test ${work_built[$i]} -eq 0
+         if test ${work_built[$i]} -eq 0 -o $FORCE -eq 1
          then
-            echo "Building ${work_recipes[$i]} ${work_version[$i]}"
-            echo build ${work_recipes[$i]} ${work_version[$i]}
+            build ${work_recipes[$i]} ${work_version[$i]}
             test $? -eq 1 && { output "${work_recipes[$i]} ${work_version[$i]} (build failed)"; work_built[$i]=0; } || { work_built[$i]=1; output "${work_recipes[$i]} ${work_version[$i]} (build succeeded)"; }
          fi
       done
