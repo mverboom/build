@@ -22,10 +22,12 @@
 #     You should have received a copy of the GNU General Public License
 #     along with Build.  If not, see <http://www.gnu.org/licenses/>.
 
+# ToDo: check local vars
 require_software() {
    echo awk grep git wget fakeroot bzip2
 }
 
+# ToDo: check local vars
 distro_get() {
    if test "$( which dpkg-query)"
    then
@@ -36,6 +38,7 @@ distro_get() {
    exit 1
 }
 
+# ToDo: check local vars
 recipe_item_get() {
    local recipe=$RECIPEDIR/$1.recipe
    local label=$2
@@ -51,6 +54,7 @@ recipe_item_get() {
    test "$value" = "" && return 0 || return 1
 }
 
+# ToDo: check local vars
 recipe_section_get() {
    local recipe=$RECIPEDIR/$1.recipe
    local label=$2
@@ -62,6 +66,7 @@ recipe_section_get() {
    awk "BEGIN {found=0;} /^\[/ {found=0;} {if (found==1) { print \$0;}}; /^\[$label\]/ { found=1;}" $recipe
 }
 
+# ToDo: check local vars
 build_require() {
    local pkgs=$*
    local missing=0
@@ -91,6 +96,7 @@ build_require() {
    test $missing -eq 1 && return 1
 }
 
+# ToDo: check local vars
 build_require_remove() {
    local pkgs="$1"
    local pkg
@@ -101,6 +107,7 @@ build_require_remove() {
    sudo apt-get -qq -y --purge remove $list > /dev/null
 }
 
+# ToDo: check local vars
 build() {
    B_NAME=$1
    B_VERSION=$2
@@ -194,6 +201,7 @@ build() {
    return 0
 }
 
+# ToDo: check local vars
 usage() {
    echo "Usage: build [OPTION]... [RECIPE]..."
    echo
@@ -215,6 +223,7 @@ usage() {
    exit 1
 }
 
+# ToDo: check local vars
 arch_get() {
    case $(uname -m) in
    "i686")
@@ -225,6 +234,7 @@ arch_get() {
    esac
 }
 
+# ToDo: check local vars
 package_buildnr_get() {
    ID=$1
    test -f $PKGLIST || touch $PKGLIST
@@ -233,6 +243,7 @@ package_buildnr_get() {
    echo $(( $BUILDNR + 1 ))
 }
 
+# ToDo: check local vars
 package_torepo() {
    local type
    local options=""
@@ -266,6 +277,7 @@ package_torepo() {
    return $RET
 }
 
+# ToDo: check local vars
 package() {
    local pkg=$1
    local version=$2
@@ -289,7 +301,7 @@ package() {
    do
       case $pkgtype in
       "deb")
-         package_debian $pkg
+         package_debian $pkg $version
          return $?
       ;;
       *)
@@ -300,9 +312,11 @@ package() {
    done
 }
 
+# ToDo: check local vars
 package_debian() {
    local pkg=$1
-   pkgready=$( recipe_item_get $pkg PKG pkgready )
+   local version=$2
+   local pkgready=$( recipe_item_get $pkg PKG pkgready )
    # Do we need to build the package?
    if test "$pkgready" = ""
    then
@@ -312,7 +326,7 @@ package_debian() {
       local INFO=$(recipe_section_get $pkg DEB) || return 1
       local TMP=$( mktemp -p $TMPDIR -d )
       mkdir -p $TMP/DEBIAN
-      pkgversion=${version//\-/}-$P_BUILDNR
+      local pkgversion=${version//\-/}-$P_BUILDNR
       test "$PKGPOSTFIX" != "" && INFO=$( echo "$INFO" | sed "/^Package:/ s/$/-$PKGPOSTFIX/" )
       echo "$INFO" | sed "s/VERSION/$pkgversion/" | sed "s/ARCH/$B_ARCH/" > $TMP/DEBIAN/control
       cd $DESTDIR/$B_ARCH/$pkg-$version
@@ -351,6 +365,7 @@ package_debian() {
    echo $pkgfile
 }
 
+# ToDo: check local vars
 version_get() {
    local pkg=$1
    export B_ARCH=$( arch_get )
@@ -367,6 +382,7 @@ version_get() {
    return 0
 }
 
+# ToDo: check local vars
 parse_options() {
    ACTION= ; FORCE=0 ; QUIET=0 ; DEBUG= ; PKGS= ; FORCEVERSION=
    while test "$1" != ""
@@ -435,6 +451,7 @@ parse_options() {
    fi
 }
 
+# ToDo: check local vars
 sanity_check() {
    missing=""
    for name in $( require_software)
@@ -449,11 +466,13 @@ sanity_check() {
    test -d $PKGDIR || { ERR=1 output "PKGDIR $PKGDIR does not exist, aborting."; exit 1; }
 }
 
+# ToDo: check local vars
 output() {
    test $QUIET -eq 1 && return
    test "$ERR" != "" && (>&2 echo "$1") || echo "$1"
 }
 
+# ToDo: check local vars
 check_version_built() {
    local pkg=$1
    local RET=0
@@ -467,6 +486,7 @@ check_version_built() {
    return $RET
 }
 
+# ToDo: check local vars
 main() {
    QUIET=0
    local i
@@ -506,11 +526,13 @@ main() {
       for i in ${!work_recipes[@]}
       do
          work_package[$i]=$(package ${work_recipes[$i]} ${work_version[$i]})
+         test $? -eq 0 && { output "${work_recipes[$i]} ${work_version[$i]} (package created)"; } || { output "${work_recipes[$i]} ${work_version[$i]} (package create failed)"; }
       done
    fi
 
    if test "$DO_REPO"; then
       package_torepo ${work_package[@]}
+      test $? -eq 0 && { output "packages pushed to repo"; } || { output "packages not pushed to repo"; }
    fi
 }
 

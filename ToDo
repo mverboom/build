@@ -2,6 +2,10 @@ ToDo list
 
 Items to do:
 
+- quiet option fix
+- package: verbosity fix
+- torepo: no freight output, only summary
+- torepo process: output or ... ?
 - Test set maken?
 - Test error in version command
 - logging?
