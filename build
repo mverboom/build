@@ -22,12 +22,10 @@
 #     You should have received a copy of the GNU General Public License
 #     along with Build.  If not, see <http://www.gnu.org/licenses/>.
 
-# ToDo: check local vars
 require_software() {
    echo awk grep git wget fakeroot bzip2
 }
 
-# ToDo: check local vars
 distro_get() {
    if test "$( which dpkg-query)"
    then
@@ -38,13 +36,12 @@ distro_get() {
    exit 1
 }
 
-# ToDo: check local vars
 recipe_item_get() {
    local recipe=$RECIPEDIR/$1.recipe
    local label=$2
    local item=$3
-   local value
-   value=$( recipe_section_get $1 $label optional | grep "^${item}=" )
+
+   local value=$( recipe_section_get $1 $label optional | grep "^${item}=" )
    if test "$value" = "" -a "$#" = 4
    then
       echo $4
@@ -54,7 +51,6 @@ recipe_item_get() {
    test "$value" = "" && return 0 || return 1
 }
 
-# ToDo: check local vars
 recipe_section_get() {
    local recipe=$RECIPEDIR/$1.recipe
    local label=$2
@@ -66,7 +62,6 @@ recipe_section_get() {
    awk "BEGIN {found=0;} /^\[/ {found=0;} {if (found==1) { print \$0;}}; /^\[$label\]/ { found=1;}" $recipe
 }
 
-# ToDo: check local vars
 build_require() {
    local pkgs=$*
    local missing=0
@@ -96,10 +91,10 @@ build_require() {
    test $missing -eq 1 && return 1
 }
 
-# ToDo: check local vars
 build_require_remove() {
    local pkgs="$1"
    local pkg
+   local list
    for pkg in $pkgs
    do
       list="$list ${pkg/*@/}"
@@ -201,7 +196,6 @@ build() {
    return 0
 }
 
-# ToDo: check local vars
 usage() {
    echo "Usage: build [OPTION]... [RECIPE]..."
    echo
@@ -223,7 +217,6 @@ usage() {
    exit 1
 }
 
-# ToDo: check local vars
 arch_get() {
    case $(uname -m) in
    "i686")
@@ -234,21 +227,21 @@ arch_get() {
    esac
 }
 
-# ToDo: check local vars
 package_buildnr_get() {
-   ID=$1
+   local ID=$1
    test -f $PKGLIST || touch $PKGLIST
-   BUILDNR=$(grep "^$ID" $PKGLIST | cut -d'	' -f 2 )
+   local BUILDNR=$(grep "^$ID" $PKGLIST | cut -d'	' -f 2 )
    test "$BUILDNR" = "" && BUILDNR=0
    echo $(( $BUILDNR + 1 ))
 }
 
-# ToDo: check local vars
 package_torepo() {
    local type
    local options=""
+   local pkg
    local pkgs="$*"
    local splittype
+   local RET
    declare -A splittype
 
    test $QUIET -eq 1 && options="$options -q"
@@ -281,6 +274,7 @@ package_torepo() {
 package() {
    local pkg=$1
    local version=$2
+   local pkgtype
 
    if test "$B_INSTANCE" != ""
    then
@@ -296,7 +290,7 @@ package() {
    else
       ID=${version}
    fi
-   type=$( recipe_item_get $pkg PKG type )
+   local type=$( recipe_item_get $pkg PKG type )
    for pkgtype in ${type/,/ }
    do
       case $pkgtype in
@@ -316,8 +310,8 @@ package() {
 package_debian() {
    local pkg=$1
    local version=$2
+
    local pkgready=$( recipe_item_get $pkg PKG pkgready )
-   # Do we need to build the package?
    if test "$pkgready" = ""
    then
       local P_PKGNAME=${pkg}_${ID}_${B_ARCH}
@@ -365,17 +359,17 @@ package_debian() {
    echo $pkgfile
 }
 
-# ToDo: check local vars
 version_get() {
    local pkg=$1
+
    export B_ARCH=$( arch_get )
    B_GITVER() {
       git ls-remote --tags $1 | grep -v '{}' | grep -v -e preview -e rc | cut -d '/' -f 3  | sed "s/^v//" | sort -t. -k 1,1n -k 2,2n -k 3,3n -k 4,4n | tail -1
    }
    export -f B_GITVER
-   CMD=$( recipe_section_get $pkg VERSION ) || return 1
+   local CMD=$( recipe_section_get $pkg VERSION ) || return 1
    test $? -ne 0 && { output $CMD ; return 1; }
-   ver=$( bash $DEBUG -e -c "$CMD" 2>/dev/null )
+   local ver=$( bash $DEBUG -e -c "$CMD" 2>/dev/null )
    test $? -ne 0 && { >&2 output "Error while running version command for $pkg." ; return 1 ; }
    test "$ver" = "" && { >&2 output "Version command for $pkg returned no output." ; return 1 ; }
    echo $ver
@@ -383,8 +377,9 @@ version_get() {
 }
 
 # ToDo: check local vars
+# ToDo: create better option vars
 parse_options() {
-   ACTION= ; FORCE=0 ; QUIET=0 ; DEBUG= ; PKGS= ; FORCEVERSION=
+   FORCE=0 ; QUIET=0 ; DEBUG= ; PKGS= ; FORCEVERSION=
    while test "$1" != ""
    do
       case $1 in
@@ -451,9 +446,9 @@ parse_options() {
    fi
 }
 
-# ToDo: check local vars
 sanity_check() {
-   missing=""
+   local missing=""
+   local name
    for name in $( require_software)
    do
       if ! which $name > /dev/null 2>&1
@@ -466,27 +461,27 @@ sanity_check() {
    test -d $PKGDIR || { ERR=1 output "PKGDIR $PKGDIR does not exist, aborting."; exit 1; }
 }
 
-# ToDo: check local vars
 output() {
    test $QUIET -eq 1 && return
    test "$ERR" != "" && (>&2 echo "$1") || echo "$1"
 }
 
-# ToDo: check local vars
 check_version_built() {
    local pkg=$1
    local RET=0
+   local version
 
    if test "$FORCEVERSION" != ""; then
       version=$FORCEVERSION
    else
       version=$( version_get $pkg ) || return 1
    fi
-   test -d "$DESTDIR/$B_ARCH/$pkg-$version" && { output "$version" ; RET=1 ;} || output "$version"
+   test -d "$DESTDIR/$B_ARCH/$pkg-$version" && { echo "$version" ; RET=1 ;} || echo "$version"
    return $RET
 }
 
 # ToDo: check local vars
+# ToDo: B_ARCH issue
 main() {
    QUIET=0
    local i
@@ -498,7 +493,6 @@ main() {
    B_ARCH=$( arch_get )
 
    # ToDo: check for >1 values for actions
-
    # ToDo: check for not required filled arrays
 
    if test "$DO_CHECK"; then
