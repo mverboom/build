@@ -244,8 +244,6 @@ package_torepo() {
    local RET
    declare -A splittype
 
-   test $QUIET -eq 1 && options="$options -q"
-
    for pkg in $pkgs
    do
       type=${pkg/*./}
@@ -258,7 +256,7 @@ package_torepo() {
    do
       case "$type" in
       "deb")
-         $TODEBREPO $options ${splittype[$type]}
+         $TODEBREPO ${splittype[$type]}
          test $? -ne 0 && RET=1
       ;;
       *)
@@ -312,10 +310,10 @@ package_debian() {
    local version=$2
 
    local pkgready=$( recipe_item_get $pkg PKG pkgready )
+   local P_PKGDIR=${pkg}-${ID}
    if test "$pkgready" = ""
    then
       local P_PKGNAME=${pkg}_${ID}_${B_ARCH}
-      local P_PKGDIR=${pkg}-${ID}
       local P_BUILDNR=$( package_buildnr_get ${P_PKGNAME} )
       local INFO=$(recipe_section_get $pkg DEB) || return 1
       local TMP=$( mktemp -p $TMPDIR -d )
@@ -346,7 +344,7 @@ package_debian() {
       echo -e "${P_PKGNAME}_${B_ARCH}\t$P_BUILDNR" >> $PKGLIST
       mv $TMPDIR/$pkgfile $PKGDIR
    else
-      if test -f "$( echo $DESTDIR/$B_ARCH/${P_PKGDIR}/*.deb )" = "$DESTDIR/$B_ARCH/${P_PKGDIR}/*.deb"
+      if test "$( echo $DESTDIR/$B_ARCH/${P_PKGDIR}/*.deb )" = "$DESTDIR/$B_ARCH/${P_PKGDIR}/*.deb"
       then
          ERR=1 output "Recipe indicates package should be in build dir, but it isn't."
          return 1
