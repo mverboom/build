@@ -313,24 +313,11 @@ package_debian() {
    local P_PKGDIR=${pkg}-${ID}
    if test "$pkgready" = ""
    then
-      local P_MANUAL=$( recipe_item_get $pkg PKG manual )
       local P_PKGNAME=${pkg}_${ID}_${B_ARCH}
       local P_BUILDNR=$( package_buildnr_get ${P_PKGNAME} )
       local INFO=$(recipe_section_get $pkg DEB) || return 1
       local TMP=$( mktemp -p $TMPDIR -d )
       mkdir -p $TMP/DEBIAN
-      if test "$P_MANUAL" != "" 
-      then
-         IFS=':'
-         for m in $P_MANUAL
-         do
-            ls $m | while read f 
-                      do
-                         echo $m/$f
-                      done
-         done > $TMP/DEBIAN/${pkg}.manpages
-         unset IFS
-      fi
       local pkgversion=${version//\-/}-$P_BUILDNR
       test "$PKGPOSTFIX" != "" && INFO=$( echo "$INFO" | sed "/^Package:/ s/$/-$PKGPOSTFIX/" )
       echo "$INFO" | sed "s/VERSION/$pkgversion/" | sed "s/ARCH/$B_ARCH/" > $TMP/DEBIAN/control
