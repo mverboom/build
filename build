@@ -313,11 +313,24 @@ package_debian() {
    local P_PKGDIR=${pkg}-${ID}
    if test "$pkgready" = ""
    then
+      local P_MANUAL=$( recipe_item_get $pkg PKG manual )
       local P_PKGNAME=${pkg}_${ID}_${B_ARCH}
       local P_BUILDNR=$( package_buildnr_get ${P_PKGNAME} )
       local INFO=$(recipe_section_get $pkg DEB) || return 1
       local TMP=$( mktemp -p $TMPDIR -d )
       mkdir -p $TMP/DEBIAN
+      if test "$P_MANUAL" != "" 
+      then
+         IFS=':'
+         for m in $P_MANUAL
+         do
+            ls $m | while read f 
+                      do
+                         echo $m/$f
+                      done
+         done > $TMP/DEBIAN/${pkg}.manpages
+         unset IFS
+      fi
       local pkgversion=${version//\-/}-$P_BUILDNR
       test "$PKGPOSTFIX" != "" && INFO=$( echo "$INFO" | sed "/^Package:/ s/$/-$PKGPOSTFIX/" )
       echo "$INFO" | sed "s/VERSION/$pkgversion/" | sed "s/ARCH/$B_ARCH/" > $TMP/DEBIAN/control
@@ -351,7 +364,7 @@ package_debian() {
       else
          file="$DESTDIR/$B_ARCH/${P_PKGDIR}/*.deb"
          cp $file $PKGDIR
-         pkfile=$PKGDIR/$(basename $DESTDIR/$B_ARCH/${P_PKGDIR}/*.deb)
+         pkgfile=$(basename $DESTDIR/$B_ARCH/${P_PKGDIR}/*.deb)
       fi
    fi
    echo $pkgfile
@@ -494,6 +507,7 @@ main() {
    # ToDo: check for not required filled arrays
 
    if test "$DO_CHECK"; then
+      # Get current version and check if already built
       check_found=0
       for i in ${!work_recipes[@]}
       do
@@ -504,25 +518,34 @@ main() {
    fi
 
    if test "$DO_BUILD"; then
+      # If not built or forced, then build
       for i in ${!work_recipes[@]}
       do
          if test ${work_built[$i]} -eq 0 -o $FORCE -eq 1
          then
             build ${work_recipes[$i]} ${work_version[$i]}
-            test $? -eq 1 && { output "${work_recipes[$i]} ${work_version[$i]} (build failed)"; work_built[$i]=0; } || { work_built[$i]=1; output "${work_recipes[$i]} ${work_version[$i]} (build succeeded)"; }
+            test $? -eq 1 && { output "${work_recipes[$i]} ${work_version[$i]} (build failed)"; work_build[$i]=0; } || { work_build[$i]=1; output "${work_recipes[$i]} ${work_version[$i]} (build succeeded)"; }
          fi
       done
    fi
 
    if test "$DO_PACKAGE"; then
+      # if no build action and version built, package. if build action successful, build.
       for i in ${!work_recipes[@]}
       do
-         work_package[$i]=$(package ${work_recipes[$i]} ${work_version[$i]})
-         test $? -eq 0 && { output "${work_recipes[$i]} ${work_version[$i]} (package created)"; } || { output "${work_recipes[$i]} ${work_version[$i]} (package create failed)"; }
+         b=0
+         test "${work_build[$i]+x}" = "" -a ${work_built[$i]} = 1 && b=1
+         test "${work_build[$i]+x}" = "x" -a "${work_build[$i]}" = "1" && b=1
+         if test $b -eq 1 
+         then
+            work_package[$i]=$(package ${work_recipes[$i]} ${work_version[$i]})
+            test $? -eq 0 && { output "${work_recipes[$i]} ${work_version[$i]} (package created)"; } || { output "${work_recipes[$i]} ${work_version[$i]} (package create failed)"; }
+         fi
       done
    fi
 
    if test "$DO_REPO"; then
+      # if package is succesfully generated
       package_torepo ${work_package[@]}
       test $? -eq 0 && { output "packages pushed to repo"; } || { output "packages not pushed to repo"; }
    fi
