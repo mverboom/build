@@ -323,11 +323,11 @@ package_debian() {
       echo "$INFO" | sed "s/VERSION/$pkgversion/" | sed "s/ARCH/$B_ARCH/" > $TMP/DEBIAN/control
       cd $DESTDIR/$B_ARCH/$pkg-$version
       tar pcfB - . | (cd $TMP ; tar pxfB - )
+      cd $TMP
       if test -d $RECIPEDIR/$pkg.files/B_DEBIAN
       then
          ( cd $RECIPEDIR/$pkg.files/B_DEBIAN ; tar cf - . ) | tar xf -
       fi
-      cd $TMP
       find . -path "*/etc/*" -type f | sed "s/^\.//" > DEBIAN/conffiles
       cd $TMPDIR
       fakeroot dpkg --build $TMP . > $TMP.buildoutput
