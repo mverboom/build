@@ -388,6 +388,7 @@ version_get() {
 # ToDo: create better option vars
 parse_options() {
    FORCE=0 ; QUIET=0 ; DEBUG= ; PKGS= ; FORCEVERSION=
+   DO_CHECK=0; DO_BUILD=0; DO_PACKAGE=0; DO_REPO=0
    while test "$1" != ""
    do
       case $1 in
@@ -503,18 +504,19 @@ main() {
    # ToDo: check for >1 values for actions
    # ToDo: check for not required filled arrays
 
-   if test "$DO_CHECK"; then
+   if test $DO_CHECK -ne 0; then
       # Get current version and check if already built
       check_found=0
       for i in ${!work_recipes[@]}
       do
          work_version[$i]=$( check_version_built ${work_recipes[$i]} )
          work_built[$i]=$?
-         test $DO_CHECK -eq 1 && { test ${work_built[$i]} -eq 1 && output "${work_recipes[$i]} ${work_version[$i]} (already built)" || output "${work_recipes[$i]} ${work_version[$i]} (not built)"; }
+         test $DO_CHECK -eq 1 -o $DO_BUILD -eq 1 && { test ${work_built[$i]} -eq 1 && output "${work_recipes[$i]} ${work_version[$i]} (already built)"; }
+         test $DO_CHECK -eq 1 -o $DO_PACKAGE -ne 0 && { test ${work_built[$1]} -eq 0 && output "${work_recipes[$i]} ${work_version[$i]} (not built)"; }
       done
    fi
 
-   if test "$DO_BUILD"; then
+   if test $DO_BUILD -ne 0; then
       # If not built or forced, then build
       for i in ${!work_recipes[@]}
       do
@@ -526,7 +528,7 @@ main() {
       done
    fi
 
-   if test "$DO_PACKAGE"; then
+   if test $DO_PACKAGE -ne 0; then
       # if no build action and version built, package. if build action successful, build.
       for i in ${!work_recipes[@]}
       do
@@ -541,7 +543,7 @@ main() {
       done
    fi
 
-   if test "$DO_REPO"; then
+   if test $DO_REPO -ne 0; then
       # if package is succesfully generated
       package_torepo ${work_package[@]}
       test $? -eq 0 && { output "packages pushed to repo"; } || { output "packages not pushed to repo"; }
