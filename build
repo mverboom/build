@@ -511,7 +511,7 @@ main() {
       do
          work_version[$i]=$( check_version_built ${work_recipes[$i]} )
          work_built[$i]=$?
-         test $DO_CHECK -eq 1 -o $DO_BUILD -eq 1 && { test ${work_built[$i]} -eq 1 && output "${work_recipes[$i]} ${work_version[$i]} (already built)"; }
+         test $DO_CHECK -eq 1 -o $DO_BUILD -eq 1 -a $FORCE -eq 0 && { test ${work_built[$i]} -eq 1 && output "${work_recipes[$i]} ${work_version[$i]} (already built)"; }
          test $DO_CHECK -eq 1 -o $DO_PACKAGE -ne 0 && { test ${work_built[$1]} -eq 0 && output "${work_recipes[$i]} ${work_version[$i]} (not built)"; }
       done
    fi
