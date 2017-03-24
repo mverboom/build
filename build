@@ -125,7 +125,7 @@ build() {
    mkdir -p $B_INSTALLDIR
    # Define build environment variables and functions
    B_CACHEDIR=$CACHEDIR
-   test -d ${RECIPE/.recipe/.files\/B_BUILD} && B_FILES=${RECIPE/.recipe/.files\/B_BUILD}
+   test -d $RECIPEDIR/$B_NAME.files/B_BUILD && B_FILES=$RECIPEDIR/$B_NAME.files/B_BUILD
    B_PKGLIST=$PKGLIST
    # export B_VERSION B_INSTALLDIR B_ARCH B_DESTDIR B_INSTANCE B_CACHEDIR B_NAME B_BUILDNR B_PKGLIST
    export B_VERSION B_INSTALLDIR B_ARCH B_INSTANCE B_CACHEDIR B_NAME B_BUILDNR B_FILES
@@ -175,7 +175,17 @@ build() {
       echo -e "$ID\t$B_BUILDNR" >> $PKGLIST
    }
    export -f B_UPDATEPKGBLD
-
+   B_LINKFILES() {
+      local src=$1; local dst=$2
+      test -d $B_INSTALLDIR/$src || { echo "B_LINKFILES: source needs to be a directory within the B_INSTALLDIR tree."; exit 1; }
+      test -d $B_INSTALLDIR/$dst || mkdir -p $B_INSTALLDIR/$dst
+      local name
+      for name in $( ls $B_INSTALLDIR/$src )
+      do
+         ln -s $src/$name $B_INSTALLDIR/$dst
+      done
+   }
+   export -f B_LINKFILES
    #output "Building $B_NAME version $B_VERSION."
    cd $TMP
    if test "$QUIET" = "1"; then
