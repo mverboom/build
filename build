@@ -186,7 +186,6 @@ build() {
       done
    }
    export -f B_LINKFILES
-   #output "Building $B_NAME version $B_VERSION."
    cd $TMP
    if test "$QUIET" = "1"; then
       bash $DEBUG -e -c "$CMD" > /dev/null 2>&1
@@ -448,7 +447,7 @@ parse_options() {
       output "No recipe(s) specified."
       exit 1
    fi
-   if test "$DO_CHECK" = "" -a "$DO_BUILD" = "" -a "$DO_PACKAGE" = "" -a "$DO_REPO" = ""
+   if test "$DO_CHECK" = "0" -a "$DO_BUILD" = "0" -a "$DO_PACKAGE" = "0" -a "$DO_REPO" = "0"
    then
       output "No action specified."
       exit 1
@@ -533,8 +532,8 @@ main() {
       for i in ${!work_recipes[@]}
       do
          b=0
-         test "${work_build[$i]+x}" = "" -a ${work_built[$i]} = 1 && b=1
-         test "${work_build[$i]+x}" = "x" -a "${work_build[$i]}" = "1" && b=1
+         test $DO_BUILD -eq 0 -a ${work_built[$i]} = 1 && b=1
+         test "${work_build[$i]}" = "1" && b=1
          if test $b -eq 1 
          then
             work_package[$i]=$(package ${work_recipes[$i]} ${work_version[$i]})
