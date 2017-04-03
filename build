@@ -544,8 +544,10 @@ main() {
 
    if test $DO_REPO -ne 0; then
       # if package is succesfully generated
-      package_torepo ${work_package[@]}
-      test $? -eq 0 && { output "packages pushed to repo"; } || { output "packages not pushed to repo"; }
+      if test ${#work_package[@]} -gt 0; then
+         package_torepo ${work_package[@]}
+         test $? -eq 0 && { output "packages pushed to repo"; } || { output "packages not pushed to repo"; }
+      fi
    fi
 }
 
