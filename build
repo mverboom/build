@@ -56,7 +56,7 @@ recipe_section_get() {
    local label=$2
    local opt=$3
 
-   test ! -f $recipe && { test "$opt" = "" && { >&2 output "Recipe $recipe does not exist."; exit 1; } }
+   test ! -f $recipe && { test "$opt" = "" && { >&2 output "Recipe $recipe does not exist."; return 1; } }
 
    grep "^\[$label\]" $recipe > /dev/null 2>&1  || { test "$opt" = "" &&  { >&2 output "No section $label found in recipe $recipe"; exit 1; } }
    awk "BEGIN {found=0;} /^\[/ {found=0;} {if (found==1) { print \$0;}}; /^\[$label\]/ { found=1;}" $recipe
@@ -368,13 +368,14 @@ package_debian() {
 
 version_get() {
    local pkg=$1
+   local CMD
 
    export B_ARCH=$( arch_get )
    B_GITVER() {
       git ls-remote --tags $1 | grep -v '{}' | grep -v -e preview -e rc | cut -d '/' -f 3  | sed "s/^v//" | sort -t. -k 1,1n -k 2,2n -k 3,3n -k 4,4n | tail -1
    }
    export -f B_GITVER
-   local CMD=$( recipe_section_get $pkg VERSION ) || return 1
+   CMD=$( recipe_section_get $pkg VERSION )
    test $? -ne 0 && { output $CMD ; return 1; }
    local ver=$( bash $DEBUG -e -c "$CMD" 2>/dev/null )
    test $? -ne 0 && { >&2 output "Error while running version command for $pkg." ; return 1 ; }
@@ -482,7 +483,7 @@ check_version_built() {
    if test "$FORCEVERSION" != ""; then
       version=$FORCEVERSION
    else
-      version=$( version_get $pkg ) || return 1
+      version=$( version_get $pkg ) || return 2
    fi
    test -d "$DESTDIR/$B_ARCH/$pkg-$version" && { echo "$version" ; RET=1 ;} || echo "$version"
    return $RET
