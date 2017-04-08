@@ -337,7 +337,10 @@ package_debian() {
       then
          ( cd $RECIPEDIR/$pkg.files/B_DEBIAN ; tar cf - . ) | tar xf -
       fi
-      find . -path "*/etc/*" -type f | sed "s/^\.//" > DEBIAN/conffiles
+      # Mark config files
+      find . -path "*/etc/*" $configfiles -type f | sed "s/^\.//" > DEBIAN/conffiles
+      local configfiles=$( recipe_item_get $pkg PKG configfiles )
+      test "$configfiles" != "" && { echo $configfiles | tr ' ' '\n' >> DEBIAN/conffiles; }
       cd $TMPDIR
       fakeroot dpkg --build $TMP . > $TMP.buildoutput
       result=$?
