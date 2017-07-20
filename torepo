@@ -15,6 +15,6 @@ do
    test -f $pkg || { echo "No such file $pkg."; exit 1; }
    filename=$( basename $pkg )
    scp -q $pkg repo@repo:/tmp
-   ssh repo@repo "freight add /tmp/$filename apt/jessie $QUIET; rm /tmp/$filename $QUIET"
+   ssh repo@repo "freight add /tmp/$filename apt/current $QUIET; rm /tmp/$filename $QUIET"
 done
 ssh repo@repo "freight cache $QUIET"

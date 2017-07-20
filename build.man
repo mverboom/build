@@ -95,6 +95,9 @@ torepo=<y|n>
 When set to y the package will be pushed to a repository after the package is
 created.
 
+configfiles
+Specify configfiles
+
 Changeover:
 
 WORKLIST[0] = recipe name

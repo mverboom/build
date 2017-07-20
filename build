@@ -59,7 +59,7 @@ recipe_section_get() {
    test ! -f $recipe && { test "$opt" = "" && { >&2 output "Recipe $recipe does not exist."; return 1; } }
 
    grep "^\[$label\]" $recipe > /dev/null 2>&1  || { test "$opt" = "" &&  { >&2 output "No section $label found in recipe $recipe"; exit 1; } }
-   awk "BEGIN {found=0;} /^\[/ {found=0;} {if (found==1) { print \$0;}}; /^\[$label\]/ { found=1;}" $recipe
+   awk "BEGIN {found=0;} /^\[/ {found=0;} {if (found==1) { print \$0;}}; /^\[$label\]/ { found=1;}" $recipe | grep -v "^#"
 }
 
 build_require() {
@@ -338,13 +338,13 @@ package_debian() {
          ( cd $RECIPEDIR/$pkg.files/B_DEBIAN ; tar cf - . ) | tar xf -
       fi
       # Mark config files
-      find . -path "*/etc/*" $configfiles -type f | sed "s/^\.//" > DEBIAN/conffiles
+      find . -path "*/etc/*" -type f | sed "s/^\.//" > DEBIAN/conffiles
       local configfiles=$( recipe_item_get $pkg PKG configfiles )
       test "$configfiles" != "" && { echo $configfiles | tr ' ' '\n' >> DEBIAN/conffiles; }
       cd $TMPDIR
       fakeroot dpkg --build $TMP . > $TMP.buildoutput
       result=$?
-      local pkgfile=$( cat $TMP.buildoutput | cut -d '`' -f 3 | cut -d \' -f 1 )
+      local pkgfile=$( cat $TMP.buildoutput | cut -d \' -f 4 )
       pkgfile=${pkgfile/*\//}
       rm -rf $TMP $TMP.buildoutput
       if test $result -ne 0
@@ -471,6 +471,7 @@ sanity_check() {
    test "$missing" != "" && { output "Missing required software to run script:$missing" ; exit 1;}
    test "$PKGDIR" = ""  && { ERR=1 output "PKGDIR not defined"; exit 1;}
    test -d $PKGDIR || { ERR=1 output "PKGDIR $PKGDIR does not exist, aborting."; exit 1; }
+   test -d $TMPDIR || { ERR=1 output "TMPDIR $TMPDIR does not exist, aborting."; exit 1; }
 }
 
 output() {
