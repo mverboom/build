@@ -2,6 +2,10 @@ ToDo list
 
 Items to do:
 
+- Check commandlineoptions script with man page
+- Check recipe sections script with man page
+- Check recipe section items script with man page
+- Check config file options with script and manpage
 - quiet option fix
 - package: verbosity fix
 - torepo: no freight output, only summary
