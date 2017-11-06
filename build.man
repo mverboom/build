@@ -1,33 +1,99 @@
-CONFIG FILE
+NAME
+
+build - automate building of software
+
+SYNOPSIS
+
+build [OPTION]... [RECIPE]...
+
+DESCRIPTION
+
+Automates the building of software, although it should be considered alpha
+quality software at best.
+
+The building process is described by recipe files which are explained in the
+recipe section.
+
+Arguments that can be used are:
+
+-c
+Check version, runs the version check section of the specified recipe(s).
+
+-b
+Build, runs the build version of the specified recipe(s).
+
+-p
+Package, runs the package secition of the specified recipe(s).
+
+-r
+To repository, creates packages and copies to repository for specfified recipe(s)
+
+
+-a
+Select all recipes available.
+
+-v
+Specify specific version, will prevent from running version section of recipe(s)
+
+-q
+Quiet output
+
+-x
+Enable debugging output
+
+-f
+Force build for recipe, even if complete build is already available.
+
+-i
+Specify an instance for a recipe
+
+-h
+This help message
+
+
+CONFIGURATION FILE
 
 The script uses a configuration file which is located at:
 
 ~/.buildrc
 
-This file should contian the following variables:
+The file has the following format:
 
-# Destination directory where compiled software should be put
-DESTDIR=~/build
-# Download cache directory
-CACHEDIR=~/cache
-# Temporary build directory
-TMPDIR=~/temp
-# Directory where software should be installed to
-BASEDIR=/opt
-# Directory with recipes
-RECIPEDIR=~/recipes
-# File with package administration
-PKGLIST=$RECIPEDIR/pkglist
-# Directory where built packages are placed
-PKGDIR=~/packages
-# Script to use to publish Debian package to repository (optional)
-# will get -q parameter passed if build is called with -q
-# can be called with multiple package names in 1 go
-TODEBREPO=~/bin/torepo
-# Set to yes to try and automatically install build dependancies (optional)
-INSTDEP=yes
-# Set to yes to try and automatically uninstall build dependancies (optional)
-DEINSTDEP=yes
+VARIABLE=value
+
+The following variable can be set in the configuration file.
+
+DESTDIR (defaults to ~/build)
+Destination directory where compiled software should be put.
+
+CACHEDIR (defaults to ~/cache)
+Download cache directory
+
+TMPDIR (defaults to ~/temp)
+Temporary build directory
+
+BASEDIR (defaults to /opt)
+Directory where software should be installed to
+
+RECIPEDIR (defaults to ~/recipes)
+Directory with recipes
+
+PKGLIST (defaults to RECIPEDIR/pkglist)
+File with package administration
+
+PKGDIR (defaults to ~/packages)
+Directory where built packages are placed
+
+TODEBREPO
+Points to script to use to publish Debian package to repository
+will get -q parameter passed if build is called with -q
+can be called with multiple package names in 1 go
+
+INSTDEP (defaults to yes)
+Set to yes to try and automatically install build dependancies (optional)
+
+DEINSTDEP (defaults to yes)
+Set to yes to try and automatically uninstall build dependancies (optional)
 
 BUILDING PACKAGE
 
@@ -44,14 +110,26 @@ or added, it can be put in this directory.
 
 RECIPE
 
-The recipe to build a piece of software can have multiple sections. Below is
-a description of the possible sections.
+A recipe is divided into multiple sections. The recipe layout follows the
+ini file setup. The different sections are explained below.
 
 [VERSION] (mandatory)
 
 This section should contain commands that, when executed, return the latest
 available version of the software. This usually consists of some clever wget
 or git commands to figure out the version.
+
+There currently is one supporting function to ease the proces to get a version
+number for software in a github repository:
+
+B_GITVER
+
+An example usage can be:
+
+B_GITVER https://github.com/project/repo
+
+This function does some filtering to get the right version number, which may
+not always work for every repository.
 
 [BUILD] (mandatory)
 
@@ -60,19 +138,46 @@ version of the software, compile/create it and install it to the destination
 directory. To assist in building, the following environment variables and 
 functions are made available:
 
-Variables:
-B_ARCH : Architecture software is being build for
-B_CACHEDIR : Directory where files can be downloaded
-B_NAME : Name of the software that needs to be build
-B_VERSION : Version of the software being build
-B_INSTANCE : Instance name of software being build (optional)
-B_BUILDNR : The number of the build of this current version
-B_INSTALLDIR : Software installation directory
-B_FILES: Points to directory where files can be stored to use during build.
+VARIABLES
 
-Functions:
-B_GET : download software and check if it is already in the cache
-B_UPDATEPKGBLD : update package build number
+B_ARCH
+Architecture software is being build for
+
+B_CACHEDIR
+Directory where files can be downloaded
+
+B_NAME
+Name of the software that needs to be build
+
+B_VERSION
+Version of the software being build
+
+B_INSTANCE
+Instance name of software being build (optional)
+
+B_BUILDNR
+The number of the build of this current version
+
+B_INSTALLDIR
+Software installation directory
+
+B_FILES
+Points to directory where files can be stored to use during build.
+
+FUNCTIONS
+
+B_GET
+Download software and check if it is already in the cache.
+This function supports http and git. The usage is:
+
+B_GET method url target
+
+Retrieving software from a website could be like this:
+
+B_GET http https://software.com/path/v${B_VERSION}/software-${B_VERSION}.tar.gz software.tar.gz
+
+B_UPDATEPKGBLD
+Update package build number
 
 [REQUIRED] (optional for software building)
 
@@ -98,42 +203,28 @@ created.
 configfiles
 Specify configfiles
 
-Changeover:
+FILES
 
-WORKLIST[0] = recipe name
+~/.buildrc
+Configuration file
 
-from arguments passed to script:
-work_recipes[0...] = recipename
-for loop over number of items in work_recipes ${#work_recipes[@]} in each action.
+EXAMPLES
 
-main actions:
-DO_CHECK: check if a new version is available that hasn't been built yet. -c
-requires  work_recipes[index]
-arguments: 1 or multiple recipe names
-return: output: recipe name with new version for packages found
-        code: number of packages found with a newer version
-generates work_version[index] = version if needs to be built.
-
-DO_BUILD: build a recipe. -b
-if no version is specified with -v then -b implies -c
-requires  work_version[index]
-generates work_built[index] = 1 if is built.
-
-DO_PACKAGE: package for a recipe. -p
-if no version is specified with -v then -p implies -c
-requires  work_built[index]
-generates work_packaged[index] = 1 if package was created
-
-DO_REPO: send to repo for a recipe. -r
-if no other options are specified, implies -p and -c
-requires  work_packaged[index]
-generated work_torepo[index] = 1 if package was sent to repo
-
-modifiers:
--a perform on all packges.
--v do for specific version (only useful when specifying 1 recipe)
--f force build (if build was already done for version)
-
-examples
 for all recipes where there are new versions, build, package and push to repo.
   build -b -p -r -a
+
+AUTHOR
+
+Written by Mark Verboom
+
+REPORTING BUGS
+
+Prefferably by opening an issue on the github page.
+
+COPYRIGHT
+
+Copyright  ©  2014  Free Software Foundation, Inc.  License GPLv3+: GNU
+GPL version 3 or later <http://gnu.org/licenses/gpl.html>.
+This is free software: you are free  to  change  and  redistribute  it.
+There is NO WARRANTY, to the extent permitted by law.
+

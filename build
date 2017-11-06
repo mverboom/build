@@ -500,7 +500,12 @@ main() {
    local i
    declare -A packages_torepo
 
+   # Set defaults
+   DESTDIR=~/build CACHEDIR=~/cache TMPDIR=~/temp BASEDIR=/opt 
+   REDIPEDIR=~/recipes PKGLIST=$RECIPEDIR/pkglist PKGDIR=~/packages
+   INSTDEP=yes DEINSTDEP=yes
    test -f ~/.buildrc && . ~/.buildrc || { echo "No configuration file found."; exit 1;}
+
    sanity_check
    parse_options "$@"
    B_ARCH=$( arch_get )
