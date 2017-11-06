@@ -90,10 +90,14 @@ will get -q parameter passed if build is called with -q
 can be called with multiple package names in 1 go
 
 INSTDEP (defaults to yes)
-Set to yes to try and automatically install build dependancies (optional)
+Set to yes to try and automatically install build dependancies. In order
+for this option to work, the user who runs the script needs sudo rights to
+install packages.
 
 DEINSTDEP (defaults to yes)
-Set to yes to try and automatically uninstall build dependancies (optional)
+Set to yes to try and automatically uninstall build dependancies. In order
+for this option to work, the user who runs the script needs sudo rights to
+remove packages.
 
 BUILDING PACKAGE
 

@@ -26,10 +26,10 @@ v daily build all recipes? -> auto build flag oid?
 - script naar github
 v script integreren
 - example script
-- update documentation for sudo rights
+v update documentation for sudo rights
 - create readme.md for publication on github
-- remote build to zones
-- set buildrc defaults if no file found or mandatory option not found
+x remote build to zones
+v set buildrc defaults if no file found or mandatory option not found
 - auto build configuration entry in recipies
 - auto build option
 - check if directories exist
