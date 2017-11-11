@@ -180,7 +180,7 @@ build() {
       test -d $B_INSTALLDIR/$src || { echo "B_LINKFILES: source needs to be a directory within the B_INSTALLDIR tree."; exit 1; }
       test -d $B_INSTALLDIR/$dst || mkdir -p $B_INSTALLDIR/$dst
       local name
-      for name in $( ls $B_INSTALLDIR/$src )
+      for name in $( ls $B_INSTALLDIR/$src | grep -v ".real$" )
       do
          ln -s $src/$name $B_INSTALLDIR/$dst
       done
