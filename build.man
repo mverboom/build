@@ -183,6 +183,9 @@ B_GET http https://software.com/path/v${B_VERSION}/software-${B_VERSION}.tar.gz 
 B_UPDATEPKGBLD
 Update package build number
 
+B_LINKFILES
+Will link files with the exception of files ending in .real
+
 [REQUIRED] (optional for software building)
 
 This section can specify the required installed packages that need to be
