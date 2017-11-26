@@ -89,6 +89,7 @@ build_require() {
       sudo apt-get -qq -y -t ${pkg/@*/} install ${pkg/*@/}  > /dev/null 2>&1 || { output "Error installing dependancy ($pkg)."; return 1 ; }
    done
    test $missing -eq 1 && return 1
+   return 0
 }
 
 build_require_remove() {
@@ -113,7 +114,7 @@ build() {
       versiondir=$B_VERSION
    fi
    local pkgs=$( recipe_section_get $B_NAME REQUIRED opt )
-   test $? -eq 0 &&  build_require $pkgs || return 1
+   ( test $? -eq 0 &&  build_require $pkgs ) || return 1
 
    test "$B_INSTANCE" != "" && ID=${B_NAME}_${B_VERSION}-${B_INSTANCE}_${B_ARCH} || ID=${B_NAME}_${B_VERSION}_${B_ARCH}
    B_BUILDNR=$( package_buildnr_get $ID )
@@ -160,6 +161,10 @@ build() {
          fi
          tar xzf $target
       ;;
+      *)
+         echo "B_GET: unknown method $method"
+         return 1
+      ;;
       esac
    }
    export -f B_GET
@@ -196,7 +201,7 @@ build() {
    cd - > /dev/null
    rm -rf $TMP
    test "$pkgs" != "" -a "$DEINSTDEP" = "yes" -a $B_NOPKGRM -eq 0 && build_require_remove "$pkgs"
-   test "$POSTBUILD" != "" && $POSTBUILD
+   test "$POSTBUILD" != "" -a $B_NOPKGRM -eq 0 && $POSTBUILD
    if test $result -ne 0
    then
       rm -rf $B_INSTALLDIR
@@ -221,7 +226,7 @@ usage() {
    echo "   -x  Enable debugging output"
    echo "   -f  Force build for recipe, even if complete build is already available."
    echo "   -i  Specify an instance for a recipe"
-   echo "   -R  Don't remove required packages after building."
+   echo "   -R  Don't remove required packages after building and skip any post build script."
    echo "   -h  This help message"
    echo
    exit 1
