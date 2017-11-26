@@ -426,7 +426,6 @@ parse_options() {
          B_INSTANCE="$1"
       ;;
       "-R")
-         shift
          B_NOPKGRM=1
       ;;
 
