@@ -113,7 +113,7 @@ build() {
       versiondir=$B_VERSION
    fi
    local pkgs=$( recipe_section_get $B_NAME REQUIRED opt )
-   test $? -eq 0 &&  build_require $pkgs
+   test $? -eq 0 &&  build_require $pkgs || return 1
 
    test "$B_INSTANCE" != "" && ID=${B_NAME}_${B_VERSION}-${B_INSTANCE}_${B_ARCH} || ID=${B_NAME}_${B_VERSION}_${B_ARCH}
    B_BUILDNR=$( package_buildnr_get $ID )
@@ -195,7 +195,7 @@ build() {
    result=$?
    cd - > /dev/null
    rm -rf $TMP
-   test "$pkgs" != "" -a "$DEINSTDEP" = "yes" && build_require_remove "$pkgs"
+   test "$pkgs" != "" -a "$DEINSTDEP" = "yes" -a $B_NOPKGRM -eq 0 && build_require_remove "$pkgs"
    test "$POSTBUILD" != "" && $POSTBUILD
    if test $result -ne 0
    then
@@ -221,6 +221,7 @@ usage() {
    echo "   -x  Enable debugging output"
    echo "   -f  Force build for recipe, even if complete build is already available."
    echo "   -i  Specify an instance for a recipe"
+   echo "   -R  Don't remove required packages after building."
    echo "   -h  This help message"
    echo
    exit 1
@@ -374,8 +375,9 @@ version_get() {
    local CMD
 
    export B_ARCH=$( arch_get )
+   export B_NAME=$1
    B_GITVER() {
-      git ls-remote --tags $1 | grep -v '{}' | grep -v -e preview -e rc | cut -d '/' -f 3  | sed "s/^v//" | sort -t. -k 1,1n -k 2,2n -k 3,3n -k 4,4n | tail -1
+      git ls-remote --tags $1 | grep -v '{}' | cut -d '/' -f 3  | sed "s/^v//" | grep -v -e preview -e rc -e a -e b | sort -t. -k 1,1n -k 2,2n -k 3,3n -k 4,4n | tail -1
    }
    export -f B_GITVER
    CMD=$( recipe_section_get $pkg VERSION )
@@ -391,7 +393,7 @@ version_get() {
 # ToDo: create better option vars
 parse_options() {
    FORCE=0 ; QUIET=0 ; DEBUG= ; PKGS= ; FORCEVERSION=
-   DO_CHECK=0; DO_BUILD=0; DO_PACKAGE=0; DO_REPO=0
+   DO_CHECK=0; DO_BUILD=0; DO_PACKAGE=0; DO_REPO=0; B_NOPKGRM=0
    while test "$1" != ""
    do
       case $1 in
@@ -423,6 +425,11 @@ parse_options() {
          shift
          B_INSTANCE="$1"
       ;;
+      "-R")
+         shift
+         B_NOPKGRM=1
+      ;;
+
       "-x")
          set -x
          DEBUG=-x
