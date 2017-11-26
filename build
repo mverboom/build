@@ -161,6 +161,20 @@ build() {
          fi
          tar xzf $target
       ;;
+      "svn")  
+         if ! test -f $target
+         then
+            test -d $targetdir || mkdir -p $targetdir
+            mkdir /tmp/svn-dl.$$
+            cd /tmp/svn-dl.$$
+            echo "Subversion downloading files.."
+            svn checkout --non-interactive --trust-server-cert -q $url $fn
+            tar cfz $target $fn
+            cd - > /dev/null
+            rm -rf /tmp/git-dl.$$
+         fi
+         tar xzf $target
+      ;;
       *)
          echo "B_GET: unknown method $method"
          return 1
