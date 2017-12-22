@@ -561,7 +561,7 @@ main() {
          if test ${work_built[$i]} -eq 0 -o $FORCE -eq 1
          then
             build ${work_recipes[$i]} ${work_version[$i]}
-            test $? -eq 1 && { output -f "${work_recipes[$i]} ${work_version[$i]} (build failed)"; work_build[$i]=0; retval=1; } || { work_build[$i]=1; output "${work_recipes[$i]} ${work_version[$i]} (build succeeded)"; }
+            test $? -eq 1 && { output -f "${work_recipes[$i]} ${work_version[$i]} (build failed)"; work_build[$i]=0; retval=1; } || { work_build[$i]=1; output -f "${work_recipes[$i]} ${work_version[$i]} (build succeeded)"; }
          fi
       done
    fi

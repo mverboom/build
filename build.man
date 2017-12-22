@@ -36,7 +36,9 @@ Select all recipes available.
 Specify specific version, will prevent from running version section of recipe(s)
 
 -q
-Quiet output
+Quiet output.
+Specify once will still show output on succesfull and failed builds.
+Specify twice will not show output.
 
 -x
 Enable debugging output
