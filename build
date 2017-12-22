@@ -500,7 +500,12 @@ sanity_check() {
 }
 
 output() {
-   test $QUIET -eq 1 && return
+   if test "$1" != "-f"
+   then
+      test $QUIET -eq 1 && return
+   else
+      shift
+   fi
    test "$ERR" != "" && (>&2 echo "$1") || echo "$1"
 }
 
@@ -557,7 +562,7 @@ main() {
          if test ${work_built[$i]} -eq 0 -o $FORCE -eq 1
          then
             build ${work_recipes[$i]} ${work_version[$i]}
-            test $? -eq 1 && { output "${work_recipes[$i]} ${work_version[$i]} (build failed)"; work_build[$i]=0; } || { work_build[$i]=1; output "${work_recipes[$i]} ${work_version[$i]} (build succeeded)"; }
+            test $? -eq 1 && { output -f "${work_recipes[$i]} ${work_version[$i]} (build failed)"; work_build[$i]=0; } || { work_build[$i]=1; output "${work_recipes[$i]} ${work_version[$i]} (build succeeded)"; }
          fi
       done
    fi
@@ -572,7 +577,7 @@ main() {
          if test $b -eq 1 
          then
             work_package[$i]=$(package ${work_recipes[$i]} ${work_version[$i]})
-            test $? -eq 0 && { output "${work_recipes[$i]} ${work_version[$i]} (package created)"; } || { output "${work_recipes[$i]} ${work_version[$i]} (package create failed)"; }
+            test $? -eq 0 && { output "${work_recipes[$i]} ${work_version[$i]} (package created)"; } || { output -f "${work_recipes[$i]} ${work_version[$i]} (package create failed)"; }
          fi
       done
    fi
@@ -581,7 +586,7 @@ main() {
       # if package is succesfully generated
       if test ${#work_package[@]} -gt 0; then
          package_torepo ${work_package[@]}
-         test $? -eq 0 && { output "packages pushed to repo"; } || { output "packages not pushed to repo"; }
+         test $? -eq 0 && { output "packages pushed to repo"; } || { output -f "packages not pushed to repo"; }
       fi
    fi
 }
