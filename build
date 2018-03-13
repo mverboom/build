@@ -145,6 +145,7 @@ build() {
             test -d $targetdir || mkdir -p $targetdir
             echo "Http downloading files.."
             wget -q -O $target $url || rm $target
+            test $? -ne 0 && { echo "Error downloading file."; exit 1; }
          fi
          cp $target $fn
       ;;
@@ -586,7 +587,7 @@ main() {
       # if package is succesfully generated
       if test ${#work_package[@]} -gt 0; then
          package_torepo ${work_package[@]}
-         test $? -eq 0 && { output "packages pushed to repo"; } || { output -f "packages not pushed to repo"; retval=1; }
+         test $? -eq 0 && { output "packages pushed to repo"; } || { output -f "(some) packages not pushed to repo"; retval=1; }
       fi
    fi
    return $retval
