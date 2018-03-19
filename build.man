@@ -119,18 +119,6 @@ RECIPE
 A recipe is divided into multiple sections. The recipe layout follows the
 ini file setup. The different sections are explained below.
 
-[INFO] (optional)
-
-This section provides gloabl options to control the recipe.
-
-[INFO]
-
-excludefromall
-
-If set to anything it will exclude this recipe from being added to the build list when
-the script is started with the -a flag. Useful when developing a new recipe which is not
-production ready yet.
-
 [VERSION] (mandatory)
 
 This section should contain commands that, when executed, return the latest
