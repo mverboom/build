@@ -5,7 +5,7 @@
 # Support script to automate software builds outside of base distribution
 # packages
 #
-# Copyright 2011-2017 Mark Verboom
+# Copyright 2011-2018 Mark Verboom
 #
 # This file is part of Build.
 # 
@@ -23,7 +23,7 @@
 #     along with Build.  If not, see <http://www.gnu.org/licenses/>.
 
 require_software() {
-   echo awk grep git wget fakeroot bzip2
+   echo awk grep git wget fakeroot bzip2 hg
 }
 
 distro_get() {
@@ -174,6 +174,20 @@ build() {
             tar cfz $target $fn
             cd - > /dev/null
             rm -rf /tmp/git-dl.$$
+         fi
+         tar xzf $target
+      ;;
+      "mercurial")
+         if ! test -f $target
+         then
+            test -d $targetdir || mkdir -p $targetdir
+            mkdir /tmp/mercurial-dl.$$
+            cd /tmp/mercurial-dl.$$
+            echo "Mercurial downloading files.."
+            hg clone $url $fn
+            tar cfz $target $fn
+            cd - > /dev/null
+            rm -rf /tmp/mercurial-dl.$$
          fi
          tar xzf $target
       ;;
