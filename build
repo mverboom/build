@@ -138,6 +138,8 @@ build() {
       local fn=$3
       local targetdir=$B_CACHEDIR/$B_ARCH/$B_NAME-$B_VERSION
       local target=$targetdir/$fn
+      local targetdirnover=$B_CACHEDIR/$B_ARCH/$B_NAME
+      local targetnover=$targetdir/$fn
       case $method in
       "http")
          if ! test -f $target
@@ -412,7 +414,9 @@ version_get() {
    export B_ARCH=$( arch_get )
    export B_NAME=$1
    B_GITVER() {
-      git ls-remote --tags $1 | grep -v '{}' | cut -d '/' -f 3  | sed "s/^v//" | grep -v -e preview -e rc -e a -e b | sort -t. -k 1,1n -k 2,2n -k 3,3n -k 4,4n | tail -1
+      exp=""
+      test "$2" != "" && exp="-e $2"
+      git ls-remote --tags $1 | grep -v '{}' | cut -d '/' -f 3  | sed "s/^v//" | grep -v -e "preview\|rc\|a\|b" $exp | sort -t. -k 1,1n -k 2,2n -k 3,3n -k 4,4n | tail -1
    }
    export -f B_GITVER
    CMD=$( recipe_section_get $pkg VERSION )
