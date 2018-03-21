@@ -165,6 +165,26 @@ build() {
          fi
          tar xzf $target
       ;;
+      "git-new")
+         if ! test -f $targetnover
+         then
+            test -d $targetdirnover || mkdir -p $targetdirnover
+            echo "Git downloading files.."
+            git clone $url $fn
+            test $? -ne 0 && { echo "Error cloning repository."; exit 1; }
+            tar cfz $targetnover $fn
+         else
+            tar xzf $targetnover
+            cd $fn
+            git remote update
+            if test "$(git rev-parse @)" != "$(git rev-parse @{u}"
+            then
+               git pull
+               cd ..
+               tar cfz $targetnover $fn
+            fi
+         fi
+      ;;
       "svn")  
          if ! test -f $target
          then
