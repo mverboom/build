@@ -177,7 +177,7 @@ build() {
             tar xzf $targetnover
             cd $fn
             git remote update
-            if test "$(git rev-parse @)" != "$(git rev-parse @{u}"
+            if test "$(git rev-parse @)" != "$(git rev-parse @{u})"
             then
                git pull
                cd ..
