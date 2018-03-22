@@ -139,7 +139,7 @@ build() {
       local targetdir=$B_CACHEDIR/$B_ARCH/$B_NAME-$B_VERSION
       local target=$targetdir/$fn
       local targetdirnover=$B_CACHEDIR/$B_ARCH/$B_NAME
-      local targetnover=$targetdir/$fn
+      local targetnover=$targetdirnover/$fn
       case $method in
       "http")
          if ! test -f $target
@@ -182,6 +182,8 @@ build() {
                git pull
                cd ..
                tar cfz $targetnover $fn
+            else
+               cd ..
             fi
          fi
       ;;
