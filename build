@@ -173,18 +173,25 @@ build() {
          fi
       ;;
       "svn")  
-         if ! test -f $target
+         if ! test -f $targetnover
          then
             test -d $targetdir || mkdir -p $targetdir
-            mkdir /tmp/svn-dl.$$
-            cd /tmp/svn-dl.$$
             echo "Subversion downloading files.."
             svn checkout --non-interactive --trust-server-cert -q $url $fn
-            tar cfz $target $fn
-            cd - > /dev/null
-            rm -rf /tmp/git-dl.$$
+            test $? -ne 0 && { echo "Error checking out repository."; exit 1; }
+            tar cfz $targetnover $fn
+         else
+            tar xzf $targetnover
+            cd $fn
+            if test "$(svn info $url | grep Revision | cut -d' ' -f2)" != "$( svn info | grep Revision | cut -d' ' -f 2)"
+            then
+               svn update
+               cd ..
+               tar cfz $targetnover $fn
+            else
+               cd ..
+            fi
          fi
-         tar xzf $target
       ;;
       "mercurial")
          if ! test -f $target
