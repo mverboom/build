@@ -104,7 +104,6 @@ build_require_remove() {
    sudo apt-get -qq -y --purge remove $list > /dev/null
 }
 
-# ToDo: check local vars
 build() {
    B_NAME=$1
    B_VERSION=$2
@@ -250,7 +249,7 @@ build() {
    else
       bash $DEBUG -e -c "$CMD"
    fi
-   result=$?
+   local result=$?
    cd - > /dev/null
    rm -rf $TMP
    test "$pkgs" != "" -a "$DEINSTDEP" = "yes" -a $B_NOPKGRM -eq 0 && build_require_remove "$pkgs"
@@ -336,11 +335,11 @@ package_torepo() {
    return $RET
 }
 
-# ToDo: check local vars
 package() {
    local pkg=$1
    local version=$2
    local pkgtype
+   local ID
 
    if test "$B_INSTANCE" != ""
    then
@@ -361,7 +360,7 @@ package() {
    do
       case $pkgtype in
       "deb")
-         package_debian $pkg $version
+         package_debian $pkg $version $ID
          return $?
       ;;
       *)
@@ -372,7 +371,6 @@ package() {
    done
 }
 
-# ToDo: check local vars
 package_debian() {
    local pkg=$1
    local version=$2
@@ -590,8 +588,6 @@ lock_free() {
    rm -f $LOCK
 }
 
-# ToDo: check local vars
-# ToDo: B_ARCH issue
 main() {
    QUIET=0
    local i
