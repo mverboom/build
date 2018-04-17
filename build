@@ -386,7 +386,7 @@ package_debian() {
       find . -path "*/etc/*" -type f | sed "s/^\.//" > DEBIAN/conffiles
       local configfiles=$( recipe_item_get $pkg PKG configfiles )
       test "$configfiles" != "" && { echo $configfiles | tr ' ' '\n' >> DEBIAN/conffiles; }
-      echo "$INFO" | sed "s/VERSION/$pkgversion/" | sed "s/ARCH/$B_ARCH/" > $TMP/DEBIAN/control
+      echo "$INFO" | sed "s/B_VERSION/$pkgversion/" | sed "s/B_ARCH/$B_ARCH/" > $TMP/DEBIAN/control
       cd $TMPDIR
       fakeroot dpkg --build $TMP . > $TMP.buildoutput
       result=$?
