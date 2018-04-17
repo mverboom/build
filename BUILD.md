@@ -250,7 +250,7 @@ used to store files used during the build process.
 
 **Functions**
 
-`B_GET [method] [url] [name]`
+`B_GET <method> <url> <name>`
 
 The B_GET function assists in caching and downloading of content. It supports
 different download methods and caches content in the cache directory.
@@ -312,24 +312,59 @@ linked.
 
 ## PACKAGE
 
-[PKG] (optional for package building)
+For createing a pacakge the following sections are used:
+
+`[PKG]` (mandatory)
 
 This section contains some meta information on the type of package that needs
-to be build from the result of the BUILD section of the recipe. The following
+to be build from the result of the `[BUILD]` section of the recipe. The following
 options can be specified:
 
-type=<pacakge type>
+`type=<pacakge type>` (mandatory)
+
 This specifies the type of package that should be build. Currently supported
-is:
-  deb
+types are:
+* deb (Debian package)
 
-torepo=<y|n>
-When set to y the package will be pushed to a repository after the package is
-created.
+The type of package specified here implies the relevant section for this package
+type needs to exist.
 
-configfiles
-Specify configfiles
+`pkgready=<y|n>` (optional)
 
+If the build section already created a package, don't process any type specific
+package section.
+
+`configfiles=<configfile>..` (optional)
+
+Specifies path to any configuration files that are in the build. The paths
+need to be relative to the `B_INSTALLDIR` used during build. Only files that do
+not reside in a path where the sub part is `*/etc/*` need to be specified here.
+
+`[DEB]` (mandatory for debian packages)
+
+This section contains information relevant to the creation of a Debian package.
+All contents in this section is used to put into the `control` file inside the
+package.
+
+If the recipe directory contains a files directory for the recipe, all files
+that are available in the `B_DEBIAN` folder will automatically be included
+in the package. One specifiec directory `B_DEBIAN/DEBIAN` can contain files
+used to create the package, like for example post installation commands. For
+more information on this, check the Debian packaging documentation. Any `control`
+file in the `B_DEBIAN/DEBIAN` directory will be overwritten by the inforation
+in this section.
+
+A number of substitutions will be made if specific keywords are used in this
+section. The available keywords are:
+
+* VERSION
+
+This will be replaced by the actual version of the package being created.
+
+* ARCH
+
+This will be replaced by the actual architecture for which the package is
+being created.
 
 ## TO REPOSITORY
 
