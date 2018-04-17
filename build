@@ -23,7 +23,7 @@
 #     along with Build.  If not, see <http://www.gnu.org/licenses/>.
 
 require_software() {
-   echo awk grep git subversion wget fakeroot bzip2 hg
+   echo awk grep git svn wget fakeroot bzip2 hg
 }
 
 distro_get() {
@@ -435,7 +435,13 @@ version_get() {
    B_GITHUBVER() {
       wget -q -O - $1 | sed '/datetime=/!d; s/.*time-ago datetime="[TZ\:0-9\-]*">\([^<]*\)<.*/\1/' | while read line; do date --date="$line" "+%Y%m%d"; done | sort | tail -1
    }
-   export -f B_GITVER B_GITHUBVER
+   B_SVNDATE() {
+      date -d "$(svn info $1 | grep 'Last Changed Date:' | cut -d':' -f2-)" "+%Y%m%d"
+   }
+   B_SVNREV() {
+      svn info $1 | grep Revision | cut -d' ' -f2
+   }
+   export -f B_GITVER B_GITHUBVER B_SVNDATE B_SVNREV
    CMD=$( recipe_section_get $pkg VERSION )
    test $? -ne 0 && { output $CMD ; return 1; }
    local ver=$( bash $DEBUG -e -c "$CMD" 2>/dev/null )

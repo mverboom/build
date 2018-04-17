@@ -185,6 +185,16 @@ github. For projects not using tags, this allow for builds to be created on a da
 stamp.
 The function returns the newest date it can find.
 
+`B_SVNDATE <svn repository>`
+
+This function attempts to find the last date an update was done on an subversion
+repository.
+
+`B_SVNREV <svn repository>`
+
+This function attempts to find the last revision number for the subversion
+repository specified.
+
 ## BUILD
 
 For building the version of the software the following sections are used:
