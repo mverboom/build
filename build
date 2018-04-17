@@ -136,8 +136,7 @@ build() {
       local method=$1
       local url=$2
       local fn=$3
-      #local targetdir=$B_CACHEDIR/$B_ARCH/$B_NAME-$B_VERSION
-      local targetdir=$B_CACHEDIR/$B_ARCH/$B_NAME
+      local targetdir=$B_CACHEDIR/$B_NAME
       local target=$targetdir/$fn-$B_VERSION
       local targetnover=$targetdir/$fn
       case $method in
