@@ -21,7 +21,7 @@ Package: build
 Version: B_VERSION
 Section: nbu
 Priority: optional
-Architecture: B_ARCH
+Architecture: all
 Maintainer: mark@verboom.net
 Description: Build example package build
 Homepage: https://github.com/mverboom/build
