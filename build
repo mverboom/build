@@ -574,6 +574,20 @@ check_version_built() {
    return $RET
 }
 
+lock_get() {
+   if test -f $LOCK && pgrep -F $LOCK > /dev/null
+   then
+      return 1
+   else
+      echo $$ > $LOCK
+      return 0
+   fi
+}
+
+lock_free() {
+   rm -f $LOCK
+}
+
 # ToDo: check local vars
 # ToDo: B_ARCH issue
 main() {
@@ -581,6 +595,7 @@ main() {
    local i
    local retval=0
    declare -A packages_torepo
+   LOCK=/tmp/build.lck
 
    # Set defaults
    DESTDIR=~/build CACHEDIR=~/cache TMPDIR=~/temp
@@ -591,6 +606,7 @@ main() {
    sanity_check
    parse_options "$@"
    B_ARCH=$( arch_get )
+
 
    # ToDo: check for >1 values for actions
    # ToDo: check for not required filled arrays
@@ -609,6 +625,7 @@ main() {
 
    if test $DO_BUILD -ne 0; then
       # If not built or forced, then build
+      lock_get || { echo "Unable to get lock, other instance running?"; exit 1; }
       for i in ${!work_recipes[@]}
       do
          if test ${work_built[$i]} -eq 0 -o $FORCE -eq 1
@@ -617,6 +634,7 @@ main() {
             test $? -eq 1 && { output -f "${work_recipes[$i]} ${work_version[$i]} (build failed)"; work_build[$i]=0; retval=1; } || { work_build[$i]=1; output -f "${work_recipes[$i]} ${work_version[$i]} (build succeeded)"; }
          fi
       done
+      lock_free
    fi
 
    if test $DO_PACKAGE -ne 0; then
@@ -635,12 +653,15 @@ main() {
    fi
 
    if test $DO_REPO -ne 0; then
+      lock_get || { echo "Unable to get lock, other instance running?"; exit 1; }
       # if package is succesfully generated
       if test ${#work_package[@]} -gt 0; then
          package_torepo ${work_package[@]}
          test $? -eq 0 && { output "packages pushed to repo"; } || { output -f "packages not pushed to repo"; retval=1; }
       fi
+      lock_free
    fi
+
    return $retval
 }
 
