@@ -112,19 +112,17 @@ identify package build by the script in a repository or system.
 This can point to an optional script to be run after the build process is
 complete. The included debclean script can for example be used here.
 
-# BUILDING
+# RECIPE
 
 During building recipes are used for the various steps in the build process.
 Below the specific recipe sections will be discussed for the different operation
 modes.
 
-## RECIPE
+## GENERIC
 
 A recipe is build up in .ini file style format. Each section has a specific name
 and contains the information required for its function. Not every section is
 mandatory.
-
-GENERIC
 
 Sections in recipes not related to an operation mode are:
 
@@ -137,9 +135,43 @@ If this option is set to 1, the recipe will not be included when running the bui
 script with the -a flag. This can be useful for recipes under development, not ready
 to include in a nightly run.
 
-Check version
+## CHECK VERSION
+
+For checking of the current version of the software available the following section
+is required:
+
+[VERSION] (mandatory)
+
+Everything in this section is executed. The expected result is the version of the
+software. Before the code is executed, an environment is set up with supporting
+information.
+
+**Variables**
+`B_ARCH`
+This variable contains the architecture the build process is run on.
+
+`B_NAME`
+This variable contains the name of the recipe being run.
+
+**Functions**
+
+`B_GITVER <git repostiory> [filter]`
+This function attempts to remotely find the newest tag for a git repository. It filters
+out some commonly used tags that indicate non-release tags. 
+Optionally a filter option can be giving which will be used to filter out any other
+tags that should not be used.
+The function return the newest tag it can find.
+
+`B_GITHUBVER <github repository>`
+This function attempts to find the last date an update was done on a repository on
+github. For projects not using tags, this allow for builds to be created on a date
+stamp.
+The function returns the newest date it can find.
 
 
+# AUTHOR
+
+Written by Mark Verboom
 
 
 OLD BELOW
