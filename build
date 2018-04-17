@@ -375,7 +375,6 @@ package_debian() {
       mkdir -p $TMP/DEBIAN
       local pkgversion=${version//\-/}-$P_BUILDNR
       test "$PKGPOSTFIX" != "" && INFO=$( echo "$INFO" | sed "/^Package:/ s/$/-$PKGPOSTFIX/" )
-      echo "$INFO" | sed "s/VERSION/$pkgversion/" | sed "s/ARCH/$B_ARCH/" > $TMP/DEBIAN/control
       cd $DESTDIR/$B_ARCH/$pkg-$version
       tar pcfB - . | (cd $TMP ; tar pxfB - )
       cd $TMP
@@ -387,6 +386,7 @@ package_debian() {
       find . -path "*/etc/*" -type f | sed "s/^\.//" > DEBIAN/conffiles
       local configfiles=$( recipe_item_get $pkg PKG configfiles )
       test "$configfiles" != "" && { echo $configfiles | tr ' ' '\n' >> DEBIAN/conffiles; }
+      echo "$INFO" | sed "s/VERSION/$pkgversion/" | sed "s/ARCH/$B_ARCH/" > $TMP/DEBIAN/control
       cd $TMPDIR
       fakeroot dpkg --build $TMP . > $TMP.buildoutput
       result=$?
