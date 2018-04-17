@@ -64,6 +64,8 @@ The script uses a configuration file which is located at:
 
 `~/.buildrc`
 
+An example (`buildrc.example`) is included in the repository.
+
 The file has the following format:
 
 `VARIABLE=value`
