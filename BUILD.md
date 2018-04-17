@@ -312,7 +312,7 @@ linked.
 
 ## PACKAGE
 
-For createing a pacakge the following sections are used:
+For creating a pacakge the following sections are used:
 
 `[PKG]` (mandatory)
 
@@ -357,16 +357,22 @@ in this section.
 A number of substitutions will be made if specific keywords are used in this
 section. The available keywords are:
 
-* VERSION
+* `VERSION`
 
 This will be replaced by the actual version of the package being created.
 
-* ARCH
+* `ARCH`
 
 This will be replaced by the actual architecture for which the package is
 being created.
 
 ## TO REPOSITORY
+
+For pushing a package to a repository, there is no specific section.
+
+Depending on the package that is build, the corresponding entry from the `.buildrc`
+is used to determine the script that needs to be run to push the package to the
+repository.
 
 # FILES
 
