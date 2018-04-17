@@ -121,6 +121,9 @@ contain a folder specific for the recipe. For example, a recipe called `test.rec
 can also have a folder `test.files`. This directory can contain supporting information
 used during the different phases of building and packaging software.
 
+Any lines in a recipe that start with `#` will be ignored and can be used for
+comments.
+
 Below the specific recipe sections will be discussed for the different operation
 modes.
 
@@ -213,8 +216,7 @@ need to be placed. This directory is empty and is regarded the root of the targe
 installation. If a build creates a binary that needs to end up in /usr/bin, the following
 actions need to be taken:
 
-`mkdir -p $B_INSTALLDIR/usr/bin`
-`cp binary $B_INSTALLDIR/usr/bin`
+`mkdir -p $B_INSTALLDIR/usr/bin; cp binary $B_INSTALLDIR/usr/bin`
 
 `B_ARCH`
 
@@ -230,6 +232,7 @@ the invokation of the build script.
 This variable points to the download directory for this specific software.
 
 `B_NAME`
+
 This variable contains the name of the software that needs to be build.
 
 `B_BUILDNR`
@@ -265,27 +268,7 @@ Update package build number
 `B_LINKFILES`
 Will link files with the exception of files ending in .real
 
-# AUTHOR
-
-Written by Mark Verboom
-
-
-OLD BELOW
-
-BUILDING PACKAGE
-
-recipes/<recipename>.files/B_BUILD
-If this directory exists, the B_FILES variable will be made available during the
-build phase, pointing to this directory. Files here can be used during the build
-of the software and could be patches, configurations etc.
-
-recipes/<recipename>.files/B_DEBIAN
-If exists, all files will be copied to the root of the package setup. This is
-done after the standard control file generation. If
-any package configuration files in the DEBIAN directory need to be overwritten
-or added, it can be put in this directory.
-
-RECIPE
+## PACKAGE
 
 [PKG] (optional for package building)
 
@@ -305,25 +288,30 @@ created.
 configfiles
 Specify configfiles
 
-FILES
 
-~/.buildrc
+## TO REPOSITORY
+
+# FILES
+
+`~/.buildrc`
+
 Configuration file
 
-EXAMPLES
+# EXAMPLES
 
 for all recipes where there are new versions, build, package and push to repo.
-  build -b -p -r -a
 
-AUTHOR
+`build -b -p -r -a`
+
+# AUTHOR
 
 Written by Mark Verboom
 
-REPORTING BUGS
+# REPORTING BUGS
 
 Prefferably by opening an issue on the github page.
 
-COPYRIGHT
+# COPYRIGHT
 
 Copyright  ©  2014  Free Software Foundation, Inc.  License GPLv3+: GNU
 GPL version 3 or later <http://gnu.org/licenses/gpl.html>.

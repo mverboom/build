@@ -1,0 +1,25 @@
+# Test recipe
+#
+# This recipe does nothing useful, be can be used as an example.
+#
+[VERSION]
+echo 1.0
+[INFO]
+excludefromall=1
+[BUILD]
+mkdir -p $B_INSTALLDIR/opt/test
+cp $B_FILES/test.sh $B_INSTALLDIR/opt/test
+B_LINKFILES /opt/test /usr/bin
+[PKG]
+type=deb
+torepo=y
+[DEB]
+Package: testpkg
+Version: VERSION
+Section: test
+Priority: optional
+Architecture: ARCH
+Maintainer: unknown@example.org
+Homepage: http://www.example.org
+Description: Test package
+
