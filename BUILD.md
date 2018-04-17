@@ -1,12 +1,14 @@
-NAME
+# name
+
+## Test
 
 build - automate building of software
 
-SYNOPSIS
+# SYNOPSIS
 
-build [OPTION]... [RECIPE]...
+`build [OPTION]... [RECIPE]...`
 
-DESCRIPTION
+# DESCRIPTION
 
 Automates the building of software, although it should be considered alpha
 quality software at best.
@@ -14,7 +16,9 @@ quality software at best.
 The building process is described by recipe files which are explained in the
 recipe section.
 
-Arguments that can be used are:
+Arguments that can be used are divided into two types:
+
+Operational mode:
 
 -c
 Check version, runs the version check section of the specified recipe(s).
@@ -26,11 +30,12 @@ Build, runs the build version of the specified recipe(s).
 Package, runs the package secition of the specified recipe(s).
 
 -r
-To repository, creates packages and copies to repository for specfified recipe(s)
+To repository, creates packages and copies to repository for specfified recipe(s).
 
+Operation modifiers:
 
 -a
-Select all recipes available.
+Process all recipes in the recipe directory.
 
 -v
 Specify specific version, will prevent from running version section of recipe(s)
@@ -49,9 +54,11 @@ Force build for recipe, even if complete build is already available.
 -i
 Specify an instance for a recipe
 
+-R
+Do not remove required packages after build and skip any post build script.
+
 -h
 This help message
-
 
 CONFIGURATION FILE
 
@@ -69,37 +76,75 @@ DESTDIR (defaults to ~/build)
 Destination directory where compiled software should be put.
 
 CACHEDIR (defaults to ~/cache)
-Download cache directory
+Download cache directory where downloaded files are placed.
 
 TMPDIR (defaults to ~/temp)
-Temporary build directory
-
-BASEDIR (defaults to /opt)
-Directory where software should be installed to
+Temporary directory where the software building takes place.
 
 RECIPEDIR (defaults to ~/recipes)
-Directory with recipes
+Directory with recipe files.
 
 PKGLIST (defaults to RECIPEDIR/pkglist)
-File with package administration
+File used for package administration.
 
 PKGDIR (defaults to ~/packages)
 Directory where built packages are placed
 
 TODEBREPO
-Points to script to use to publish Debian package to repository
-will get -q parameter passed if build is called with -q
-can be called with multiple package names in 1 go
+Points to script to use to publish Debian package to repository. This script
+can get the -q (quiet) option passed if the build process is run with -q. If
+multiple packages are processed, all which be passed to the script in a single
+go.
 
 INSTDEP (defaults to yes)
-Set to yes to try and automatically install build dependancies. In order
-for this option to work, the user who runs the script needs sudo rights to
-install packages.
+If set to yes will try to install the required packages specified in the
+recipe for the build. This requires the user running the script to have
+sudo rights to install packages.
 
 DEINSTDEP (defaults to yes)
-Set to yes to try and automatically uninstall build dependancies. In order
-for this option to work, the user who runs the script needs sudo rights to
-remove packages.
+if set to yes will try to remove the packages that were required for the
+build process. This requires the user running the script to have sudo
+rights to remove packages.
+
+PKGPOSTFIX
+This optional parameter defines an addition to the package name and can help
+identify package build by the script in a repository or system.
+
+POSTBUILD
+This can point to an optional script to be run after the build process is
+complete. The included debclean script can for example be used here.
+
+BUILDING
+
+During building recipes are used for the various steps in the build process.
+Below the specific recipe sections will be discussed for the different operation
+modes.
+
+RECIPE
+
+A recipe is build up in .ini file style format. Each section has a specific name
+and contains the information required for its function. Not every section is
+mandatory.
+
+GENERIC
+
+Sections in recipes not related to an operation mode are:
+
+[INFO] (optional)
+
+The following options can be set:
+
+excludefromall
+If this option is set to 1, the recipe will not be included when running the build
+script with the -a flag. This can be useful for recipes under development, not ready
+to include in a nightly run.
+
+Check version
+
+
+
+
+OLD BELOW
 
 BUILDING PACKAGE
 

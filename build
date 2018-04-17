@@ -575,7 +575,7 @@ main() {
    declare -A packages_torepo
 
    # Set defaults
-   DESTDIR=~/build CACHEDIR=~/cache TMPDIR=~/temp BASEDIR=/opt 
+   DESTDIR=~/build CACHEDIR=~/cache TMPDIR=~/temp
    REDIPEDIR=~/recipes PKGLIST=$RECIPEDIR/pkglist PKGDIR=~/packages
    INSTDEP=yes DEINSTDEP=yes
    test -f ~/.buildrc && . ~/.buildrc || { echo "No configuration file found."; exit 1;}
