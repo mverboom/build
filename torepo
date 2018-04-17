@@ -2,11 +2,23 @@
 #
 # Add package file to repository
 #
-# 20150726 MV: Initial version for freight
-# 20151106 MV: Delete removal of original file
-#              Get filename from possible path given as argument
-# 20161119 MV: Removed wheeze from target repositories
+# Copyright 2011-2018 Mark Verboom
 #
+# This file is part of Build.
+#
+#     Build is free software: you can redistribute it and/or modify
+#     it under the terms of the GNU General Public License as published by
+#     the Free Software Foundation, either version 3 of the License, or
+#     (at your option) any later version.
+#
+#     Build is distributed in the hope that it will be useful,
+#     but WITHOUT ANY WARRANTY; without even the implied warranty of
+#     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#     GNU General Public License for more details.
+#
+#     You should have received a copy of the GNU General Public License
+#     along with Build.  If not, see <http://www.gnu.org/licenses/>.
+
 set -e
 test "$1" = "-q" && { QUIET="> /dev/null 2>&1" ; shift; }
 test $# -lt 1 && { echo "Usage: torepo <filename>"; exit 1; }
