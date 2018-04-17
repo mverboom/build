@@ -115,6 +115,12 @@ complete. The included debclean script can for example be used here.
 # RECIPE
 
 During building recipes are used for the various steps in the build process.
+
+Recipes are stored in the recipe directory. Optionally that directory can also
+contain a folder specific for the recipe. For example, a recipe called `test.recipe`
+can also have a folder `test.files`. This directory can contain supporting information
+used during the different phases of building and packaging software.
+
 Below the specific recipe sections will be discussed for the different operation
 modes.
 
@@ -173,6 +179,91 @@ github. For projects not using tags, this allow for builds to be created on a da
 stamp.
 The function returns the newest date it can find.
 
+## BUILD
+
+For building the version of the software the following sections are used:
+
+`[REQUIRED]` (optional)
+
+This section can contain a single line of space seperated package names that need to be
+installed before the build is attempted.
+
+`[BUILD]` (mandatory)
+
+Everything in this section is executed to build the software. Execution takes place
+in a temporary directory. Creation and cleanup of the directroy is handled by the
+build script.
+
+Before the code is executed, an environment is set up with supporting information.
+
+**Variables**
+
+`B_ARCH`
+
+This variable contains the architecture the build process is run on.
+
+`B_VERSION`
+
+This variable conains the version of the software that is being build.
+
+`B_INSTALLDIR`
+
+This variable points to the installation directory where the results of the build
+need to be placed. This directory is empty and is regarded the root of the target
+installation. If a build creates a binary that needs to end up in /usr/bin, the following
+actions need to be taken:
+
+`mkdir -p $B_INSTALLDIR/usr/bin`
+`cp binary $B_INSTALLDIR/usr/bin`
+
+`B_ARCH`
+
+Architecture software is being build for.
+
+`B_INSTANCE`
+
+Instance name of software being build. This is only set if an instance was provided on
+the invokation of the build script.
+
+`B_CACHEDIR`
+
+This variable points to the download directory for this specific software.
+
+`B_NAME`
+This variable contains the name of the software that needs to be build.
+
+`B_BUILDNR`
+
+This variable contains the number of times this specific version of the software has
+ben build. This number is also used when creating a package of a build to indicate
+a new package of the same version.
+
+`B_FILES`
+
+If a recipe has a recipe specific directory which contains a directory called
+`B_FILES`, this variable will point to that directory.  This directory can be
+used to store files used during the build process.
+
+**Functions**
+
+`B_GET`
+
+Download software and check if it is already in the cache.
+This function supports http and git. The usage is:
+
+B_GET method url target
+
+Retrieving software from a website could be like this:
+
+B_GET http https://software.com/path/v${B_VERSION}/software-${B_VERSION}.tar.gz software.tar.gz
+
+
+`B_UPDATEPKGBLD`
+
+Update package build number
+
+`B_LINKFILES`
+Will link files with the exception of files ending in .real
 
 # AUTHOR
 
@@ -195,84 +286,6 @@ any package configuration files in the DEBIAN directory need to be overwritten
 or added, it can be put in this directory.
 
 RECIPE
-
-A recipe is divided into multiple sections. The recipe layout follows the
-ini file setup. The different sections are explained below.
-
-[VERSION] (mandatory)
-
-This section should contain commands that, when executed, return the latest
-available version of the software. This usually consists of some clever wget
-or git commands to figure out the version.
-
-There currently is one supporting function to ease the proces to get a version
-number for software in a github repository:
-
-B_GITVER
-
-An example usage can be:
-
-B_GITVER https://github.com/project/repo
-
-This function does some filtering to get the right version number, which may
-not always work for every repository.
-
-[BUILD] (mandatory)
-
-This section contains all commands that are needed to download the specific
-version of the software, compile/create it and install it to the destination
-directory. To assist in building, the following environment variables and 
-functions are made available:
-
-VARIABLES
-
-B_ARCH
-Architecture software is being build for
-
-B_CACHEDIR
-Directory where files can be downloaded
-
-B_NAME
-Name of the software that needs to be build
-
-B_VERSION
-Version of the software being build
-
-B_INSTANCE
-Instance name of software being build (optional)
-
-B_BUILDNR
-The number of the build of this current version
-
-B_INSTALLDIR
-Software installation directory
-
-B_FILES
-Points to directory where files can be stored to use during build.
-
-FUNCTIONS
-
-B_GET
-Download software and check if it is already in the cache.
-This function supports http and git. The usage is:
-
-B_GET method url target
-
-Retrieving software from a website could be like this:
-
-B_GET http https://software.com/path/v${B_VERSION}/software-${B_VERSION}.tar.gz software.tar.gz
-
-B_UPDATEPKGBLD
-Update package build number
-
-B_LINKFILES
-Will link files with the exception of files ending in .real
-
-[REQUIRED] (optional for software building)
-
-This section can specify the required installed packages that need to be
-available in order to be able to build the software. This is a space seperated
-list of package names.
 
 [PKG] (optional for package building)
 

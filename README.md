@@ -1,7 +1,7 @@
-# build
+# Build
 
-A simple shellscript to assist in automating building new software releases and converting
-them into basic packages.
+A quick and dirty shellscript to assist in automating building new software
+releases and converting them into basic packages.
 
 The script is mainly aimed at Debian systems, but enough infrastructure is in place to
 add different packaging options.
