@@ -25,4 +25,4 @@ Architecture: all
 Maintainer: mark@verboom.net
 Description: Build example package build
 Homepage: https://github.com/mverboom/build
-Depends: git,bzip2,hg,wget,grep,awk
+Depends: git,bzip2,hg,wget,grep,awk,subversion

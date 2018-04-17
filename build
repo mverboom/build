@@ -23,7 +23,7 @@
 #     along with Build.  If not, see <http://www.gnu.org/licenses/>.
 
 require_software() {
-   echo awk grep git wget fakeroot bzip2 hg
+   echo awk grep git subversion wget fakeroot bzip2 hg
 }
 
 distro_get() {
