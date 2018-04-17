@@ -461,31 +461,30 @@ version_get() {
    return 0
 }
 
-# ToDo: check local vars
-# ToDo: create better option vars
 parse_options() {
    FORCE=0 ; QUIET=0 ; DEBUG= ; PKGS= ; FORCEVERSION=
    DO_CHECK=0; DO_BUILD=0; DO_PACKAGE=0; DO_REPO=0; B_NOPKGRM=0
-   while test "$1" != ""
+
+   while getopts :cbprai:Rxqfhv: opt
    do
-      case $1 in
-      "-c")
+      case $opt in
+      c)
          DO_CHECK=1
       ;;
-      "-b")
+      b)
          DO_CHECK=2
          DO_BUILD=1
       ;;
-      "-p")
+      p)
          DO_CHECK=2
          DO_PACKAGE=1
       ;;
-      "-r")
+      r)
          DO_CHECK=2
          DO_PACKAGE=2
          DO_REPO=1
       ;;
-      "-a")
+      a)
          local recipe
          for recipe in $RECIPEDIR/*.recipe
          do
@@ -493,37 +492,40 @@ parse_options() {
             test "$( recipe_item_get $recipe INFO excludefromall )" != "1" && work_recipes+=( $recipe )
          done
       ;;
-      "-i")
-         shift
-         B_INSTANCE="$1"
+      i)
+         B_INSTANCE="$OPTARG"
       ;;
-      "-R")
+      R)
          B_NOPKGRM=1
       ;;
-
-      "-x")
+      x)
          set -x
          DEBUG=-x
       ;;
-      "-q")
+      q)
          QUIET=$(( $QUIET +1 ))
       ;;
-      "-f")
+      f)
          FORCE=1
       ;;
-      "-h")
+      h)
          usage
       ;;
-      "-v")
-         shift
-         FORCEVERSION=$1
+      v)
+         FORCEVERSION="$OPTARG"
       ;;
-      *)
-         work_recipes+=($1)
+      \?)
+         echo "Unknown option: -$OPTARG"
+         usage
+      ;;
+      :)
+         echo "Option -$OPTARG requires argument"
+         usage
       ;;
       esac
-      shift
    done
+   shift $((OPTIND -1))
+   work_recipes+=($*)
    if test ${#work_recipes[@]} -eq 0
    then
       output "No recipe(s) specified."
@@ -606,7 +608,6 @@ main() {
    sanity_check
    parse_options "$@"
    B_ARCH=$( arch_get )
-
 
    # ToDo: check for >1 values for actions
    # ToDo: check for not required filled arrays
