@@ -3,7 +3,7 @@
 [VERSION]
 B_GITVER https://github.com/mverboom/build
 [REQUIRED]
-bash
+git
 [INFO]
 excludefromall=1
 [BUILD]
@@ -25,4 +25,4 @@ Architecture: all
 Maintainer: mark@verboom.net
 Description: Build example package build
 Homepage: https://github.com/mverboom/build
-Depends: bash
+Depends: git,bzip2,hg,wget,grep,awk
