@@ -140,6 +140,7 @@ Sections in recipes not related to an operation mode are:
 The following options can be set:
 
 excludefromall
+
 If this option is set to 1, the recipe will not be included when running the build
 script with the -a flag. This can be useful for recipes under development, not ready
 to include in a nightly run.
@@ -249,24 +250,65 @@ used to store files used during the build process.
 
 **Functions**
 
-`B_GET`
+`B_GET [method] [url] [name]`
 
-Download software and check if it is already in the cache.
-This function supports http and git. The usage is:
+The B_GET function assists in caching and downloading of content. It supports
+different download methods and caches content in the cache directory.
 
-B_GET method url target
+The url should refrence the content that needs to be downloaded.
 
-Retrieving software from a website could be like this:
+The name references the name of the cache object that needs to be created. For
+all methods that support version information, this is also the name of the 
+folder that will have been created if the `B_GET` function succesfully completes 
+operation.
 
-B_GET http https://software.com/path/v${B_VERSION}/software-${B_VERSION}.tar.gz software.tar.gz
+The following methods are supported:
 
+* http
+
+This is used for download http or https content. As this method does not  provide
+any version information, the cache directory will be populated with a directory
+per version. If `B_GET` completes succesfully a file called `name` will be
+available. Any unpacking or processing on the downloaded content needs to be
+performed by the code in the recipe.
+
+* git
+
+This is used to clone git repositories. This method provides version information.
+Only one directory will be created in the cache directory. When a newer version
+of the software is detected an update will be done on the perviously cached cloned
+git repository. The update will be stored back in the cache.
+If `B_GET` completes succesfully, a folder called `name` will be available with
+the repository content.
+
+* svn (subversion, status beta)
+
+This is used to check out subversion repositories. This method is beta and not
+completely implemented.
+If `B_GET` completes succesfully, a folder called `name` will be available with
+the repository content.
+
+* mercurial (status beta)
+
+This is used to clone mercurial repositories. This method is beta and not
+completely implemented.
+If `B_GET` completes succesfully, a folder called `name` will be available with
+the repository content.
 
 `B_UPDATEPKGBLD`
 
-Update package build number
+This will retrieve the current build number from the package administration file,
+and rewrite it using the `B_BUILDNR` variable information.
 
-`B_LINKFILES`
-Will link files with the exception of files ending in .real
+`B_LINKFILES <source directory> <destination directory>`
+
+This function will create symlinks for all files in the source directory to the
+destination directory. The destination directory needs to be relative to the
+`B_INSTALLDIR`. If the destination directory doens't exist yet, it is created
+automatically.
+
+Any file in the source directory that exists and ends in `.real` will not be
+linked.
 
 ## PACKAGE
 

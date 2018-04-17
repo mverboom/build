@@ -151,20 +151,6 @@ build() {
          fi
          cp $target $fn
       ;;
-      #"git")
-      #   if ! test -f $target
-      #   then
-      #      test -d $targetdir || mkdir -p $targetdir
-      #      mkdir /tmp/git-dl.$$
-      #      cd /tmp/git-dl.$$
-      #      echo "Git downloading files.."
-      #      git clone $url $fn
-      #      tar cfz $target $fn
-      #      cd - > /dev/null
-      #      rm -rf /tmp/git-dl.$$
-      #   fi
-      #   tar xzf $target
-      #;;
       "git")
          if ! test -f $targetnover
          then
