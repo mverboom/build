@@ -172,6 +172,27 @@ build() {
             fi
          fi
       ;;
+      "hg")
+         if ! test -f $targetnover
+         then
+            test -d $targetdir || mkdir -p $targetdir
+            echo "Mercurial downloading files.."
+            hg clone $url $fn
+            test $? -ne 0 && { echo "Error cloning repository."; exit 1; }
+            tar cfz $targetnover $fn
+         else
+            tar xzf $targetnover
+            cd $fn
+            if test "$(hg id | cut -d' ' -f 1)" != "$(hg id $url)"
+            then
+               hg pull
+               cd ..
+               tar cfz $targetnover $fn
+            else
+               cd ..
+            fi
+         fi
+      ;;
       "svn")  
          if ! test -f $targetnover
          then
@@ -192,20 +213,6 @@ build() {
                cd ..
             fi
          fi
-      ;;
-      "mercurial")
-         if ! test -f $target
-         then
-            test -d $targetdir || mkdir -p $targetdir
-            mkdir /tmp/mercurial-dl.$$
-            cd /tmp/mercurial-dl.$$
-            echo "Mercurial downloading files.."
-            hg clone $url $fn
-            tar cfz $target $fn
-            cd - > /dev/null
-            rm -rf /tmp/mercurial-dl.$$
-         fi
-         tar xzf $target
       ;;
       *)
          echo "B_GET: unknown method $method"
@@ -441,7 +448,10 @@ version_get() {
    B_SVNREV() {
       svn info $1 | grep Revision | cut -d' ' -f2
    }
-   export -f B_GITVER B_GITHUBVER B_SVNDATE B_SVNREV
+   B_HGREV() {
+      hg id $1
+   }
+   export -f B_GITVER B_GITHUBVER B_SVNDATE B_SVNREV B_HGREV
    CMD=$( recipe_section_get $pkg VERSION )
    test $? -ne 0 && { output $CMD ; return 1; }
    local ver=$( bash $DEBUG -e -c "$CMD" 2>/dev/null )

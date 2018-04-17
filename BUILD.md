@@ -195,6 +195,11 @@ repository.
 This function attempts to find the last revision number for the subversion
 repository specified.
 
+`B_HGREV <mercurial repository>`
+
+This function attemts to find the last revision number for the mercurial
+repository specified.
+
 ## BUILD
 
 For building the version of the software the following sections are used:
@@ -300,7 +305,7 @@ completely implemented.
 If `B_GET` completes succesfully, a folder called `name` will be available with
 the repository content.
 
-* mercurial (status beta)
+* hg (mercurial, status beta)
 
 This is used to clone mercurial repositories. This method is beta and not
 completely implemented.
