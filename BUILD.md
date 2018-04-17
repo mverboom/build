@@ -312,6 +312,9 @@ linked.
 
 ## PACKAGE
 
+Once a package has been created, it will be stored in the `PKGDIR` as specified
+in `~/.buildrc`.
+
 For creating a pacakge the following sections are used:
 
 `[PKG]` (mandatory)
