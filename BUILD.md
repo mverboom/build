@@ -1,6 +1,4 @@
-# name
-
-## Test
+# NAME
 
 build - automate building of software
 
@@ -18,109 +16,109 @@ recipe section.
 
 Arguments that can be used are divided into two types:
 
-Operational mode:
+**Operational mode:**
 
--c
+`-c`
 Check version, runs the version check section of the specified recipe(s).
 
--b
+`-b`
 Build, runs the build version of the specified recipe(s).
 
--p
+`-p`
 Package, runs the package secition of the specified recipe(s).
 
--r
+`-r`
 To repository, creates packages and copies to repository for specfified recipe(s).
 
-Operation modifiers:
+**Operation modifiers:**
 
--a
+`-a`
 Process all recipes in the recipe directory.
 
--v
+`-v`
 Specify specific version, will prevent from running version section of recipe(s)
 
--q
+`-q`
 Quiet output.
 Specify once will still show output on succesfull and failed builds.
 Specify twice will not show output.
 
--x
+`-x`
 Enable debugging output
 
--f
+`-f`
 Force build for recipe, even if complete build is already available.
 
--i
+`-i`
 Specify an instance for a recipe
 
--R
+`-R`
 Do not remove required packages after build and skip any post build script.
 
--h
+`-h`
 This help message
 
-CONFIGURATION FILE
+# CONFIGURATION FILE
 
 The script uses a configuration file which is located at:
 
-~/.buildrc
+`~/.buildrc`
 
 The file has the following format:
 
-VARIABLE=value
+`VARIABLE=value`
 
 The following variable can be set in the configuration file.
 
-DESTDIR (defaults to ~/build)
+`DESTDIR` (defaults to ~/build)
 Destination directory where compiled software should be put.
 
-CACHEDIR (defaults to ~/cache)
+`CACHEDIR` (defaults to ~/cache)
 Download cache directory where downloaded files are placed.
 
-TMPDIR (defaults to ~/temp)
+`TMPDIR` (defaults to ~/temp)
 Temporary directory where the software building takes place.
 
-RECIPEDIR (defaults to ~/recipes)
+`RECIPEDIR` (defaults to ~/recipes)
 Directory with recipe files.
 
-PKGLIST (defaults to RECIPEDIR/pkglist)
+`PKGLIST` (defaults to RECIPEDIR/pkglist)
 File used for package administration.
 
-PKGDIR (defaults to ~/packages)
+`PKGDIR` (defaults to ~/packages)
 Directory where built packages are placed
 
-TODEBREPO
+`TODEBREPO`
 Points to script to use to publish Debian package to repository. This script
 can get the -q (quiet) option passed if the build process is run with -q. If
 multiple packages are processed, all which be passed to the script in a single
 go.
 
-INSTDEP (defaults to yes)
+`INSTDEP` (defaults to yes)
 If set to yes will try to install the required packages specified in the
 recipe for the build. This requires the user running the script to have
 sudo rights to install packages.
 
-DEINSTDEP (defaults to yes)
+`DEINSTDEP` (defaults to yes)
 if set to yes will try to remove the packages that were required for the
 build process. This requires the user running the script to have sudo
 rights to remove packages.
 
-PKGPOSTFIX
+`PKGPOSTFIX`
 This optional parameter defines an addition to the package name and can help
 identify package build by the script in a repository or system.
 
-POSTBUILD
+`POSTBUILD`
 This can point to an optional script to be run after the build process is
 complete. The included debclean script can for example be used here.
 
-BUILDING
+# BUILDING
 
 During building recipes are used for the various steps in the build process.
 Below the specific recipe sections will be discussed for the different operation
 modes.
 
-RECIPE
+## RECIPE
 
 A recipe is build up in .ini file style format. Each section has a specific name
 and contains the information required for its function. Not every section is
