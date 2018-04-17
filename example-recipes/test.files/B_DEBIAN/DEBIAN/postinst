@@ -1,0 +1,8 @@
+#!/bin/sh
+
+set -e
+
+echo -n "Press enter to start the script "
+read line
+/opt/test/test.sh
+exit 0
