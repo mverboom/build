@@ -1,0 +1,22 @@
+# Destination directory where compiled software should be stored
+DESTDIR=~/build
+# Download cache directory
+CACHEDIR=~/cache
+# Temporary build directory
+TMPDIR=~/temp
+# Directory with recipes
+RECIPEDIR=~/recipes
+# File with package administration
+PKGLIST=$RECIPEDIR/pkglist
+# Directory to output packages to
+PKGDIR=~/packages
+# Script to use to publish Debian package to repository
+TODEBREPO="torepo"
+# Set to yes to try and automatically install build dependancies
+INSTDEP=yes
+# Set to yes to try and automatically uninstall build dependancies
+DEINSTDEP=yes
+# Set package name postfix or empty if not set
+PKGPOSTFIX=myorganisation
+# Script to run after a build
+POSTBUILD="debclean -c"
