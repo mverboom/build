@@ -205,7 +205,7 @@ build() {
             cd $fn
             if test "$(svn info $url | grep Revision | cut -d' ' -f2)" != "$( svn info | grep Revision | cut -d' ' -f 2)"
             then
-               svn update
+               svn update --non-interactive
                cd ..
                tar cfz $targetnover $fn
             else
