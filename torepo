@@ -28,5 +28,6 @@ do
    filename=$( basename $pkg )
    scp -q $pkg repo@repo:/tmp
    ssh repo@repo "freight add /tmp/$filename apt/current $QUIET; rm /tmp/$filename $QUIET"
+   rm $pkg
 done
 ssh repo@repo "freight cache $QUIET"
