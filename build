@@ -203,9 +203,9 @@ build() {
          else
             tar xzf $targetnover
             cd $fn
-            if test "$(svn info $url | grep Revision | cut -d' ' -f2)" != "$( svn info | grep Revision | cut -d' ' -f 2)"
+            if test "$(svn info --non-interactive --trust-server-cert $url | grep Revision | cut -d' ' -f2)" != "$( svn info --non-interactive --trust-server-cert | grep Revision | cut -d' ' -f 2)"
             then
-               svn update --non-interactive
+               svn update --non-interactive --trust-server-cert
                cd ..
                tar cfz $targetnover $fn
             else
@@ -441,10 +441,10 @@ version_get() {
       wget -q -O - $1 | sed '/datetime=/!d; s/.*time-ago datetime="[TZ\:0-9\-]*">\([^<]*\)<.*/\1/' | while read line; do date --date="$line" "+%Y%m%d"; done | sort | tail -1
    }
    B_SVNDATE() {
-      date -d "$(svn info $1 | grep 'Last Changed Date:' | cut -d':' -f2-)" "+%Y%m%d"
+      date -d "$(svn info --non-interactive --trust-server-cert $1 | grep 'Last Changed Date:' | cut -d':' -f2-)" "+%Y%m%d"
    }
    B_SVNREV() {
-      svn info $1 | grep Revision | cut -d' ' -f2
+      svn info --non-interactive --trust-server-cert $1 | grep Revision | cut -d' ' -f2
    }
    B_HGREV() {
       hg id $1
