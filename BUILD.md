@@ -141,6 +141,13 @@ Sections in recipes not related to an operation mode are:
 
 The following options can be set:
 
+arch
+
+This is a comma seperated list of architectures this recipe should be run for.
+If this is absent, the recipe will be run on any architecture.
+A recipe that creates a build that can be build and ran on any architecture can
+be identiefied with `any`.
+
 excludefromall
 
 If this option is set to 1, the recipe will not be included when running the build
