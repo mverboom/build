@@ -506,7 +506,7 @@ parse_options() {
          do
             recipe=$( basename -s .recipe $recipe )
             exclude=$( recipe_item_get $recipe INFO excludefromall )
-            test $(recipe_select_arch $recipe) -a "$exclude" != "1" && { work_recipes+=( $recipe ) ; recipe_arch[$recipe]=$B_ARCH; } || output "$recipe not for this architecture."
+            test $(recipe_select_arch $recipe) -a "$exclude" != "1" && { work_recipes+=( $recipe ) ; work_arch[$recipe]=$B_ARCH; } || output "$recipe not for this architecture."
          done
       ;;
       i)
@@ -544,7 +544,7 @@ parse_options() {
    shift $((OPTIND -1))
    for recipe in $*
    do
-      recipe_select_arch $recipe && { work_recipes+=($recipe); recipe_arch[$recipe]=$B_ARCH;} || output "$recipe not for this architecture."
+      recipe_select_arch $recipe && { work_recipes+=($recipe); work_arch[$recipe]=$B_ARCH;} || output "$recipe not for this architecture."
    done
    #work_recipes+=($*)
    if test ${#work_recipes[@]} -eq 0
@@ -616,7 +616,7 @@ main() {
    local i
    local retval=0
    declare -A packages_torepo
-   declare -A recipe_arch
+   declare -A work_arch
    LOCK=/tmp/build.lck
 
    # Set defaults
@@ -638,7 +638,7 @@ main() {
       check_found=0
       for i in ${!work_recipes[@]}
       do
-         B_ARCH=${recipe_arch[${work_recipes[$i]}]}
+         B_ARCH=${work_arch[${work_recipes[$i]}]}
          work_version[$i]=$( check_version_built ${work_recipes[$i]} )
          work_built[$i]=$?
          test $DO_CHECK -eq 1 -o $DO_BUILD -eq 1 -a $FORCE -eq 0 && { test ${work_built[$i]} -eq 1 && output "${work_recipes[$i]} ${work_version[$i]} (already built)"; }
