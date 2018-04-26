@@ -651,6 +651,7 @@ main() {
       lock_get || { echo "Unable to get lock, other instance running?"; exit 1; }
       for i in ${!work_recipes[@]}
       do
+         B_ARCH=${work_arch[${work_recipes[$i]}]}
          if test ${work_built[$i]} -eq 0 -o $FORCE -eq 1
          then
             build ${work_recipes[$i]} ${work_version[$i]}
@@ -664,6 +665,7 @@ main() {
       # if no build action and version built, package. if build action successful, build.
       for i in ${!work_recipes[@]}
       do
+         B_ARCH=${work_arch[${work_recipes[$i]}]}
          b=0
          test $DO_BUILD -eq 0 -a ${work_built[$i]} = 1 && b=1
          test "${work_build[$i]}" = "1" && b=1
@@ -677,6 +679,7 @@ main() {
 
    if test $DO_REPO -ne 0; then
       lock_get || { echo "Unable to get lock, other instance running?"; exit 1; }
+      B_ARCH=${work_arch[${work_recipes[$i]}]}
       # if package is succesfully generated
       if test ${#work_package[@]} -gt 0; then
          package_torepo ${work_package[@]}
