@@ -128,7 +128,6 @@ build() {
    B_CACHEDIR=$CACHEDIR
    test -d $RECIPEDIR/$B_NAME.files/B_BUILD && B_FILES=$RECIPEDIR/$B_NAME.files/B_BUILD
    B_PKGLIST=$PKGLIST
-   # export B_VERSION B_INSTALLDIR B_ARCH B_DESTDIR B_INSTANCE B_CACHEDIR B_NAME B_BUILDNR B_PKGLIST
    export B_VERSION B_INSTALLDIR B_ARCH B_INSTANCE B_CACHEDIR B_NAME B_BUILDNR B_FILES
    B_GET() {
       test $# -ne 3 && { >&2 echo "Insufficient arguments to B_GET."; exit 1; }
@@ -285,12 +284,17 @@ usage() {
 }
 
 arch_get() {
-   case $(uname -m) in
+   local arch=$(uname -m)
+   case $arch in
    "i686")
      echo i386
      ;;
    "x86_64")
      echo amd64
+     ;;
+   *)
+     echo $arch
+     ;;
    esac
 }
 
@@ -430,7 +434,7 @@ version_get() {
    local pkg=$1
    local CMD
 
-   export B_ARCH=$( arch_get )
+   export B_SARCH
    export B_NAME=$1
    B_GITVER() {
       exp=""
@@ -457,6 +461,20 @@ version_get() {
    test "$ver" = "" && { >&2 output "Version command for $pkg returned no output." ; return 1 ; }
    echo $ver
    return 0
+}
+
+recipe_select_arch() {
+   local recipe=$1
+   local arch=$( recipe_item_get $recipe INFO arch )
+   test "$arch" = "" && arch="system"
+   for B_ARCH in ${arch/,/ }
+   do
+      if test "$B_ARCH" = "system" -o "$B_ARCH" = "any" -o "$B_ARCH" = "$B_SARCH"
+      then
+         return 0
+      fi
+   done
+   return 1
 }
 
 parse_options() {
@@ -487,7 +505,8 @@ parse_options() {
          for recipe in $RECIPEDIR/*.recipe
          do
             recipe=$( basename -s .recipe $recipe )
-            test "$( recipe_item_get $recipe INFO excludefromall )" != "1" && work_recipes+=( $recipe )
+            exclude=$( recipe_item_get $recipe INFO excludefromall )
+            test $(recipe_select_arch $recipe) -a "$exclude" != "1" && { work_recipes+=( $recipe ) ; recipe_arch[$recipe]=$B_ARCH; } || output "$recipe not for this architecture."
          done
       ;;
       i)
@@ -523,7 +542,11 @@ parse_options() {
       esac
    done
    shift $((OPTIND -1))
-   work_recipes+=($*)
+   for recipe in $*
+   do
+      recipe_select_arch $recipe && { work_recipes+=($recipe); recipe_arch[$recipe]=$B_ARCH;} || output "$recipe not for this architecture."
+   done
+   #work_recipes+=($*)
    if test ${#work_recipes[@]} -eq 0
    then
       output "No recipe(s) specified."
@@ -593,6 +616,7 @@ main() {
    local i
    local retval=0
    declare -A packages_torepo
+   declare -A recipe_arch
    LOCK=/tmp/build.lck
 
    # Set defaults
@@ -602,8 +626,9 @@ main() {
    test -f ~/.buildrc && . ~/.buildrc || { echo "No configuration file found."; exit 1;}
 
    sanity_check
+
+   B_SARCH=$( arch_get )
    parse_options "$@"
-   B_ARCH=$( arch_get )
 
    # ToDo: check for >1 values for actions
    # ToDo: check for not required filled arrays
@@ -613,6 +638,7 @@ main() {
       check_found=0
       for i in ${!work_recipes[@]}
       do
+         B_ARCH=${recipe_arch[${work_recipes[$i]}]}
          work_version[$i]=$( check_version_built ${work_recipes[$i]} )
          work_built[$i]=$?
          test $DO_CHECK -eq 1 -o $DO_BUILD -eq 1 -a $FORCE -eq 0 && { test ${work_built[$i]} -eq 1 && output "${work_recipes[$i]} ${work_version[$i]} (already built)"; }
