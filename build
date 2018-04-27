@@ -75,7 +75,7 @@ build_require() {
       dpkg-query -s ${pkg/*@/} > /dev/null 2>&1
       if test $? -ne 0
       then
-         test $QUIET -eq 0 && output "Package $pkg required for build, but not installed."
+         output "Package $pkg required for build, but not installed."
          if test "$INSTDEP" = "yes" 
          then
             test "$pkg" = "${pkg/*@/}" && toinst="$toinst $pkg" || toinsttr="$toinsttr $pkg"
@@ -124,6 +124,7 @@ build() {
    B_INSTALLDIR=$DESTDIR/$B_ARCH/$B_NAME-$versiondir
    test $FORCE -eq 1 && rm -rf $B_INSTALLDIR
    mkdir -p $B_INSTALLDIR
+
    # Define build environment variables and functions
    B_CACHEDIR=$CACHEDIR
    test -d $RECIPEDIR/$B_NAME.files/B_BUILD && B_FILES=$RECIPEDIR/$B_NAME.files/B_BUILD
@@ -397,6 +398,7 @@ package_debian() {
       then
          ( cd $RECIPEDIR/$pkg.files/B_DEBIAN ; tar cf - . ) | tar xf -
       fi
+
       # Mark config files
       find . -path "*/etc/*" -type f | sed "s/^\.//" > DEBIAN/conffiles
       local configfiles=$( recipe_item_get $pkg PKG configfiles )
@@ -480,6 +482,7 @@ recipe_select_arch() {
 parse_options() {
    FORCE=0 ; QUIET=0 ; DEBUG= ; PKGS= ; FORCEVERSION=
    DO_CHECK=0; DO_BUILD=0; DO_PACKAGE=0; DO_REPO=0; B_NOPKGRM=0
+   local all=0
 
    while getopts :cbprai:Rxqfhv: opt
    do
@@ -501,13 +504,7 @@ parse_options() {
          DO_REPO=1
       ;;
       a)
-         local recipe
-         for recipe in $RECIPEDIR/*.recipe
-         do
-            recipe=$( basename -s .recipe $recipe )
-            exclude=$( recipe_item_get $recipe INFO excludefromall )
-            test $(recipe_select_arch $recipe) -a "$exclude" != "1" && { work_recipes+=( $recipe ) ; work_arch[$recipe]=$B_ARCH; } || output "$recipe not for this architecture."
-         done
+         all=1
       ;;
       i)
          B_INSTANCE="$OPTARG"
@@ -542,11 +539,23 @@ parse_options() {
       esac
    done
    shift $((OPTIND -1))
+
    for recipe in $*
    do
       recipe_select_arch $recipe && { work_recipes+=($recipe); work_arch[$recipe]=$B_ARCH;} || output "$recipe not for this architecture."
    done
-   #work_recipes+=($*)
+
+   if test $all -eq 1
+   then
+      local recipe
+      for recipe in $RECIPEDIR/*.recipe
+      do
+         recipe=$( basename -s .recipe $recipe )
+         exclude=$( recipe_item_get $recipe INFO excludefromall )
+         $(recipe_select_arch $recipe) && test "$exclude" != "1" && { work_recipes+=( $recipe ) ; work_arch[$recipe]=$B_ARCH; } || output "$recipe not for this architecture."
+      done
+   fi
+
    if test ${#work_recipes[@]} -eq 0
    then
       output "No recipe(s) specified."
@@ -612,14 +621,12 @@ lock_free() {
 }
 
 main() {
-   QUIET=0
    local i
    local retval=0
    declare -A packages_torepo
    declare -A work_arch
    LOCK=/tmp/build.lck
 
-   # Set defaults
    DESTDIR=~/build CACHEDIR=~/cache TMPDIR=~/temp
    REDIPEDIR=~/recipes PKGLIST=$RECIPEDIR/pkglist PKGDIR=~/packages
    INSTDEP=yes DEINSTDEP=yes
@@ -629,9 +636,6 @@ main() {
 
    B_SARCH=$( arch_get )
    parse_options "$@"
-
-   # ToDo: check for >1 values for actions
-   # ToDo: check for not required filled arrays
 
    if test $DO_CHECK -ne 0; then
       # Get current version and check if already built
