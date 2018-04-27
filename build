@@ -468,10 +468,10 @@ version_get() {
 recipe_select_arch() {
    local recipe=$1
    local arch=$( recipe_item_get $recipe INFO arch )
-   test "$arch" = "" && arch="system"
+   test "$arch" = "" && arch="$B_SARCH"
    for B_ARCH in ${arch/,/ }
    do
-      if test "$B_ARCH" = "system" -o "$B_ARCH" = "any" -o "$B_ARCH" = "$B_SARCH"
+      if test "$B_ARCH" = "any" -o "$B_ARCH" = "$B_SARCH"
       then
          return 0
       fi
@@ -552,7 +552,7 @@ parse_options() {
       do
          recipe=$( basename -s .recipe $recipe )
          exclude=$( recipe_item_get $recipe INFO excludefromall )
-         $(recipe_select_arch $recipe) && test "$exclude" != "1" && { work_recipes+=( $recipe ) ; work_arch[$recipe]=$B_ARCH; } || output "$recipe not for this architecture."
+         recipe_select_arch $recipe && test "$exclude" != "1" && { work_recipes+=( $recipe ) ; work_arch[$recipe]=$B_ARCH; } || output "$recipe not for this architecture."
       done
    fi
 
