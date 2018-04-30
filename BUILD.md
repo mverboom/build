@@ -146,7 +146,7 @@ arch
 This is a comma seperated list of architectures this recipe should be run for.
 If this is absent, the recipe will be run on any architecture.
 A recipe that creates a build that can be build and ran on any architecture can
-be identiefied with `any`.
+be identiefied with `all`.
 
 excludefromall
 
