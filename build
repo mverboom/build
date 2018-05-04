@@ -23,7 +23,7 @@
 #     along with Build.  If not, see <http://www.gnu.org/licenses/>.
 
 require_software() {
-   echo awk grep git svn wget fakeroot bzip2 hg
+   echo gawk grep git svn wget fakeroot bzip2 hg
 }
 
 distro_get() {
@@ -480,7 +480,7 @@ recipe_select_arch() {
 }
 
 parse_options() {
-   FORCE=0 ; QUIET=0 ; DEBUG= ; PKGS= ; FORCEVERSION=
+   FORCE=0 ; DEBUG= ; PKGS= ; FORCEVERSION=
    DO_CHECK=0; DO_BUILD=0; DO_PACKAGE=0; DO_REPO=0; B_NOPKGRM=0
    local all=0
 
@@ -626,6 +626,7 @@ main() {
    declare -A packages_torepo
    declare -A work_arch
    LOCK=/tmp/build.lck
+   QUIET=0
 
    DESTDIR=~/build CACHEDIR=~/cache TMPDIR=~/temp
    REDIPEDIR=~/recipes PKGLIST=$RECIPEDIR/pkglist PKGDIR=~/packages
