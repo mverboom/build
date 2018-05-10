@@ -274,7 +274,7 @@ used to store files used during the build process.
 
 **Functions**
 
-`B_GET <method> <url> <name>`
+`B_GET <method> <url> <name> "<options>"`
 
 The B_GET function assists in caching and downloading of content. It supports
 different download methods and caches content in the cache directory.
@@ -285,6 +285,8 @@ The name references the name of the cache object that needs to be created. For
 all methods that support version information, this is also the name of the 
 folder that will have been created if the `B_GET` function succesfully completes 
 operation.
+
+The options are passed to supported methods (see below) as extra commandline arguments.
 
 The following methods are supported:
 
@@ -304,6 +306,10 @@ of the software is detected an update will be done on the perviously cached clon
 git repository. The update will be stored back in the cache.
 If `B_GET` completes succesfully, a folder called `name` will be available with
 the repository content.
+
+Any options defined in the `B_GET` line can be used to checkout different branches, for example:
+
+B_GET git https://github.com/mverboom/repo src "-b notmaster"
 
 * svn (subversion, status beta)
 
@@ -384,11 +390,11 @@ in this section.
 A number of substitutions will be made if specific keywords are used in this
 section. The available keywords are:
 
-* `VERSION`
+* `B_VERSION`
 
 This will be replaced by the actual version of the package being created.
 
-* `ARCH`
+* `B_ARCH`
 
 This will be replaced by the actual architecture for which the package is
 being created.
