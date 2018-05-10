@@ -274,7 +274,7 @@ used to store files used during the build process.
 
 **Functions**
 
-`B_GET <method> <url> <name> "<options>"`
+`B_GET <method> <url> <name>
 
 The B_GET function assists in caching and downloading of content. It supports
 different download methods and caches content in the cache directory.
@@ -306,10 +306,6 @@ of the software is detected an update will be done on the perviously cached clon
 git repository. The update will be stored back in the cache.
 If `B_GET` completes succesfully, a folder called `name` will be available with
 the repository content.
-
-Any options defined in the `B_GET` line could for example be used to checkout different branches:
-
-B_GET git https://github.com/mverboom/repo src "-b notmaster"
 
 * svn (subversion, status beta)
 
