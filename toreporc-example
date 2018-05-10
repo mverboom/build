@@ -1,0 +1,2 @@
+# SSH URI to upload packages to
+REPO=repo@repo

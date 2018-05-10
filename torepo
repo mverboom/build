@@ -20,7 +20,7 @@
 #     along with Build.  If not, see <http://www.gnu.org/licenses/>.
 
 set -e
-test -f ~/.buildrc && . ~/.buildrc
+test -f ~/.toreporc && . ~/.toreporc
 test "$1" = "-q" && { QUIET="> /dev/null 2>&1" ; shift; }
 test $# -lt 1 && { echo "Usage: torepo <filename>"; exit 1; }
 for pkg in $*

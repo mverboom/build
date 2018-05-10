@@ -12,8 +12,6 @@ PKGLIST=$RECIPEDIR/pkglist
 PKGDIR=~/packages
 # Script to use to publish Debian package to repository
 TODEBREPO="torepo"
-# SSH URI to upload packages to
-REPO=repo@repo
 # Set to yes to try and automatically install build dependancies
 INSTDEP=yes
 # Set to yes to try and automatically uninstall build dependancies

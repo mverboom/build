@@ -26,10 +26,6 @@ require_software() {
    echo gawk grep git svn wget fakeroot bzip2 hg
 }
 
-create_directories() {
-   mkdir -p $DESTDIR $CACHEDIR $TMPDIR $RECIPEDIR $PKGDIR
-}
-
 distro_get() {
    if test "$( which dpkg-query)"
    then
@@ -637,8 +633,6 @@ main() {
    REDIPEDIR=~/recipes PKGLIST=$RECIPEDIR/pkglist PKGDIR=~/packages
    INSTDEP=yes DEINSTDEP=yes
    test -f ~/.buildrc && . ~/.buildrc || { echo "No configuration file found."; exit 1;}
-
-   create_directories
 
    sanity_check
 
