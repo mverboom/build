@@ -27,7 +27,7 @@ require_software() {
 }
 
 create_directories() {
-   echo mkdir -p $DESTDIR $CACHEDIR $TMPDIR $RECIPEDIR $PKGDIR
+   mkdir -p $DESTDIR $CACHEDIR $TMPDIR $RECIPEDIR $PKGDIR
 }
 
 distro_get() {
