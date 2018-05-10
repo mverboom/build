@@ -274,7 +274,7 @@ used to store files used during the build process.
 
 **Functions**
 
-`B_GET <method> <url> <name>
+`B_GET <method> <url> <name>`
 
 The B_GET function assists in caching and downloading of content. It supports
 different download methods and caches content in the cache directory.
@@ -285,8 +285,6 @@ The name references the name of the cache object that needs to be created. For
 all methods that support version information, this is also the name of the 
 folder that will have been created if the `B_GET` function succesfully completes 
 operation.
-
-The options are passed to supported methods (see below) as extra commandline arguments.
 
 The following methods are supported:
 
