@@ -307,7 +307,7 @@ git repository. The update will be stored back in the cache.
 If `B_GET` completes succesfully, a folder called `name` will be available with
 the repository content.
 
-Any options defined in the `B_GET` line can be used to checkout different branches, for example:
+Any options defined in the `B_GET` line could for example be used to checkout different branches:
 
 B_GET git https://github.com/mverboom/repo src "-b notmaster"
 
