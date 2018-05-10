@@ -580,8 +580,7 @@ sanity_check() {
    done
    test "$missing" != "" && { output "Missing required software to run script:$missing" ; exit 1;}
    test "$PKGDIR" = ""  && { ERR=1 output "PKGDIR not defined"; exit 1;}
-   test -d $PKGDIR || { ERR=1 output "PKGDIR $PKGDIR does not exist, aborting."; exit 1; }
-   test -d $TMPDIR || { ERR=1 output "TMPDIR $TMPDIR does not exist, aborting."; exit 1; }
+   test -d $PKGDIR || { ERR=1 output "PKGDIR $PKGDIR does not exist, creating."; mkdir -p $PKGDIR; }
 }
 
 output() {
