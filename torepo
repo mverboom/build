@@ -27,7 +27,7 @@ for pkg in $*
 do
    test -f $pkg || { echo "No such file $pkg."; exit 1; }
    filename=$( basename $pkg )
-   scp -q $pkg repo@repo:/tmp
+   scp -q $pkg $REPO:/tmp
    ssh $REPO "freight add /tmp/$filename apt/current $QUIET; rm /tmp/$filename $QUIET"
    rm $pkg
 done
