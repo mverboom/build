@@ -384,11 +384,11 @@ in this section.
 A number of substitutions will be made if specific keywords are used in this
 section. The available keywords are:
 
-* `VERSION`
+* `B_VERSION`
 
 This will be replaced by the actual version of the package being created.
 
-* `ARCH`
+* `B_ARCH`
 
 This will be replaced by the actual architecture for which the package is
 being created.

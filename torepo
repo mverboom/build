@@ -20,14 +20,15 @@
 #     along with Build.  If not, see <http://www.gnu.org/licenses/>.
 
 set -e
+test -f ~/.toreporc && . ~/.toreporc
 test "$1" = "-q" && { QUIET="> /dev/null 2>&1" ; shift; }
 test $# -lt 1 && { echo "Usage: torepo <filename>"; exit 1; }
 for pkg in $*
 do
    test -f $pkg || { echo "No such file $pkg."; exit 1; }
    filename=$( basename $pkg )
-   scp -q $pkg repo@repo:/tmp
-   ssh repo@repo "freight add /tmp/$filename apt/current $QUIET; rm /tmp/$filename $QUIET"
+   scp -q $pkg $SERVER:/tmp
+   ssh $SERVER "freight add /tmp/$filename $REPO $QUIET; rm /tmp/$filename $QUIET"
    rm $pkg
 done
-ssh repo@repo "freight cache $QUIET"
+ssh $SERVER "freight cache $QUIET"
