@@ -144,8 +144,7 @@ build() {
          then
             test -d $targetdir || mkdir -p $targetdir
             echo "Http downloading files.."
-            wget -q -O $target $url || rm $target
-            test $? -ne 0 && { echo "Error downloading file."; exit 1; }
+            wget -O $target $url || { rm $target; echo "Error downloading file."; exit 1; }
          fi
          cp $target $fn
       ;;
