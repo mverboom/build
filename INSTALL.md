@@ -33,8 +33,10 @@ recipes, give the build user sudo rights as root to run the relevant package com
 In order to set things up, follow the steps below.
 
 * Become the builduser
+
 ```su - builduser```
 * Create a local binary directory for the user and add it to the path
+
 ```
 mkdir bin
 echo 'export PATH=$PATH:~/bin' >> .bashrc
