@@ -42,16 +42,20 @@ mkdir bin
 echo 'export PATH=$PATH:~/bin' >> .bashrc
 ```
 * Check out the repository
+
 ```
 cd bin
 git clone https://github.com/mverboom/build.git build.git
 ```
 * Setup some symlinks
+
+```
 ln -s build.git/build build
 ln -s build.git/debclean debclean
 ln -s build.git/torepo torepo
 ```
 * Copy the example configuration files
+
 ```
 cp build.git/buildrc-example ~/.buildrc
 cp build.git/toreporc-example ~/.toreporc
@@ -64,14 +68,17 @@ You should now be ready to build your first recipe. Assuming you have stayed wit
 file locations, do the following.
 
 * Create the recipe directory
+
 ```
 mkdir ~/recipes
 ```
 * Copy the build example recipe over
+
 ```
 cp ~/bin/build.git/example-recipes/build.recipe ~/recipes
 ```
 * Build the build recipe and create a package
+
 ```
 build -b -p build
 ```
