@@ -459,7 +459,7 @@ version_get() {
    B_HGREV() {
       hg id $1
    }
-   export -f B_GITVER B_GITHUBVER B_SVNDATE B_SVNREV B_HGREV
+   export -f B_GITVER_LATEST B_GITVER B_GITHUBVER B_SVNDATE B_SVNREV B_HGREV
    CMD=$( recipe_section_get $pkg VERSION )
    test $? -ne 0 && { output $CMD ; return 1; }
    local ver=$( bash $DEBUG -e -c "$CMD" 2>/dev/null )
