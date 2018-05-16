@@ -437,6 +437,10 @@ version_get() {
 
    export B_SARCH
    export B_NAME=$1
+   B_GITVER_LATEST() {
+      exp=""
+      test "$2" != "" && exp="-e $2"
+      git ls-remote --tags $1 | grep -v '{}' | cut -d '/' -f 3  | sed "s/^v//" | sort -t. -k 1,1n -k 2,2n -k 3,3n -k 4,4n | tail -1
    B_GITVER() {
       exp=""
       test "$2" != "" && exp="-e $2"
