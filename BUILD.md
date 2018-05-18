@@ -177,10 +177,16 @@ This variable contains the name of the recipe being run.
 
 **Functions**
 
-`B_GITVER <git repostiory> [filter]`
+`B_GITVER [option] <git repostiory> [filter]`
 
 This function attempts to remotely find the newest tag for a git repository. It filters
 out some commonly used tags that indicate non-release tags. 
+
+The command has the following options:
+
+* -a
+Don't try and filter out any beta or preview labels in tags. 
+
 Optionally a filter option can be giving which will be used to filter out any other
 tags that should not be used.
 The function return the newest tag it can find.
