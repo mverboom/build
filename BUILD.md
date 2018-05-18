@@ -184,8 +184,7 @@ out some commonly used tags that indicate non-release tags.
 
 The command has the following options:
 
-* -a
-Don't try and filter out any beta or preview labels in tags. 
+* `-a`: Don't try and filter out any beta or preview labels in tags. 
 
 Optionally a filter option can be giving which will be used to filter out any other
 tags that should not be used.
