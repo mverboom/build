@@ -131,8 +131,12 @@ build() {
    B_PKGLIST=$PKGLIST
    export B_VERSION B_INSTALLDIR B_ARCH B_INSTANCE B_CACHEDIR B_NAME B_BUILDNR B_FILES
    B_GET() {
-      test $# -ne 3 && { >&2 echo "Insufficient arguments to B_GET."; exit 1; }
+      test $# -lt 3 && { >&2 echo "Insufficient arguments to B_GET."; exit 1; }
       local method=$1
+      if test "${2:0:1}" = "-"; then
+         local option=$2
+         shift
+      fi
       local url=$2
       local fn=$3
       local targetdir=$B_CACHEDIR/$B_NAME
@@ -155,6 +159,11 @@ build() {
             echo "Git downloading files.."
             git clone $url $fn
             test $? -ne 0 && { echo "Error cloning repository."; exit 1; }
+            if test "$option" = "-s"; then
+               cd $fn
+               git submodule update --init --recursive
+               cd ..
+            fi
             tar cfz $targetnover $fn
          else
             tar xzf $targetnover
@@ -163,6 +172,9 @@ build() {
             if test "$(git rev-parse @)" != "$(git rev-parse @{u})"
             then
                git pull
+               if test "$option" = "-s"; then
+                  git submodule update --init --recursive
+               fi
                cd ..
                tar cfz $targetnover $fn
             else
