@@ -490,7 +490,7 @@ recipe_select_arch() {
    test "$arch" = "" && arch="$B_SARCH"
    for B_ARCH in ${arch/,/ }
    do
-      if test "$B_ARCH" = "all" -o "$B_ARCH" = "$B_SARCH"
+      if test "$B_ARCH" = "all" -o "$B_ARCH" = "any" -o "$B_ARCH" = "$B_SARCH"
       then
          return 0
       fi
