@@ -23,13 +23,16 @@ set -e
 test -f ~/.toreporc && . ~/.toreporc
 test "$1" = "-q" && { flags="-q" ; shift; }
 test $# -lt 1 && { echo "Usage: torepo <filename>"; exit 1; }
+ret=0
 for pkg in $*
 do
    test -f $pkg || { echo "No such file $pkg."; exit 1; }
    filename=$( basename $pkg )
    scp -q $pkg $SERVER:/tmp
    ssh $SERVER "repo-add $flags /tmp/$filename"
+   test $? -ne 0 && ret=1
    rm $pkg
 done
+test $ret -ne 0 && exit 1
 test "$POST" != "" && ssh $SERVER "$POST"
 exit 0
