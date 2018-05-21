@@ -32,3 +32,4 @@ do
    rm $pkg
 done
 test "$POST" != "" && ssh $SERVER "$POST"
+exit 0
