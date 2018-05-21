@@ -1,4 +1,4 @@
-# SSH URI to upload packages to
+# ssh user and server to upload packages to
 SERVER=repo@repo
-# Freight repo
-REPO=apt/current
+# Run post command (if any) when adding multiple packages in 1 go
+POST="freight cache"
