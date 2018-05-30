@@ -357,7 +357,7 @@ package() {
    local pkgtype
    local ID
 
-   recipe_section_get $pkg PKG || exit 1
+   recipe_section_get $pkg PKG > /dev/null || exit 1
 
    if test "$B_INSTANCE" != ""
    then
