@@ -357,6 +357,8 @@ package() {
    local pkgtype
    local ID
 
+   recipe_section_get $pkg PKG || exit 1
+
    if test "$B_INSTANCE" != ""
    then
       ID=$pkg-$version-$B_INSTANCE
