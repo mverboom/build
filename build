@@ -37,11 +37,11 @@ distro_get() {
 }
 
 recipe_item_get() {
-   local recipe=$RECIPEDIR/$1.recipe
-   local label=$2
-   local item=$3
+   local recipe; recipe=$RECIPEDIR/$1.recipe
+   local label; label=$2
+   local item; item=$3
 
-   local value=$( recipe_section_get $1 $label optional | grep "^${item}=" )
+   local value; value=$( recipe_section_get $1 $label optional | grep "^${item}=" )
    if test "$value" = "" -a "$#" = 4
    then
       echo $4
@@ -52,10 +52,10 @@ recipe_item_get() {
 }
 
 recipe_section_get() {
-   local recipename=$1
-   local recipe=$RECIPEDIR/$recipename.recipe
-   local label=$2
-   local opt=$3
+   local recipename; recipename=$1
+   local recipe; recipe=$RECIPEDIR/$recipename.recipe
+   local label; label=$2
+   local opt; opt=$3
 
    test ! -f $recipe && { test "$opt" = "" && >&2 output "Recipe $recipename ($recipe) does not exist."; exit 1; }
 
@@ -64,10 +64,10 @@ recipe_section_get() {
 }
 
 build_require() {
-   local pkgs=$*
-   local missing=0
-   local toinst=""
-   local toinsttr=""
+   local pkgs; pkgs=$*
+   local missing; missing=0
+   local toinst; toinst=""
+   local toinsttr; toinsttr=""
    local pkg
 
    for pkg in $pkgs
@@ -94,7 +94,7 @@ build_require() {
 }
 
 build_require_remove() {
-   local pkgs="$1"
+   local pkgs; pkgs="$1"
    local pkg
    local list
    for pkg in $pkgs
@@ -113,14 +113,14 @@ build() {
    else
       versiondir=$B_VERSION
    fi
-   local pkgs=$( recipe_section_get $B_NAME REQUIRED opt )
-   ( test $? -eq 0 &&  build_require $pkgs ) || return 1
+   local pkgs; pkgs=$( recipe_section_get $B_NAME REQUIRED opt )
+   test $? -eq 0 &&  ( build_require $pkgs || return 1 )
 
    test "$B_INSTANCE" != "" && ID=${B_NAME}_${B_VERSION}-${B_INSTANCE}_${B_ARCH} || ID=${B_NAME}_${B_VERSION}_${B_ARCH}
    B_BUILDNR=$( package_buildnr_get $ID )
-   local CMD=$( recipe_section_get $B_NAME BUILD ) || return 1
-   test $? -ne 0 && { ERR=1 output $CMD ; return 1; }
-   local TMP=$( mktemp -p $TMPDIR -d )
+   local CMD; CMD=$( recipe_section_get $B_NAME BUILD )
+   test $? -ne 0 && return 1
+   local TMP; TMP=$( mktemp -p $TMPDIR -d )
    B_INSTALLDIR=$DESTDIR/$B_ARCH/$B_NAME-$versiondir
    test $FORCE -eq 1 && rm -rf $B_INSTALLDIR
    mkdir -p $B_INSTALLDIR
@@ -132,16 +132,16 @@ build() {
    export B_VERSION B_INSTALLDIR B_ARCH B_INSTANCE B_CACHEDIR B_NAME B_BUILDNR B_FILES
    B_GET() {
       test $# -lt 3 && { >&2 echo "Insufficient arguments to B_GET."; exit 1; }
-      local method=$1
+      local method; method=$1
       if test "${2:0:1}" = "-"; then
-         local option=$2
+         local option; option=$2
          shift
       fi
-      local url=$2
-      local fn=$3
-      local targetdir=$B_CACHEDIR/$B_NAME
-      local target=$targetdir/$fn-$B_VERSION
-      local targetnover=$targetdir/$fn
+      local url; url=$2
+      local fn; fn=$3
+      local targetdir; targetdir=$B_CACHEDIR/$B_NAME
+      local target; target=$targetdir/$fn-$B_VERSION
+      local targetnover; targetnover=$targetdir/$fn
       case $method in
       "http")
          if ! test -f $target
@@ -232,19 +232,20 @@ build() {
    }
    export -f B_GET
    B_UPDATEPKGBLD() {
+      local ID
       test -f ~/.buildrc && . ~/.buildrc
       if test "$B_INSTANCE" != ""
       then
-         local ID=${B_NAME}_${B_VERSION}-${B_INSTANCE}_${B_ARCH}
+         ID=${B_NAME}_${B_VERSION}-${B_INSTANCE}_${B_ARCH}
       else
-         local ID=${B_NAME}_${B_VERSION}_${B_ARCH}
+         ID=${B_NAME}_${B_VERSION}_${B_ARCH}
       fi
       grep "^$ID" $PKGLIST > /dev/null && sed -i "/^$ID/d" $PKGLIST
       echo -e "$ID\t$B_BUILDNR" >> $PKGLIST
    }
    export -f B_UPDATEPKGBLD
    B_LINKFILES() {
-      local src=$1; local dst=$2
+      local src; src=$1; local dst; dst=$2
       test -d $B_INSTALLDIR/$src || { echo "B_LINKFILES: source needs to be a directory within the B_INSTALLDIR tree."; exit 1; }
       test -d $B_INSTALLDIR/$dst || mkdir -p $B_INSTALLDIR/$dst
       local name
@@ -254,13 +255,14 @@ build() {
       done
    }
    export -f B_LINKFILES
+   local result
    cd $TMP
    if test "$QUIET" = "1"; then
       bash $DEBUG -e -c "$CMD" > /dev/null 2>&1
    else
       bash $DEBUG -e -c "$CMD"
    fi
-   local result=$?
+   result=$?
    cd - > /dev/null
    rm -rf $TMP
    test "$pkgs" != "" -a "$DEINSTDEP" = "yes" -a $B_NOPKGRM -eq 0 && build_require_remove "$pkgs"
@@ -296,7 +298,7 @@ usage() {
 }
 
 arch_get() {
-   local arch=$(uname -m)
+   local arch; arch=$(uname -m)
    case $arch in
    "i686")
      echo i386
@@ -311,18 +313,18 @@ arch_get() {
 }
 
 package_buildnr_get() {
-   local ID=$1
+   local ID; ID=$1
    test -f $PKGLIST || touch $PKGLIST
-   local BUILDNR=$(grep "^$ID" $PKGLIST | cut -d'	' -f 2 )
+   local BUILDNR; BUILDNR=$(grep "^$ID" $PKGLIST | cut -d'	' -f 2 )
    test "$BUILDNR" = "" && BUILDNR=0
    echo $(( $BUILDNR + 1 ))
 }
 
 package_torepo() {
    local type
-   local options=""
+   local options; options=""
    local pkg
-   local pkgs="$*"
+   local pkgs; pkgs="$*"
    local splittype
    local RET
    declare -A splittype
@@ -352,8 +354,8 @@ package_torepo() {
 }
 
 package() {
-   local pkg=$1
-   local version=$2
+   local pkg; pkg=$1
+   local version; version=$2
    local pkgtype
    local ID
 
@@ -373,7 +375,7 @@ package() {
    else
       ID=${version}
    fi
-   local type=$( recipe_item_get $pkg PKG type )
+   local type; type=$( recipe_item_get $pkg PKG type )
    for pkgtype in ${type/,/ }
    do
       case $pkgtype in
@@ -390,19 +392,19 @@ package() {
 }
 
 package_debian() {
-   local pkg=$1
-   local version=$2
+   local pkg; pkg=$1
+   local version; version=$2
 
-   local pkgready=$( recipe_item_get $pkg PKG pkgready )
-   local P_PKGDIR=${pkg}-${ID}
+   local pkgready; pkgready=$( recipe_item_get $pkg PKG pkgready )
+   local P_PKGDIR; P_PKGDIR=${pkg}-${ID}
    if test "$pkgready" = ""
    then
-      local P_PKGNAME=${pkg}_${ID}_${B_ARCH}
-      local P_BUILDNR=$( package_buildnr_get ${P_PKGNAME} )
-      local INFO=$(recipe_section_get $pkg DEB) || return 1
-      local TMP=$( mktemp -p $TMPDIR -d )
+      local P_PKGNAME; P_PKGNAME=${pkg}_${ID}_${B_ARCH}
+      local P_BUILDNR; P_BUILDNR=$( package_buildnr_get ${P_PKGNAME} )
+      local INFO; INFO=$(recipe_section_get $pkg DEB) || return 1
+      local TMP; TMP=$( mktemp -p $TMPDIR -d )
       mkdir -p $TMP/DEBIAN
-      local pkgversion=${version//\-/}-$P_BUILDNR
+      local pkgversion; pkgversion=${version//\-/}-$P_BUILDNR
       test "$PKGPOSTFIX" != "" && INFO=$( echo "$INFO" | sed "/^Package:/ s/$/-$PKGPOSTFIX/" )
       cd $DESTDIR/$B_ARCH/$pkg-$version
       tar pcfB - . | (cd $TMP ; tar pxfB - )
@@ -414,13 +416,13 @@ package_debian() {
 
       # Mark config files
       find . -path "*/etc/*" -type f | sed "s/^\.//" > DEBIAN/conffiles
-      local configfiles=$( recipe_item_get $pkg PKG configfiles )
+      local configfiles; configfiles=$( recipe_item_get $pkg PKG configfiles )
       test "$configfiles" != "" && { echo $configfiles | tr ' ' '\n' >> DEBIAN/conffiles; }
       echo "$INFO" | sed "s/B_VERSION/$pkgversion/" | sed "s/B_ARCH/$B_ARCH/" > $TMP/DEBIAN/control
       cd $TMPDIR
       fakeroot dpkg --build $TMP . > $TMP.buildoutput
       result=$?
-      local pkgfile=$( cat $TMP.buildoutput | cut -d \' -f 4 )
+      local pkgfile; pkgfile=$( cat $TMP.buildoutput | cut -d \' -f 4 )
       pkgfile=${pkgfile/*\//}
       rm -rf $TMP $TMP.buildoutput
       if test $result -ne 0
@@ -446,7 +448,7 @@ package_debian() {
 }
 
 version_get() {
-   local pkg=$1
+   local pkg; pkg=$1
    local CMD
 
    export B_SARCH
@@ -479,7 +481,7 @@ version_get() {
    export -f B_GITVER B_GITHUBVER B_SVNDATE B_SVNREV B_HGREV
    CMD=$( recipe_section_get $pkg VERSION )
    test $? -ne 0 && { output $CMD ; return 1; }
-   local ver=$( bash $DEBUG -e -c "$CMD" 2>/dev/null )
+   local ver; ver=$( bash $DEBUG -e -c "$CMD" 2>/dev/null )
    test $? -ne 0 && { >&2 output "Error while running version command for $pkg." ; return 1 ; }
    test "$ver" = "" && { >&2 output "Version command for $pkg returned no output." ; return 1 ; }
    echo $ver
@@ -487,8 +489,8 @@ version_get() {
 }
 
 recipe_select_arch() {
-   local recipe=$1
-   local arch=$( recipe_item_get $recipe INFO arch )
+   local recipe; recipe=$1
+   local arch; arch=$( recipe_item_get $recipe INFO arch )
    test "$arch" = "" && arch="$B_SARCH"
    for B_ARCH in ${arch/,/ }
    do
@@ -503,7 +505,7 @@ recipe_select_arch() {
 parse_options() {
    FORCE=0 ; DEBUG= ; PKGS= ; FORCEVERSION=
    DO_CHECK=0; DO_BUILD=0; DO_PACKAGE=0; DO_REPO=0; B_NOPKGRM=0
-   local all=0
+   local all; all=0
 
    while getopts :cbprai:Rxqfhv: opt
    do
@@ -590,7 +592,7 @@ parse_options() {
 }
 
 sanity_check() {
-   local missing=""
+   local missing; missing=""
    local name
    for name in $( require_software)
    do
@@ -605,7 +607,7 @@ sanity_check() {
 }
 
 output() {
-   local force=0
+   local force; force=0
    test "$1" = "-f" && { force=1; shift; }
    test $QUIET -eq 2 && return
    test $force -eq 0 -a $QUIET -eq 1 && return
@@ -613,8 +615,8 @@ output() {
 }
 
 check_version_built() {
-   local pkg=$1
-   local RET=0
+   local pkg; pkg=$1
+   local RET; RET=0
    local version
 
    if test "$FORCEVERSION" != ""; then
@@ -642,7 +644,7 @@ lock_free() {
 
 main() {
    local i
-   local retval=0
+   local retval; retval=0
    declare -A packages_torepo
    declare -A work_arch
    LOCK=/tmp/build.lck
