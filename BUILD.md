@@ -274,7 +274,7 @@ a new package of the same version.
 `B_FILES`
 
 If a recipe has a recipe specific directory which contains a directory called
-`B_FILES`, this variable will point to that directory.  This directory can be
+`B_BUILD`, this variable will point to that directory.  This directory can be
 used to store files used during the build process.
 
 **Functions**
