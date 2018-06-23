@@ -187,7 +187,8 @@ The command has the following options:
 `-a`: Don't try and filter out any beta or preview labels in tags. 
 
 Optionally a filter option can be giving which will be used to filter out any other
-tags that should not be used.
+tags that should not be used. The filter will not match case.
+
 The function return the newest tag it can find.
 
 `B_GITHUBVER <github repository>`
