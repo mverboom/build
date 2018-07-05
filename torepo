@@ -29,7 +29,7 @@ do
    test -f $pkg || { echo "No such file $pkg."; exit 1; }
    filename=$( basename $pkg )
    scp -q $pkg $SERVER:/tmp
-   ssh $SERVER "repo-add $flags /tmp/$filename"
+   ssh $SERVER "freight-add $flags /tmp/$filename"
    test $? -ne 0 && ret=1
    rm $pkg
 done
