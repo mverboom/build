@@ -467,7 +467,7 @@ version_get() {
       git ls-remote --tags $1 | grep -v '{}' | cut -d '/' -f 3  | sed "s/^v//" | $exp | sort -t. -k 1,1n -k 2,2n -k 3,3n -k 4,4n | tail -1
    }
    B_GITHUBVER() {
-      wget -q -O - $1 | sed '/datetime=/!d; s/.*time-ago datetime="[TZ\:0-9\-]*">\([^<]*\)<.*/\1/' | while read line; do date --date="$line" "+%Y%m%d"; done | sort | tail -1
+      wget -q -O - $1 | sed '/time-ago datetime=/!d; s/.*time-ago datetime="[TZ\:0-9\-]*">\([^<]*\)<.*/\1/' | while read line; do date --date="$line" "+%Y%m%d"; done | sort | tail -1
    }
    B_SVNDATE() {
       date -d "$(svn info --non-interactive --trust-server-cert $1 | grep 'Last Changed Date:' | cut -d':' -f2-)" "+%Y%m%d"
