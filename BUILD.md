@@ -110,6 +110,14 @@ rights to remove packages.
 This optional parameter defines an addition to the package name and can help
 identify package build by the script in a repository or system.
 
+`PKGORG`
+This optional parameter defines an organisation name. The value of this
+parameter will be sustituted when B_ORG is used in the [DEB] section of the recipe.
+
+`PKGMAIL`
+This optional parameter defines an email adress. The value of this
+parameter will be sustituted when B_MAIL is used in the [DEB] section of the recipe.
+
 `POSTBUILD`
 This can point to an optional script to be run after the build process is
 complete. The included debclean script can for example be used here.
