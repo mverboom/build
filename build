@@ -114,7 +114,9 @@ build() {
       versiondir=$B_VERSION
    fi
    local pkgs; pkgs=$( recipe_section_get $B_NAME REQUIRED opt )
-   test $? -eq 0 &&  ( build_require $pkgs || return 1 )
+   test $? -ne 0 && return 1
+   test "$PKGPOSTFIX" != "" && pkgs=$( echo "$pkgs" | sed "/B_PF/$PKGPOSTFIX/g" )
+   build_require $pkgs || return 1
 
    test "$B_INSTANCE" != "" && ID=${B_NAME}_${B_VERSION}-${B_INSTANCE}_${B_ARCH} || ID=${B_NAME}_${B_VERSION}_${B_ARCH}
    B_BUILDNR=$( package_buildnr_get $ID )
