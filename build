@@ -115,7 +115,7 @@ build() {
    fi
    local pkgs; pkgs=$( recipe_section_get $B_NAME REQUIRED opt )
    test $? -ne 0 && return 1
-   test "$PKGPOSTFIX" != "" && pkgs=$( echo "$pkgs" | sed "/B_PF/$PKGPOSTFIX/g" )
+   test "$PKGPOSTFIX" != "" && pkgs=$( echo "$pkgs" | sed "s/B_PF/$PKGPOSTFIX/g" )
    build_require $pkgs || return 1
 
    test "$B_INSTANCE" != "" && ID=${B_NAME}_${B_VERSION}-${B_INSTANCE}_${B_ARCH} || ID=${B_NAME}_${B_VERSION}_${B_ARCH}
@@ -407,7 +407,7 @@ package_debian() {
       local TMP; TMP=$( mktemp -p $TMPDIR -d )
       mkdir -p $TMP/DEBIAN
       local pkgversion; pkgversion=${version//\-/}-$P_BUILDNR
-      test "$PKGPOSTFIX" != "" && INFO=$( echo "$INFO" | sed "/^Package:/ s/$/-$PKGPOSTFIX/" | sed "/B_PF/$PKGPOSTFIX/g" )
+      test "$PKGPOSTFIX" != "" && INFO=$( echo "$INFO" | sed "/^Package:/ s/$/-$PKGPOSTFIX/" | sed "s/B_PF/$PKGPOSTFIX/g" )
       test "$PKGPOSTFIX" != "" && INFO=$( echo "$INFO" | sed "s/B_MAIL/$PKGMAIL/g" )
       test "$PKGORG" != "" && INFO=$( echo "$INFO" | sed "s/B_ORG/$PKGORG/g" )
       test "$PKGMAIL" != "" && INFO=$( echo "$INFO" | sed "s/B_MAIL/$PKGMAIL/g" )

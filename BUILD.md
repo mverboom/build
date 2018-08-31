@@ -230,6 +230,9 @@ For building the version of the software the following sections are used:
 This section can contain a single line of space seperated package names that need to be
 installed before the build is attempted.
 
+When the name of a package contains B_PF this will be expanded to the value 
+of the PKGPOSTFIX variable.
+
 `[BUILD]` (mandatory)
 
 Everything in this section is executed to build the software. Execution takes place
@@ -410,6 +413,16 @@ This will be replaced by the actual version of the package being created.
 
 This will be replaced by the actual architecture for which the package is
 being created.
+
+* `B_PF`
+
+This will be replaced by the value of the PKGPOSTFIX variable if defined in the
+configuration.
+
+* `B_MAIL`
+
+This will be replaced by the value of the PKGMAIL variable if defined in the
+configuration.
 
 ## TO REPOSITORY
 
