@@ -405,7 +405,8 @@ package_debian() {
       local TMP; TMP=$( mktemp -p $TMPDIR -d )
       mkdir -p $TMP/DEBIAN
       local pkgversion; pkgversion=${version//\-/}-$P_BUILDNR
-      test "$PKGPOSTFIX" != "" && INFO=$( echo "$INFO" | sed "/^Package:/ s/$/-$PKGPOSTFIX/" )
+      test "$PKGPOSTFIX" != "" && INFO=$( echo "$INFO" | sed "/^Package:/ s/$/-$PKGPOSTFIX/" | sed "/B_PF/$PKGPOSTFIX/g" )
+      test "$PKGPOSTFIX" != "" && INFO=$( echo "$INFO" | sed "s/B_MAIL/$PKGMAIL/g" )
       test "$PKGORG" != "" && INFO=$( echo "$INFO" | sed "s/B_ORG/$PKGORG/g" )
       test "$PKGMAIL" != "" && INFO=$( echo "$INFO" | sed "s/B_MAIL/$PKGMAIL/g" )
       cd $DESTDIR/$B_ARCH/$pkg-$version
