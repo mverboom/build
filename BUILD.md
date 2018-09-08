@@ -355,6 +355,13 @@ automatically.
 Any file in the source directory that exists and ends in `.real` will not be
 linked.
 
+`B_LINKFILE <source file> <destination directory>`
+
+This function will create a symlink for the source file to the
+destination directory. The destination directory needs to be relative to the
+`B_INSTALLDIR`. If the destination directory doens't exist yet, it is created
+automatically.
+
 ## PACKAGE
 
 Once a package has been created, it will be stored in the `PKGDIR` as specified
