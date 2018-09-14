@@ -194,6 +194,8 @@ The command has the following options:
 
 `-a`: Don't try and filter out any beta or preview labels in tags. 
 
+`-d <delete pattern>: Delete the pattern from the version string before sorting.
+
 Optionally a filter option can be giving which will be used to filter out any other
 tags that should not be used. The filter will not match case.
 
