@@ -675,6 +675,8 @@ main() {
 
    sanity_check
 
+   test "$PROXY" != "" && { export http_proxy=$PROXY; export https_proxy=$PROXY; }
+
    B_SARCH=$( arch_get )
    parse_options "$@"
 
