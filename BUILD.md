@@ -122,6 +122,9 @@ parameter will be sustituted when B_MAIL is used in the [DEB] section of the rec
 This can point to an optional script to be run after the build process is
 complete. The included debclean script can for example be used here.
 
+`PROXY`
+Point to a proxy hostname and port to use when connecting to network resources.
+
 # RECIPE
 
 During building recipes are used for the various steps in the build process.
