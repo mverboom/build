@@ -719,17 +719,22 @@ main() {
          if test $b -eq 1 
          then
             work_package[$i]=$(package ${work_recipes[$i]} ${work_version[$i]})
-            test $? -eq 0 && { output "${work_recipes[$i]} ${work_version[$i]} (package created)"; } || { output -f "${work_recipes[$i]} ${work_version[$i]} (package create failed)"; retval=1; }
+            work_packaged[$i]=$?
+            test ${work_packaged[$i]} -eq 0 && { output "${work_recipes[$i]} ${work_version[$i]} (package created)"; } || { output -f "${work_recipes[$i]} ${work_version[$i]} (package create failed)"; retval=1; }
          fi
       done
    fi
 
    if test $DO_REPO -ne 0; then
       lock_get || { echo "Unable to get lock, other instance running?"; exit 1; }
+      pkgs=""
+      for i in ${!work_recipes[@]}
+      do
+         test ${work_packaged[$i]} -eq 0 && pkgs="$pkgs ${work_package[$i]}"
+      done
       B_ARCH=${work_arch[${work_recipes[$i]}]}
-      # if package is succesfully generated
-      if test ${#work_package[@]} -gt 0; then
-         package_torepo ${work_package[@]}
+      if test "$pkgs" != ""; then
+         package_torepo $pkgs
          test $? -eq 0 && { output "packages pushed to repo"; } || { output -f "packages not pushed to repo"; retval=1; }
       fi
       lock_free
