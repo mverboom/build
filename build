@@ -721,6 +721,8 @@ main() {
             work_package[$i]=$(package ${work_recipes[$i]} ${work_version[$i]})
             work_packaged[$i]=$?
             test ${work_packaged[$i]} -eq 0 && { output "${work_recipes[$i]} ${work_version[$i]} (package created)"; } || { output -f "${work_recipes[$i]} ${work_version[$i]} (package create failed)"; retval=1; }
+         else
+            work_package[$i]=1
          fi
       done
    fi
