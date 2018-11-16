@@ -732,7 +732,7 @@ main() {
       pkgs=""
       for i in ${!work_recipes[@]}
       do
-         test ${work_packaged[$i]} -eq 0 && pkgs="$pkgs ${work_package[$i]}"
+         test "${work_packaged[$i]}" = "0" && pkgs="$pkgs ${work_package[$i]}"
       done
       B_ARCH=${work_arch[${work_recipes[$i]}]}
       if test "$pkgs" != ""; then
