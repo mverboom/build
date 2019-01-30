@@ -419,8 +419,30 @@ package() {
 }
 
 package_rpm() {
-   echo "Creating rpm packages is not implemented."
-   exit 1
+   local pkg; pkg=$1
+   local version; version=$2
+
+   local pkgready; pkgready=$( recipe_item_get $pkg PKG pkgready )
+   local P_PKGDIR; P_PKGDIR=${pkg}-${ID}
+   if test "$pkgready" = ""
+   then
+      local P_PKGNAME; P_PKGNAME=${pkg}_${ID}_${B_ARCH}
+      local P_BUILDNR; P_BUILDNR=$( package_buildnr_get ${P_PKGNAME} )
+      local INFO; INFO=$(recipe_section_get $pkg DEB) || return 1
+      local TMP; TMP=$( mktemp -p $TMPDIR -d )
+
+      echo "P_PKGNAME $P_PKGNAME"
+      echo "P_BUILDNR $P_BUILDNR"
+
+      mkdir -p $TMP/DEBIAN
+
+      echo "Creating rpm packages is not implemented."
+      exit 1
+   else
+      echo "pkgready not implemented for rpm."
+      exit 1
+   fi
+
 }
 
 package_deb() {
