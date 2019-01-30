@@ -1,0 +1,100 @@
+#!/bin/bash
+#
+# Change system back to state as defined in package list
+#
+# Copyright 2011-2018 Mark Verboom
+#
+# This file is part of Build.
+#
+#     Build is free software: you can redistribute it and/or modify
+#     it under the terms of the GNU General Public License as published by
+#     the Free Software Foundation, either version 3 of the License, or
+#     (at your option) any later version.
+#
+#     Build is distributed in the hope that it will be useful,
+#     but WITHOUT ANY WARRANTY; without even the implied warranty of
+#     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#     GNU General Public License for more details.
+#
+#     You should have received a copy of the GNU General Public License
+#     along with Build.  If not, see <http://www.gnu.org/licenses/>.
+
+BASE=clean.baselist-$(hostname)
+CUR=/tmp/clean.curlist
+LOCATION=$( dirname ${BASH_SOURCE[0]})
+test -f ~/.cleanrc && . ~/.cleanrc
+BASE=$LOCATION/$BASE
+
+! test -f /etc/os-release && { echo "Unable to determine os."; exit 1; }
+os=$(grep "^NAME=" /etc/os-release)
+eval ${os/*=/os=}
+
+case $1 in
+"-u")
+   echo "Are you sure you want to overwrite the base list? "
+   read answer
+   if test "$answer" = "y"
+   then
+      case $os in
+      "Debian GNU/Linux")
+         dpkg -l | grep "^.i" | awk '{print $2}' > $BASE
+      ;;
+      *)
+         echo "Not implemented on $os"
+      ;;
+      esac
+      echo "Base list updated."
+   else
+      echo "Base list not updated."
+   fi
+;;
+"-c")
+   if test -f $BASE
+   then
+      case $os in
+      "Debian GNU/Linux")
+         dpkg -l | grep "^.i" | awk '{print $2}' > $CUR
+         diff $BASE $CUR | grep '<' | cut -d' ' -f2 | xargs sudo apt-get -qq -y install > /dev/null 2>&1
+      t   est ${PIPESTATUS[3]} -ne 0 && echo "Error installing missing packages."
+         sudo apt-get -qq -y --purge autoremove > /dev/null 2>&1
+         test $? -ne 0 && echo "Error removing no longer required packages."
+         diff $BASE $CUR | grep '>' | cut -d' ' -f2 | xargs sudo apt-get -qq --purge -y remove > /dev/null 2>&1
+         test ${PIPESTATUS[3]} -ne 0 && echo "Error removing extra packages."
+         rm -f $CUR
+      ;;
+      *)
+         echo "Not implemented on $os"
+      ;;
+      esac
+   else
+      echo "No base list is available for this system."
+   fi
+;;
+"-l")
+   if test -f $BASE
+   then
+      case $os in
+      "Debian GNU/Linux")
+         dpkg -l | grep "^.i" | awk '{print $2}' > $CUR
+         echo "Extra packages installed:"
+         diff $BASE $CUR | grep '>' | cut -d' ' -f2
+         echo "Packages removed:"
+         diff $BASE $CUR | grep '<' | cut -d' ' -f2
+         rm -f $CUR
+      ;;
+      *)
+         echo "Not implemented on $os"
+      ;;
+      esac
+   else
+      echo "No base list is available for this system."
+   fi
+;;
+*)
+   echo "Usage: clean.sh"
+   echo "  -u  update base list"
+   echo "  -l  list difference of current packages with base list"
+   echo "  -c  revert packages to configuration in base list"
+   exit 1
+;;
+esac
