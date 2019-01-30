@@ -103,10 +103,10 @@ The test recipe should reflect a way to build it on an rpm system
 
 #### Progress
 
-# [ ] Add rpm option to recipe
-# [ ] Test rpm building
-# [ ] Update documentation
-# [ ] Push changes upstream
+* [ ] Add rpm option to recipe
+* [ ] Test rpm building
+* [ ] Update documentation
+* [ ] Push changes upstream
 
 ## Pushing package to repo
 
