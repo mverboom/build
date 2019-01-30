@@ -19,4 +19,4 @@ DEINSTDEP=yes
 # Set package name postfix or empty if not set
 PKGPOSTFIX=myorganisation
 # Script to run after a build
-POSTBUILD="debclean -c"
+POSTBUILD="clean -c"
