@@ -23,7 +23,15 @@
 #     along with Build.  If not, see <http://www.gnu.org/licenses/>.
 
 require_software() {
-   echo gawk grep git svn wget fakeroot bzip2 hg
+   os=$(grep "^NAME" /etc/os-release)
+   case "$os" in
+   "Debian GNU/Linux")
+      echo gawk grep git svn wget fakeroot bzip2 hg
+   ;;
+   "CentOS Linux")
+      echo gawk grep git svn wget bzip2 hg
+   ;;
+   esac
 }
 
 distro_get() {
