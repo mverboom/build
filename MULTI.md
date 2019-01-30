@@ -16,9 +16,9 @@ is running on.
 
 ### Progress
 
-* (v) Add OS detection
-* (v) Create OS dependant required software function
-* Push changes upstream
+[x] Add OS detection
+[x] Create OS dependant required software function
+[ ] Push changes upstream
 
 ## Debclean script
 
