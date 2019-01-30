@@ -398,9 +398,18 @@ package() {
    do
       case $pkgtype in
       "deb")
-         package_debian $pkg $version $ID
-         return $?
+         if test "$OS" = "Debian GNU/Linux"; then
+            package_deb $pkg $version $ID
+            return $?
+         fi
       ;;
+      "rpm")
+         if test "$OS" = "CentOS Linux"; then
+            package_rpm $pkg $version $ID
+            return $?
+         fi
+      ;;
+
       *)
          ERR=1 output "Unknown package type ($pkgtype)."
          return 1
@@ -409,7 +418,12 @@ package() {
    done
 }
 
-package_debian() {
+package_rpm() {
+   echo "Creating rpm packages is not implemented."
+   exit 1
+}
+
+package_deb() {
    local pkg; pkg=$1
    local version; version=$2
 
@@ -675,7 +689,7 @@ main() {
    LOCK=/tmp/build.lck
    QUIET=0
 
-   test -f /etc/os-release && { echo "Unable to determine os, not /etc/os-release."; exit 1; }
+   ! test -f /etc/os-release && { echo "Unable to determine os, no /etc/os-release."; exit 1; }
    OS=$(grep "^NAME" /etc/os-release)
    eval ${OS/*=/OS=}
    DESTDIR=~/build CACHEDIR=~/cache TMPDIR=~/temp
