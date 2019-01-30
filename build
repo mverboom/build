@@ -23,8 +23,7 @@
 #     along with Build.  If not, see <http://www.gnu.org/licenses/>.
 
 require_software() {
-   os=$(grep "^NAME" /etc/os-release)
-   case "$os" in
+   case "$OS" in
    "Debian GNU/Linux")
       echo gawk grep git svn wget fakeroot bzip2 hg
    ;;
@@ -676,6 +675,9 @@ main() {
    LOCK=/tmp/build.lck
    QUIET=0
 
+   test -f /etc/os-release && { echo "Unable to determine os, not /etc/os-release."; exit 1; }
+   OS=$(grep "^NAME" /etc/os-release)
+   eval ${OS/*=/OS=}
    DESTDIR=~/build CACHEDIR=~/cache TMPDIR=~/temp
    REDIPEDIR=~/recipes PKGLIST=$RECIPEDIR/pkglist PKGDIR=~/packages
    INSTDEP=yes DEINSTDEP=yes
