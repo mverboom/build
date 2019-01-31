@@ -49,6 +49,29 @@ and links to different libraries than a deb based system.
 If this is the case, the build directory structure should be changed to reflect
 this.
 
+The best solution up till now seems to be the following.
+
+In order to keep backwards compatability, the more detailed information on
+which system was used to generate the binaries is a recipe level selection.
+
+Default behaviour is:
+ $DESTDIR/arch/<recipename>
+
+A configuration option can be introduced to the [INFO] section of a recipe
+that can modify this behaviour. For example:
+
+ dest=dist
+
+This would add the OS distribution name to the name of the recipe, so:
+
+ $DESTDIR/arch/<recipename>-redhat
+
+Useful options here would be:
+
+* dist: append distribution name (-redhat)
+* dist-major: append distribution name and major version numbers (-redhat-6)
+* dist-minor: append distribution name and major and minor versio numbers (-redhat-6-5)
+
 #### Progress
 
 * [ ] Determine if this is an issue
