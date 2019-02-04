@@ -19,7 +19,7 @@ not depend on the system it is run on.
 
 #### Progress
 
-* [ ] Check assumption
+* [v] Check assumption
 
 ## Build environment requirements
 
@@ -30,7 +30,7 @@ is running on.
 
 * [x] Add OS detection
 * [x] Create OS dependant required software function
-* [ ] Push changes upstream
+* [x] Push changes upstream
 
 ## Created binary storage
 
@@ -72,9 +72,26 @@ Useful options here would be:
 * dist-major: append distribution name and major version numbers (-redhat-6)
 * dist-minor: append distribution name and major and minor versio numbers (-redhat-6-5)
 
+The list of conversions to use for each distribution:
+
+* RedHat: rh
+* Debian: deb
+* Fedora: fed
+* Scientific Linux: sci
+* Centos: cen
+
 #### Progress
 
-* [ ] Determine if this is an issue
+* [x] Determine if this is an issue
+* [x] Specify directory layout
+* [ ] Determine codes to use for distributions
+* [ ] Create current OS to distribution conversion function
+* [ ] Make OS information available through environment during BUILD phase
+* [ ] Add configuration item to info section
+* [ ] Update all references to DESTDIR to comply to configuration item
+* [ ] Check build platform vs. configuration item when building
+* [ ] Check build platform vs. configuration item when packaging
+* [ ] Update documentation
 
 ## Per OS required package for build
 
@@ -83,12 +100,28 @@ to run the build phase. This currently is a generic list of software and is
 targeted towards debian based systems. This needs to be changed so there is
 a platform specific set of required packages for the build phase.
 
+Currently there is one [REQUIRED] section in a recipe. To provide good backwards
+compatibility it is probably best to create the following behaviour:
+
+* Only a line with required packages in the section: use for all OS environments
+* Prefix with line with OS tag and optional version: line only to be used for specific os
+
+Examples for the specific OS lines would be as follows:
+
+RedHat, non specific os release:
+
+rh=rpm-python,perl-IO-Zlib
+
+RedHat version 6
+
+rh-6=xmlrpc-c-1.16.24-1210.1840.el6.x86_64,perl-libxml-perl-0.08-10.el6.noarch
+
 #### Progress
 
-* [ ] Determine new syntax for required packages
-* [ ] Update documentation to reflect syntax that should be used
-* [ ] Extend script to provide backwards compatability defaulting to debian
+* [x] Determine new syntax for required packages
+* [ ] Make infrastructure to select correct line of packages to use
 * [ ] Add support for installing required software on rpm based system
+* [ ] Update documentation to reflect syntax that should be used
 * [ ] Push changes upstream
 
 ## RPM package build
