@@ -19,7 +19,7 @@ not depend on the system it is run on.
 
 #### Progress
 
-* [v] Check assumption
+* [x] Check assumption
 
 ## Build environment requirements
 
