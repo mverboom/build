@@ -21,6 +21,29 @@
 # 
 #     You should have received a copy of the GNU General Public License
 #     along with Build.  If not, see <http://www.gnu.org/licenses/>.
+#
+
+usage() {
+   echo "Usage: build [OPTION]... [RECIPE]..."
+   echo
+   echo "Operation mode:"
+   echo "   -c  Check version, runs the version check section of the specified recipe(s)."
+   echo "   -b  Build, runs the build version of the specified recipe(s)."
+   echo "   -p  Package, runs the package secition of the specified recipe(s)."
+   echo "   -r  To repository, creates packages and copies to repository for specfified recipe(s)"
+   echo
+   echo "Operation modifiers:"
+   echo "   -a  Select all recipes available."
+   echo "   -v  Specify specific version, will prevent from running version section of recipe(s)"
+   echo "   -q  Quiet output"
+   echo "   -x  Enable debugging output"
+   echo "   -f  Force build for recipe, even if complete build is already available."
+   echo "   -i  Specify an instance for a recipe"
+   echo "   -R  Don't remove required packages after building and skip any post build script."
+   echo "   -h  This help message"
+   echo
+   exit 1
+}
 
 require_software() {
    case "$OS" in
@@ -290,28 +313,6 @@ build() {
    return 0
 }
 
-usage() {
-   echo "Usage: build [OPTION]... [RECIPE]..."
-   echo
-   echo "Operation mode:"
-   echo "   -c  Check version, runs the version check section of the specified recipe(s)."
-   echo "   -b  Build, runs the build version of the specified recipe(s)."
-   echo "   -p  Package, runs the package secition of the specified recipe(s)."
-   echo "   -r  To repository, creates packages and copies to repository for specfified recipe(s)"
-   echo
-   echo "Operation modifiers:"
-   echo "   -a  Select all recipes available."
-   echo "   -v  Specify specific version, will prevent from running version section of recipe(s)"
-   echo "   -q  Quiet output"
-   echo "   -x  Enable debugging output"
-   echo "   -f  Force build for recipe, even if complete build is already available."
-   echo "   -i  Specify an instance for a recipe"
-   echo "   -R  Don't remove required packages after building and skip any post build script."
-   echo "   -h  This help message"
-   echo
-   exit 1
-}
-
 arch_get() {
    local arch; arch=$(uname -m)
    case $arch in
@@ -516,7 +517,7 @@ version_get() {
       fi
       test "$2" != "" && exp="$exp -e $2"
       test "$exp" != "" && exp="grep -iv $exp" || exp="cat"
-      git ls-remote --tags $1 | grep -v '{}' | cut -d '/' -f 3  | sed "s/^v//$filter" | $exp | sort -t. -k 1,1n -k 2,2n -k 3,3n -k 4,4n | tail -1
+      git ls-remote --tags $1 | grep -v '{}' | rev | cut -d '/' -f 1 | rev  | sed "s/^v//$filter" | $exp | sort -t. -k 1,1n -k 2,2n -k 3,3n -k 4,4n | tail -1
    }
    B_GITHUBVER() {
       wget -q -O - $1 | sed '/time-ago datetime=/!d; s/.*time-ago datetime="[TZ\:0-9\-]*">\([^<]*\)<.*/\1/' | while read line; do date --date="$line" "+%Y%m%d"; done | sort | tail -1
