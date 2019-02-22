@@ -503,19 +503,24 @@ version_get() {
    export B_SARCH
    export B_NAME=$1
    B_GITVER() {
-      if test "$1" = "-a"; then
-         exp=""
-         shift
-      else
-         exp='-e "preview\|rc\|a$\|b$"'
-      fi
-      if test "$1" = "-d"; then
-         filter="; s/$2//"
-         shift; shift
-      else
-         filter=""
-      fi
-      test "$2" != "" && exp="$exp -e $2"
+      exp='-e "preview\|rc\|a$\|b$"'
+      filter=""
+      while getopts :af:d: opt; do
+         case $opt in
+           d) filter="; s/$OPTARG//"
+           ;;
+           f) exp="$exp -e $OPTARG"
+           ;;
+           a) exp=""
+           ;;
+           \?) echo "Unknown option: -$OPTARG"
+           ;;
+           :) echo "Option -$OPTARG requires argument"
+           ;;
+         esac
+      done
+      shift $((OPTIND -1))
+
       test "$exp" != "" && exp="grep -iv $exp" || exp="cat"
       git ls-remote --tags $1 | grep -v '{}' | $exp | rev | cut -d '/' -f 1 | rev | sed "s/^v//$filter" | sort -t. -k 1,1n -k 2,2n -k 3,3n -k 4,4n | tail -1
    }
