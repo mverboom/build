@@ -503,7 +503,7 @@ version_get() {
    export B_SARCH
    export B_NAME=$1
    B_GITVER() {
-      exp='-e "preview\|rc\|a$\|b$"'
+      exp='-e "\|alpha\|beta\|preview\|rc\|a$\|b$\|b[0-9]*$"'
       filter=""
       while getopts :af:d: opt; do
          case $opt in
