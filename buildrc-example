@@ -1,5 +1,7 @@
 # Destination directory where compiled software should be stored
 DESTDIR=~/build
+# Create package/version directories in stead of package-version
+DESTSPLIT=y
 # Download cache directory
 CACHEDIR=~/cache
 # Temporary build directory

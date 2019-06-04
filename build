@@ -5,7 +5,7 @@
 # Support script to automate software builds outside of base distribution
 # packages
 #
-# Copyright 2011-2018 Mark Verboom
+# Copyright 2011-2019 Mark Verboom
 #
 # This file is part of Build.
 # 
@@ -160,7 +160,11 @@ build() {
    local CMD; CMD=$( recipe_section_get "$B_NAME" "BUILD" )
    test $? -ne 0 && return 1
    local TMP; TMP=$( mktemp -p "$TMPDIR" -d )
-   B_INSTALLDIR=$DESTDIR/$B_ARCH/$B_NAME-$versiondir
+   if test "$DESTSPLIT" != ""; then
+      B_INSTALLDIR="$DESTDIR/$B_ARCH/$B_NAME/$versiondir"
+   else
+      B_INSTALLDIR="$DESTDIR/$B_ARCH/$B_NAME-$versiondir"
+   fi
    test "$FORCE" -eq 1 && rm -rf "$B_INSTALLDIR"
    mkdir -p "$B_INSTALLDIR"
 
@@ -452,13 +456,19 @@ package_deb() {
       local P_BUILDNR; P_BUILDNR=$( package_buildnr_get ${P_PKGNAME} )
       local INFO; INFO=$(recipe_section_get $pkg DEB) || return 1
       local TMP; TMP=$( mktemp -p $TMPDIR -d )
+      local pkgdir
       mkdir -p $TMP/DEBIAN
       local pkgversion; pkgversion=${version//\-/}-$P_BUILDNR
       test "$PKGPOSTFIX" != "" && INFO=$( echo "$INFO" | sed "/^Package:/ s/$/-$PKGPOSTFIX/" | sed "s/B_PF/$PKGPOSTFIX/g" )
       test "$PKGPOSTFIX" != "" && INFO=$( echo "$INFO" | sed "s/B_MAIL/$PKGMAIL/g" )
       test "$PKGORG" != "" && INFO=$( echo "$INFO" | sed "s/B_ORG/$PKGORG/g" )
       test "$PKGMAIL" != "" && INFO=$( echo "$INFO" | sed "s/B_MAIL/$PKGMAIL/g" )
-      cd $DESTDIR/$B_ARCH/$pkg-$version
+      if test "$DESTSPLIT" != ""; then
+         pkgdir="$DESTDIR/$B_ARCH/$pkg/$version"
+      else
+         pkgdir="$DESTDIR/$B_ARCH/$pkg-$version"
+      fi
+      cd $pkgdir
       tar pcfB - . | (cd $TMP ; tar pxfB - )
       cd $TMP
       if test -d $RECIPEDIR/$pkg.files/B_DEBIAN; then
@@ -672,13 +682,19 @@ check_version_built() {
    local pkg; pkg=$1
    local RET; RET=0
    local version
+   local pkgdir
 
    if test "$FORCEVERSION" != ""; then
       version=$FORCEVERSION
    else
       version=$( version_get $pkg ) || return 2
    fi
-   test -d "$DESTDIR/$B_ARCH/$pkg-$version" && { echo "$version" ; RET=1 ;} || echo "$version"
+   if test "$DESTSPLIT" != ""; then
+      pkgdir="$DESTDIR/$B_ARCH/$pkg/$version"
+   else
+      pkgdir="$DESTDIR/$B_ARCH/$pkg-$version"
+   fi
+   test -d "$pkgdir" && { echo "$version" ; RET=1 ;} || echo "$version"
    return $RET
 }
 

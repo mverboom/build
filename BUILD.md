@@ -75,6 +75,11 @@ The following variable can be set in the configuration file.
 `DESTDIR` (defaults to ~/build)
 Destination directory where compiled software should be put.
 
+`DESTSPLIT` (defaults to n)
+If this option is set, a folder per recipe will be created in which all
+versions that are build will be placed. If the option is not set, the recipe 
+name and version will be concatenated and used as directory name.
+
 `CACHEDIR` (defaults to ~/cache)
 Download cache directory where downloaded files are placed.
 
