@@ -380,10 +380,16 @@ package() {
    recipe_section_get $pkg PKG > /dev/null || exit 1
 
    if test "$B_INSTANCE" != ""; then
-      ID=$pkg-$version-$B_INSTANCE
+      ID=$version-$B_INSTANCE
    else
-      ID=$pkg-$version
+      ID=$version
    fi
+   if test "$DESTSPLIT" != ""; then
+      ID="$pkg/$ID"
+   else
+      ID="$pkg-$ID"
+   fi
+
    test ! -d "$DESTDIR/$B_ARCH/$ID" && { 
       ERR=1 output "Version $version of $pkg is not available for packaging.";
       return 1; }
