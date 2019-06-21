@@ -1,25 +1,36 @@
-# Test recipe
-#
-# This recipe does nothing useful, be can be used as an example.
-#
 [VERSION]
 echo 1.0
+
 [INFO]
 excludefromall=1
+arch=all
+
 [BUILD]
-mkdir -p $B_INSTALLDIR/opt/test
-cp $B_FILES/test.sh $B_INSTALLDIR/opt/test
-B_LINKFILES /opt/test /usr/bin
+mkdir -p $B_INSTALLDIR/opt/test/bin $B_INSTALLDIR/opt/test/share
+cp $B_FILES/test.sh $B_INSTALLDIR/opt/test/bin
+pushd $B_INSTALLDIR/opt/test/share > /dev/null
+tar xzf $B_FILES/icons.tar.gz
+popd > /dev/null
+B_LINKFILES /opt/test/bin /usr/bin
+B_LINKFILES -r /opt/test/share /usr/share/icons/hicolor
+
 [PKG]
-type=deb
+type=deb,rpm
 torepo=y
+
 [DEB]
 Package: testpkg
-Version: VERSION
+Version: B_VERSION
 Section: test
 Priority: optional
-Architecture: ARCH
+Architecture: B_ARCH
 Maintainer: unknown@example.org
 Homepage: http://www.example.org
 Description: Test package
 
+[RPM]
+Summary: Test package
+Name: testpkg
+Version: B_VERSION
+Release: B_BUILDNR
+BuildRoot: /var/tmp/%{name}-buildroot 
