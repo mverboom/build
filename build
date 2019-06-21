@@ -280,12 +280,18 @@ build() {
    }
    export -f B_UPDATEPKGBLD
    B_LINKFILES() {
-      local src; src=$1; local dst; dst=$2
+      local rec; rec=0
+      test "$1" = "-r" && { rec=1; shift; }
+      local src; src="$1"; local dst; dst="$2"
       test -d $B_INSTALLDIR/$src || { echo "B_LINKFILES: source needs to be a directory within the B_INSTALLDIR tree."; exit 1; }
       test -d $B_INSTALLDIR/$dst || mkdir -p $B_INSTALLDIR/$dst
       local name
       for name in $( ls $B_INSTALLDIR/$src | grep -v ".real$" ); do
-         ln -s $src/$name $B_INSTALLDIR/$dst
+         if test -d "$B_INSTALLDIR/$src/$name" -a "$rec" = 1; then
+            B_LINKFILES -r $src/$name $dst/$name
+         else
+            ln -s $src/$name $B_INSTALLDIR/$dst
+         fi
       done
    }
    export -f B_LINKFILES
