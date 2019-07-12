@@ -2,3 +2,12 @@
 SERVER=repo@repo
 # Run post command (if any) when adding multiple packages in 1 go
 POST="freight cache"
+# Set REPONAME to use
+case "$HOSTNAME" in
+"build64-deb10")
+   REPONAME=buster
+;;
+*)
+   REPONAME=current
+;;
+esac

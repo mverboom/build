@@ -19,10 +19,16 @@
 #     You should have received a copy of the GNU General Public License
 #     along with Build.  If not, see <http://www.gnu.org/licenses/>.
 
+usage() {
+   echo "Usage: torepo <filename>"
+   exit 1
+}
+
 set -e
 test -f ~/.toreporc && . ~/.toreporc
 test "$1" = "-q" && { flags="-q" ; shift; }
-test $# -lt 1 && { echo "Usage: torepo <filename>"; exit 1; }
+test $# -lt 1 && { echo "Invalid arguments."; usage; }
+test "$REPONAME" = "" &&  { echo "REPONAME not configured."; usage; }
 ret=0
 for pkg in $*
 do
@@ -30,7 +36,7 @@ do
    filename=$( basename $pkg )
    scp -q $pkg $SERVER:/tmp
    # Use repo-add on the destination system to wrap whatever you are using.
-   ssh $SERVER "repo-add $flags /tmp/$filename"
+   ssh $SERVER "repo-add $flags $REPONAME /tmp/$filename"
    test $? -ne 0 && ret=1
    rm $pkg
 done
