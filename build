@@ -73,17 +73,29 @@ recipe_item_get() {
 }
 
 recipe_section_get() {
+   local quiet=0
+   test "$1" = "-q" && { quiet=1; shift; }
    local recipename; recipename=$1
    local recipe; recipe=$RECIPEDIR/$recipename.recipe
    local label; label=$2
    local opt; opt=$3
 
-   test ! -f "$recipe" && { test "$opt" = "" && 
-                          >&2 output "Recipe $recipename ($recipe) does not exist.";
-                          exit 1; }
+   test ! -f "$recipe" && if test "$opt" = ""; then 
+         test "$quiet" = 0 && 
+            >&2 output "Recipe $recipename ($recipe) does not exist."
+         exit 1
+      else
+         return 0
+      fi
 
-   grep "^\[$label\]" "$recipe" > /dev/null 2>&1  || { test "$opt" = "" &&  
-       >&2 output "No section $label found in recipe $recipe"; exit 1; } 
+   grep "^\[$label\]" "$recipe" > /dev/null 2>&1  || if test "$opt" = ""; then
+         test "$quiet" = 0 && 
+            >&2 output "No section $label found in recipe $recipe"
+         exit 1
+      else
+         return 0
+      fi
+         
    awk "BEGIN {found=0;} 
         /^\[/ {found=0;} 
         { if (found==1) { 
