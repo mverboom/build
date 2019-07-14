@@ -161,8 +161,19 @@ build() {
    else
       versiondir=$B_VERSION
    fi
-   local pkgs; pkgs=$( recipe_section_get "$B_NAME" REQUIRED opt )
-   test $? -ne 0 && return 1
+
+   # Find recipe required section if available
+   local distr=$(lsb_release -i -s | tr 'a-z' 'A-Z')
+   local rel=$(lsb_release -c -s | tr 'a-z' 'A-Z')
+   local pkgs
+   pkgs=$( recipe_section_get "$B_NAME" "REQUIRED $distr $rel" opt )
+   if test "$pkgs" = ""; then
+      pkgs=$(recipe_section_get "$B_NAME" "REQUIRED $distr" opt)
+      if test "$pkgs" = ""; then
+         pkgs=$(recipe_section_get "$B_NAME" "REQUIRED" opt)
+      fi
+   fi
+
    test "$PKGPOSTFIX" != "" && pkgs=$( echo "$pkgs" | sed "s/B_PF/$PKGPOSTFIX/g" )
    build_require "$pkgs" || return 1
 
