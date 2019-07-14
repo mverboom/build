@@ -236,10 +236,19 @@ repository specified.
 
 For building the version of the software the following sections are used:
 
-`[REQUIRED]` (optional)
+`[REQUIRED] [REQUIRED DISTRO] [REQUIRED DISTRO RELEASE]` (optional)
 
-This section can contain a single line of space seperated package names that need to be
-installed before the build is attempted.
+This section can contain a single line of space seperated package names that need to be installed before the build is attempted.
+
+It is possible to have multiple sections present in the recipe as long as they don't
+have the same name. The order in which the section is used is:
+
+* [REQUIRED DISTRO RELEASE]
+* [REQUIRED DISTRO]
+* [REQUIRED]
+
+The DISTRO and RELEASE keywords are determined based on the machine the script
+is running on.
 
 When the name of a package contains B_PF this will be expanded to the value 
 of the PKGPOSTFIX variable.
@@ -406,11 +415,19 @@ Specifies path to any configuration files that are in the build. The paths
 need to be relative to the `B_INSTALLDIR` used during build. Only files that do
 not reside in a path where the sub part is `*/etc/*` need to be specified here.
 
-`[DEB]` (mandatory for debian packages)
+`[DEB] [DEB RELEASE]` (mandatory for debian packages)
 
 This section contains information relevant to the creation of a Debian package.
 All contents in this section is used to put into the `control` file inside the
 package.
+
+There can be multiple DEB sections in the recipe, but they need to include the
+release name in the header. The order in which they are evaluated is:
+
+* [DEB RELEASE]
+* [DEB]
+
+Release is determined by checking the system the script is run on.
 
 If the recipe directory contains a files directory for the recipe, all files
 that are available in the `B_DEBIAN` folder will automatically be included
