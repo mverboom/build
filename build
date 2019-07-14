@@ -481,7 +481,7 @@ package_deb() {
       # Find recipe package section
       local rel=$(lsb_release -c -s | tr 'a-z' 'A-Z')
       local INFO
-      INFO=$(recipe_section_get $pkg "DEB $rel" -q)
+      INFO=$(recipe_section_get -q $pkg "DEB $rel")
       if test "$?" -ne 0; then
          INFO=$(recipe_section_get $pkg DEB)
          test "$?" -ne 0 && return 1
