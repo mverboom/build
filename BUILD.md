@@ -197,13 +197,18 @@ This variable contains the name of the recipe being run.
 
 This function attempts to remotely find the newest tag for a git repository. It filters out some commonly used tags that indicate non-release tags. 
 
-The command has the following options:
+The command has the following options. The filter and include delete options
+are applied in the order in which they appear below.
 
-`-f <filter>`:  Filter out words from the raw git output.
+`-a`: Don't apply default filters (like rc, beta etc)
 
-`-a`: Don't try and filter out any words (like beta or preview) in raw git output. 
+`-f <filter>`:  Apply filter to git output (sed regex).
 
-`-d <delete pattern>: Delete the pattern from the processed version numbers.
+`-d <delete pattern>`: Delete the pattern from the processed version numbers.
+
+`-i <delete pattern>`: Include the pattern from the processed version numbers.
+
+`-D`: Write the complete command to `/tmp/b_gitver`.
 
 Optionally a filter option can be giving which will be used to filter out any other
 tags that should not be used. The filter will not match case.

@@ -556,15 +556,21 @@ version_get() {
    export B_SARCH
    export B_NAME=$1
    B_GITVER() {
-      exp='-e "\|alpha\|beta\|preview\|rc\|a$\|b$\|b[0-9]*$"'
-      filter=""
-      while getopts :af:d: opt; do
+      local expe='-e "alpha\|beta\|preview\|rc\|a$\|b$\|b[0-9]*$"'
+      local expi=""
+      local filter="s/^v//"
+      local DEBUG=0
+      while getopts :aDi:f:d: opt; do
          case $opt in
-           d) filter="; s/$OPTARG//"
+           f) filter="$filter; s/$OPTARG//"
            ;;
-           f) exp="$exp -e $OPTARG"
+           i) expi="$expi -e $OPTARG"
            ;;
-           a) exp=""
+           d) expe="$expe -e $OPTARG"
+           ;;
+           a) expe=""
+           ;;
+           D) DEBUG=1
            ;;
            \?) echo "Unknown option: -$OPTARG"
            ;;
@@ -574,8 +580,11 @@ version_get() {
       done
       shift $((OPTIND -1))
 
-      test "$exp" != "" && exp="grep -iv $exp" || exp="cat"
-      git ls-remote --tags $1 | grep -v '{}' | $exp | rev | cut -d '/' -f 1 | rev | sed "s/^v//$filter" | sort -t. -k 1,1n -k 2,2n -k 3,3n -k 4,4n | tail -1
+      test "$expe" != "" && expe="grep -iv $expe" || expe="cat"
+      test "$expi" != "" && expi="grep -i $expi" || expi="cat"
+      local CMD="git ls-remote --tags $1 | grep -v '{}' | rev | cut -d '/' -f 1 | rev | sed \"$filter\" | $expi | $expe | sort -t. -k 1,1n -k 2,2n -k 3,3n -k 4,4n | tail -1"
+      test "$DEBUG" = 1 && echo "$CMD" > /tmp/b_gitver
+      bash -c "$CMD"
    }
    B_GITHUBVER() {
       wget -q -O - $1 | sed '/time-ago datetime=/!d; s/.*time-ago datetime="[TZ\:0-9\-]*">\([^<]*\)<.*/\1/' | while read line; do date --date="$line" "+%Y%m%d"; done | sort | tail -1
