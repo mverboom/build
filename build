@@ -558,15 +558,18 @@ version_get() {
    B_GITVER() {
       local expe='-e "alpha\|beta\|preview\|rc\|a$\|b$\|b[0-9]*$"'
       local expi=""
-      local filter="s/^v//"
+      local prefilter="s/^v//"
+      local postfilter=""
       local DEBUG=0
-      while getopts :aDi:f:d: opt; do
+      while getopts :aDi:f:d:F: opt; do
          case $opt in
-           f) filter="$filter; s/$OPTARG//"
+           f) prefilter="$prefilter; s/$OPTARG//"
            ;;
            i) expi="$expi -e $OPTARG"
            ;;
            d) expe="$expe -e $OPTARG"
+           ;;
+           F) postfilter="$postfilter; s/$OPTARG//"
            ;;
            a) expe=""
            ;;
@@ -582,7 +585,8 @@ version_get() {
 
       test "$expe" != "" && expe="grep -iv $expe" || expe="cat"
       test "$expi" != "" && expi="grep -i $expi" || expi="cat"
-      local CMD="git ls-remote --tags $1 | grep -v '{}' | rev | cut -d '/' -f 1 | rev | sed \"$filter\" | $expi | $expe | sort -t. -k 1,1n -k 2,2n -k 3,3n -k 4,4n | tail -1"
+      test "$postfilter" != "" && postfilter="sed \"$postfilter\""|| postfilter="cat"
+      local CMD="git ls-remote --tags $1 | grep -v '{}' | rev | cut -d '/' -f 1 | rev | sed \"$prefilter\" | $expi | $expe | $postfilter | sort -t. -k 1,1n -k 2,2n -k 3,3n -k 4,4n | tail -1"
       test "$DEBUG" = 1 && echo "$CMD" > /tmp/b_gitver
       bash -c "$CMD"
    }

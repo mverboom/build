@@ -202,11 +202,13 @@ are applied in the order in which they appear below.
 
 `-a`: Don't apply default filters (like rc, beta etc)
 
-`-f <filter>`:  Apply filter to git output (sed regex).
+`-f <filter>`:  Prefilter. This filter is first applied to git output (sed regex).
 
 `-d <delete pattern>`: Delete the pattern from the processed version numbers.
 
 `-i <delete pattern>`: Include the pattern from the processed version numbers.
+
+`-F <filter>`:  Postfilter. This filter is last applied to previous processing (sed regex).
 
 `-D`: Write the complete command to `/tmp/b_gitver`.
 
