@@ -212,9 +212,9 @@ build() {
          then
             test -d "$targetdir" || mkdir -p "$targetdir"
             echo "Http downloading files.."
-            wget -O "$target" "$url" || { rm "$target"; echo "Error downloading file."; exit 1; }
+            flock -w 60 "$target" wget -O "$target" "$url" || { rm "$target"; echo "Error downloading file."; exit 1; }
          fi
-         cp "$target" "$fn"
+         flock -w 60 "$target" cp "$target" "$fn"
       ;;
       "git")
          if ! test -f "$targetnover"; then
@@ -226,9 +226,9 @@ build() {
                ( cd "$fn"
                git submodule update --init --recursive )
             fi
-            tar cfz "$targetnover" "$fn"
+            flock -w 60 "$targetnover" tar cfz "$targetnover" "$fn"
          else
-            tar xzf "$targetnover"
+            flock -w 60 "$targetnover" tar xzf "$targetnover"
             cd "$fn"
             git remote update
             if test "$(git rev-parse @)" != "$(git rev-parse @{u})"
@@ -238,7 +238,7 @@ build() {
                   git submodule update --init --recursive
                fi
                cd ..
-               tar cfz $targetnover $fn
+               flock -w 60 "$targetnover" tar cfz $targetnover $fn
             else
                cd ..
             fi
@@ -250,14 +250,14 @@ build() {
             echo "Mercurial downloading files.."
             hg clone $url $fn
             test $? -ne 0 && { echo "Error cloning repository."; exit 1; }
-            tar cfz $targetnover $fn
+            flock -w 60 "$targetnover" tar cfz "$targetnover" "$fn"
          else
-            tar xzf $targetnover
+            flock -w 60 "$targetnover" tar xzf "$targetnover"
             cd $fn
             if test "$(hg id | cut -d' ' -f 1)" != "$(hg id $url)"; then
                hg pull
                cd ..
-               tar cfz $targetnover $fn
+               flock -w 60 "$targetnover" tar cfz "$targetnover" "$fn"
             else
                cd ..
             fi
@@ -269,14 +269,14 @@ build() {
             echo "Subversion downloading files.."
             svn checkout --non-interactive --trust-server-cert -q $url $fn
             test $? -ne 0 && { echo "Error checking out repository."; exit 1; }
-            tar cfz $targetnover $fn
+            flock -w 60 "$targetnover" tar cfz "$targetnover" "$fn"
          else
-            tar xzf $targetnover
+            flock -w 60 "$targetnover" tar xzf "$targetnover"
             cd $fn
             if test "$(svn info --non-interactive --trust-server-cert $url | grep Revision | cut -d' ' -f2)" != "$( svn info --non-interactive --trust-server-cert | grep Revision | cut -d' ' -f 2)"; then
                svn update --non-interactive --trust-server-cert
                cd ..
-               tar cfz $targetnover $fn
+               flock -w 60 "$targetnover" tar cfz "$targetnover" "$fn"
             else
                cd ..
             fi
