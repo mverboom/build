@@ -224,6 +224,13 @@ github. For projects not using tags, this allow for builds to be created on a da
 stamp.
 The function returns the newest date it can find.
 
+`B_GITLABVER <gitlab repository>`
+
+This function attempts to find the last date an update was done on a repository on
+gitlab. For projects not using tags, this allow for builds to be created on a date
+stamp.
+The function returns the newest date it can find.
+
 `B_SVNDATE <svn repository>`
 
 This function attempts to find the last date an update was done on an subversion
