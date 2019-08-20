@@ -590,6 +590,9 @@ version_get() {
       test "$DEBUG" = 1 && echo "$CMD" > /tmp/b_gitver
       bash -c "$CMD"
    }
+   B_GITLABVER() {
+      wget -q -O - "$1/commits/master" | grep -e "commit-header js-commit-header" | cut -d'"' -f 4 | sed "s/-//g" | head -n 1
+   }
    B_GITHUBVER() {
       wget -q -O - $1 | sed '/time-ago datetime=/!d; s/.*time-ago datetime="[TZ\:0-9\-]*">\([^<]*\)<.*/\1/' | while read line; do date --date="$line" "+%Y%m%d"; done | sort | tail -1
    }
@@ -602,7 +605,7 @@ version_get() {
    B_HGREV() {
       hg id $1
    }
-   export -f B_GITVER B_GITHUBVER B_SVNDATE B_SVNREV B_HGREV
+   export -f B_GITVER B_GITHUBVER B_SVNDATE B_SVNREV B_HGREV B_GITLABVER
    CMD=$( recipe_section_get $pkg VERSION )
    test $? -ne 0 && { output $CMD ; return 1; }
    local ver; ver=$( bash $DEBUG -e -c "$CMD" 2>/dev/null )
