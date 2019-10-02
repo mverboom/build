@@ -6,6 +6,8 @@ DESTSPLIT=y
 CACHEDIR=~/cache
 # Temporary build directory
 TMPDIR=~/temp
+# Log directory
+LOGDIR=~/temp
 # Directory with recipes
 RECIPEDIR=~/recipes
 # File with package administration

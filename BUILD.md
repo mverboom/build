@@ -86,6 +86,9 @@ Download cache directory where downloaded files are placed.
 `TMPDIR` (defaults to ~/temp)
 Temporary directory where the software building takes place.
 
+`LOG` (defaults to ~/log)
+Log directory where output of the build process for each build is stored.
+
 `RECIPEDIR` (defaults to ~/recipes)
 Directory with recipe files.
 

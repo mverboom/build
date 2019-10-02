@@ -327,14 +327,15 @@ build() {
    export -f B_LINKFILE
 
    local result
-   cd $TMP
+   pushd $TMP > /dev/null
    if test "$QUIET" = "1"; then
-      bash $DEBUG -e -c "$CMD" > /dev/null 2>&1
+      bash $DEBUG -e -c "$CMD" 2>&1 | tee $LOGDIR/${B_NAME}-${B_ARCH}.log > /dev/null
    else
-      bash $DEBUG -e -c "$CMD"
+      bash $DEBUG -e -c "$CMD" 2>&1 | tee $LOGDIR/${B_NAME}-${B_ARCH}.log
    fi
-   result=$?
-   cd - > /dev/null
+   result=${PIPESTATUS[0]}
+   popd > /dev/null
+   find $TMP -type d -print0 | xargs -0 chmod +w # fix readonly dir removal
    rm -rf $TMP
    test "$pkgs" != "" -a "$DEINSTDEP" = "yes" -a $B_NOPKGRM -eq 0 && build_require_remove "$pkgs"
    test "$POSTBUILD" != "" -a $B_NOPKGRM -eq 0 && $POSTBUILD
@@ -661,7 +662,6 @@ parse_options() {
          B_NOPKGRM=1
       ;;
       x)
-         set -x
          DEBUG=-x
       ;;
       q)
@@ -727,6 +727,7 @@ sanity_check() {
    test "$missing" != "" && { output "Missing required software to run script:$missing" ; exit 1;}
    test "$PKGDIR" = ""  && { ERR=1 output "PKGDIR not defined"; exit 1;}
    test -d $PKGDIR || { ERR=1 output "PKGDIR $PKGDIR does not exist, creating."; mkdir -p $PKGDIR; }
+   test -d $LOGDIR || { ERR=1 output "LOGDIR $LOGDIR does not exist, creating."; mkdir -p $LOGDIR; }
 }
 
 output() {
@@ -782,7 +783,7 @@ main() {
    OS=$(grep "^NAME" /etc/os-release)
    eval ${OS/*=/OS=}
    DESTDIR=~/build CACHEDIR=~/cache TMPDIR=~/temp
-   RECIPEDIR=~/recipes PKGLIST=$RECIPEDIR/pkglist PKGDIR=~/packages
+   RECIPEDIR=~/recipes PKGLIST=$RECIPEDIR/pkglist PKGDIR=~/packages; LOGDIR=~/log
    INSTDEP=yes DEINSTDEP=yes
    test -f ~/.buildrc && . ~/.buildrc || { echo "No configuration file found."; exit 1;}
 
