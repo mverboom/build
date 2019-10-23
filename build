@@ -729,6 +729,7 @@ sanity_check() {
    test "$PKGDIR" = ""  && { ERR=1 output "PKGDIR not defined"; exit 1;}
    test -d $PKGDIR || { ERR=1 output "PKGDIR $PKGDIR does not exist, creating."; mkdir -p $PKGDIR; }
    test -d $LOGDIR || { ERR=1 output "LOGDIR $LOGDIR does not exist, creating."; mkdir -p $LOGDIR; }
+   test -d $TMPDIR || { ERR=1 output "TMPDIR $TMPDIR does not exist, creating."; mkdir -p $TMPDIR; }
 }
 
 output() {
