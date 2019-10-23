@@ -70,6 +70,13 @@ The file has the following format:
 
 `VARIABLE=value`
 
+When using build on multiple systems, it can be advisable to make certain
+configuration items host specific in order to avoid collisions between the
+systems. Most notable variables are:
+* `DESTDIR`
+* `LOGDIR`
+* `PKGDIR`
+
 The following variable can be set in the configuration file.
 
 `DESTDIR` (defaults to ~/build)
