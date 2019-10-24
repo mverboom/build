@@ -37,6 +37,7 @@ usage() {
    echo "   -v  Specify specific version, will prevent from running version section of recipe(s)"
    echo "   -q  Quiet output"
    echo "   -x  Enable debugging output"
+   echo "   -s  Drop to a shell when building process fails to inspect."
    echo "   -f  Force build for recipe, even if complete build is already available."
    echo "   -i  Specify an instance for a recipe"
    echo "   -R  Don't remove required packages after building and skip any post build script."
@@ -332,9 +333,17 @@ build() {
    if test "$QUIET" = "1"; then
       bash $DEBUG -e -c "$CMD" 2>&1 | tee $LOGDIR/${B_NAME}-${B_ARCH}.log > /dev/null
    else
-      bash $DEBUG -e -c "$CMD" 2>&1 | tee $LOGDIR/${B_NAME}-${B_ARCH}.log
+      bash $DEBUG -e -c "$CMD" 2>&1 | tee "$LOGDIR"/"${B_NAME}"-"${B_ARCH}".log
    fi
    result=${PIPESTATUS[0]}
+   if test "$result" -ne 0 -a -n "$DEBUGSHELL"; then
+      echo "## Build failed. Dropping to shell."
+      echo "## See $LOGDIR/${B_NAME}-${B_ARCH}.log for build information."
+      echo "## Any changes to the build root will be removed after exit."
+      echo "## Type exit to return."
+      echo
+      PS1="\h:\w buildroot \$ " bash --norc
+   fi
    popd > /dev/null
    find $TMP -type d -print0 | xargs -0 chmod +w # fix readonly dir removal
    rm -rf $TMP
@@ -632,11 +641,11 @@ recipe_select_arch() {
 }
 
 parse_options() {
-   FORCE=0 ; DEBUG= ; PKGS= ; FORCEVERSION=
+   FORCE=0 ; DEBUG= ; DEBUGSHELL= ; PKGS= ; FORCEVERSION=
    DO_CHECK=0; DO_BUILD=0; DO_PACKAGE=0; DO_REPO=0; B_NOPKGRM=0
    local all; all=0
 
-   while getopts :cbprai:Rxqfhv: opt; do
+   while getopts :csbprai:Rxqfhv: opt; do
       case $opt in
       c)
          DO_CHECK=1
@@ -665,6 +674,9 @@ parse_options() {
       ;;
       x)
          DEBUG=-x
+      ;;
+      s)
+         DEBUGSHELL=1
       ;;
       q)
          QUIET=$(( $QUIET +1 ))

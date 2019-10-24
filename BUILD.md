@@ -46,6 +46,10 @@ Specify twice will not show output.
 `-x`
 Enable debugging output
 
+`-s`
+When build of a recipe fails, drop into a shell so the build environment can be
+examined.
+
 `-f`
 Force build for recipe, even if complete build is already available.
 
