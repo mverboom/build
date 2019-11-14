@@ -570,11 +570,16 @@ version_get() {
    B_GITVER() {
       local expe='-e "alpha\|beta\|preview\|rc\|a$\|b$\|b[0-9]*$"'
       local expi=""
+      local reg=""
       local prefilter="s/^v//"
       local postfilter=""
       local DEBUG=0
-      while getopts :aDi:f:d:F: opt; do
+      while getopts :aDr:R:i:f:d:F: opt; do
          case $opt in
+           r) prereg="$prereg; $OPTARG"
+           ;;
+           R) postreg="$postreg; $OPTARG"
+           ;;
            f) prefilter="$prefilter; s/$OPTARG//"
            ;;
            i) expi="$expi -e $OPTARG"
@@ -594,11 +599,12 @@ version_get() {
          esac
       done
       shift $((OPTIND -1))
-
+      test "$prereg"  !- "" && prereg="sed $prereg" || prereg="cat"
+      test "$postreg"  !- "" && reg="sed $postreg" || postreg="cat"
       test "$expe" != "" && expe="grep -iv $expe" || expe="cat"
       test "$expi" != "" && expi="grep -i $expi" || expi="cat"
       test "$postfilter" != "" && postfilter="sed \"$postfilter\""|| postfilter="cat"
-      local CMD="git ls-remote --tags $1 | grep -v '{}' | rev | cut -d '/' -f 1 | rev | sed \"$prefilter\" | $expi | $expe | $postfilter | sort -t. -k 1,1n -k 2,2n -k 3,3n -k 4,4n | tail -1"
+      local CMD="git ls-remote --tags $1 | grep -v '{}' | rev | cut -d '/' -f 1 | rev | $prereg | sed \"$prefilter\" | $expi | $expe | $postfilter | $postreg | sort -t. -k 1,1n -k 2,2n -k 3,3n -k 4,4n | tail -1"
       test "$DEBUG" = 1 && echo "$CMD" > /tmp/b_gitver
       bash -c "$CMD"
    }
@@ -628,6 +634,26 @@ version_get() {
 }
 
 recipe_select_arch() {
+   local recipe; recipe=$1
+   local arch; arch=$( recipe_item_get $recipe INFO arch )
+   test "$arch" = "" && arch="$B_SARCH"
+   for B_ARCH in ${arch/,/ }; do
+      if test "$B_ARCH" = "all" -o "$B_ARCH" = "$B_SARCH"
+      then
+         return 0
+      fi
+   done
+   return 1
+}
+
+# Check which build recipe section should be used for building (if any)
+recipe_check_builddistro() {
+# * determine OS name
+# * determine version name
+# * check if build exists, if yes, return build
+# * check if build os exists, if yes return build os
+# * check if build os version exists, if yes return build os version
+# * return no
    local recipe; recipe=$1
    local arch; arch=$( recipe_item_get $recipe INFO arch )
    test "$arch" = "" && arch="$B_SARCH"
