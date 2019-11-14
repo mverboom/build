@@ -221,19 +221,19 @@ of the output goes through the following stages:
 
 The command has options to process the raw output and mold it into something useful.
 
+`-r <regex>`:  pre-regex in sed style, like "s/K12/K-1/g" (can be used multiple times)
+
+`-f <filter>`:  pre-filter. Sed style pattern which will be removed, like "-beta" (can be used multiple times)
+
+`-i <pattern>`: include. Only allow lines matching the pattern (grep style). (can be used multiple times)
+
+`-e <pattern>`: exclude. Remove all lines matching the pattern (grep style). (can be used multiple times)
+
+`-F <filter>`:  post-filter. Sed style pattern which will be removed, like "-beta" (can be used multiple times)
+
+`-R <regex>`: post-regex in sed style, like "s/_/\./g" (can be used multiple times)
+
 `-a`: Don't apply default removal filter (post-filter), like rc, beta etc
-
-`-r <regex>`:  pre-regex in sed style, like "s/K12/K-1/g"
-
-`-f <filter>`:  pre-filter. Sed style pattern which will be removed, like "-beta"
-
-`-i <pattern>`: include. Only allow lines matching the pattern (grep style).
-
-`-e <pattern>`: exclude. Remove all lines matching the pattern (grep style).
-
-`-F <filter>`:  post-filter. Sed style pattern which will be removed, like "-beta"
-
-`-R <regex>`: post-regex in sed style, like "s/_/\./g"
 
 `-D`: Write the complete command to `/tmp/b_gitver`.
 
