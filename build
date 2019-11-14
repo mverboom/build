@@ -600,7 +600,7 @@ version_get() {
       done
       shift $((OPTIND -1))
       test "$prereg"  !- "" && prereg="sed $prereg" || prereg="cat"
-      test "$postreg"  !- "" && reg="sed $postreg" || postreg="cat"
+      test "$postreg"  !- "" && postreg="sed $postreg" || postreg="cat"
       test "$expe" != "" && expe="grep -iv $expe" || expe="cat"
       test "$expi" != "" && expi="grep -i $expi" || expi="cat"
       test "$postfilter" != "" && postfilter="sed \"$postfilter\""|| postfilter="cat"
