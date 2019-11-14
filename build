@@ -570,7 +570,8 @@ version_get() {
    B_GITVER() {
       local expe='-e "alpha\|beta\|preview\|rc\|a$\|b$\|b[0-9]*$"'
       local expi=""
-      local reg=""
+      local prereg=""
+      local postreg=""
       local prefilter="s/^v//"
       local postfilter=""
       local DEBUG=0
@@ -599,8 +600,8 @@ version_get() {
          esac
       done
       shift $((OPTIND -1))
-      test "$prereg"  !- "" && prereg="sed $prereg" || prereg="cat"
-      test "$postreg"  !- "" && postreg="sed $postreg" || postreg="cat"
+      test "$prereg"  != "" && prereg="sed $prereg" || prereg="cat"
+      test "$postreg" != "" && postreg="sed $postreg" || postreg="cat"
       test "$expe" != "" && expe="grep -iv $expe" || expe="cat"
       test "$expi" != "" && expi="grep -i $expi" || expi="cat"
       test "$postfilter" != "" && postfilter="sed \"$postfilter\""|| postfilter="cat"
