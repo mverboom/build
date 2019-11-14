@@ -568,14 +568,14 @@ version_get() {
    export B_SARCH
    export B_NAME=$1
    B_GITVER() {
-      local expe='-e "alpha\|beta\|preview\|rc\|a$\|b$\|b[0-9]*$"'
-      local expi=""
-      local prereg=""
-      local postreg=""
+      local exclude='-e "alpha\|beta\|preview\|rc\|a$\|b$\|b[0-9]*$"'
+      local include=""
+      local preregex=""
+      local postregex=""
       local prefilter="s/^v//"
       local postfilter=""
       local DEBUG=0
-      while getopts :aDr:R:i:f:d:F: opt; do
+      while getopts :aDr:R:i:e:f:F: opt; do
          case $opt in
            r) prereg="$prereg; $OPTARG"
            ;;
@@ -583,13 +583,13 @@ version_get() {
            ;;
            f) prefilter="$prefilter; s/$OPTARG//"
            ;;
-           i) expi="$expi -e $OPTARG"
+           i) include="$include -e $OPTARG"
            ;;
-           d) expe="$expe -e $OPTARG"
+           e) exclude="$exclude -e $OPTARG"
            ;;
            F) postfilter="$postfilter; s/$OPTARG//"
            ;;
-           a) expe=""
+           a) postexclude=""
            ;;
            D) DEBUG=1
            ;;
@@ -600,12 +600,22 @@ version_get() {
          esac
       done
       shift $((OPTIND -1))
-      test "$prereg"  != "" && prereg="sed \"$prereg\"" || prereg="cat"
-      test "$postreg" != "" && postreg="sed \"$postreg\"" || postreg="cat"
-      test "$expe" != "" && expe="grep -iv $expe" || expe="cat"
-      test "$expi" != "" && expi="grep -i $expi" || expi="cat"
+      test "$preregex"  != "" && preregex="sed \"$preregex\"" || preregex="cat"
+      prefilter="sed \"$prefilter\""
+      test "$include" != "" && include="grep -i $include" || include="cat"
+      test "$texclude" != "" && exclude="grep -iv $exclude" || exclude="cat"
       test "$postfilter" != "" && postfilter="sed \"$postfilter\""|| postfilter="cat"
-      local CMD="git ls-remote --tags $1 | grep -v '{}' | rev | cut -d '/' -f 1 | rev | $prereg | sed \"$prefilter\" | $expi | $expe | $postfilter | $postreg | sort -t. -k 1,1n -k 2,2n -k 3,3n -k 4,4n | tail -1"
+
+      test "$postregex" != "" && postregex="sed \"$postregex\"" || postregex="cat"
+      local CMD="git ls-remote --tags $1 | grep -v '{}' | 
+                 rev | cut -d '/' -f 1 | rev | 
+                 $preregex | 
+                 $prefilter | 
+                 $include | 
+                 $exclude | 
+                 $postfilter | 
+                 $postregex | 
+                 sort -t. -k 1,1n -k 2,2n -k 3,3n -k 4,4n | tail -1"
       test "$DEBUG" = 1 && echo "$CMD" > /tmp/b_gitver
       bash -c "$CMD"
    }

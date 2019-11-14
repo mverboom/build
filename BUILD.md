@@ -209,25 +209,33 @@ This variable contains the name of the recipe being run.
 
 `B_GITVER [option] <git repostiory>`
 
-This function attempts to remotely find the newest tag for a git repository. It filters out some commonly used tags that indicate non-release tags. 
+This function attempts to remotely find the newest tag for a git repository. It filters out some commonly used tags that indicate non-release tags. The processing
+of the output goes through the following stages:
+* Retrieve tags from git repository
+* Apply optional regular expression (pre-regex) to shape the output
+* Apply optional removal filter (pre-filter), removes all chars matching pattern
+* Apply optional include filter (include), includes only matches
+* Apply optional exclude filter (exclude), excludes all matches
+* Apply optional removal filter (post-filter), removes all chars matching pattern
+* Apply optional regular expression (post-regex) to shape the output
 
-The command has the following options. The filter and include delete options
-are applied in the order in which they appear below.
+The command has options to process the raw output and mold it into something useful.
 
-`-a`: Don't apply default filters (like rc, beta etc)
+`-a`: Don't apply default removal filter (post-filter), like rc, beta etc
 
-`-f <filter>`:  Prefilter. This filter is first applied to git output (sed regex).
+`-r <regex>`:  pre-regex in sed style, like "s/K12/K-1/g"
 
-`-d <delete pattern>`: Delete the pattern from the processed version numbers.
+`-f <filter>`:  pre-filter. Sed style pattern which will be removed, like "-beta"
 
-`-i <delete pattern>`: Include the pattern from the processed version numbers.
+`-i <pattern>`: include. Only allow lines matching the pattern (grep style).
 
-`-F <filter>`:  Postfilter. This filter is last applied to previous processing (sed regex).
+`-e <pattern>`: exclude. Remove all lines matching the pattern (grep style).
+
+`-F <filter>`:  post-filter. Sed style pattern which will be removed, like "-beta"
+
+`-R <regex>`: post-regex in sed style, like "s/_/\./g"
 
 `-D`: Write the complete command to `/tmp/b_gitver`.
-
-Optionally a filter option can be giving which will be used to filter out any other
-tags that should not be used. The filter will not match case.
 
 The function return the newest tag it can find.
 
