@@ -577,9 +577,9 @@ version_get() {
       local DEBUG=0
       while getopts :aDr:R:i:e:f:F: opt; do
          case $opt in
-           r) prereg="$prereg; $OPTARG"
+           r) preregex="$preregex; $OPTARG"
            ;;
-           R) postreg="$postreg; $OPTARG"
+           R) postregex="$postregex; $OPTARG"
            ;;
            f) prefilter="$prefilter; s/$OPTARG//"
            ;;
