@@ -590,7 +590,7 @@ version_get() {
            ;;
            F) postfilter="$postfilter; s/$OPTARG//"
            ;;
-           a) postexclude=""
+           a) exclude=""
            ;;
            D) DEBUG=1
            ;;
@@ -604,7 +604,7 @@ version_get() {
       test "$preregex"  != "" && preregex="sed \"$preregex\"" || preregex="cat"
       prefilter="sed \"$prefilter\""
       test "$include" != "" && include="grep -i $include" || include="cat"
-      test "$texclude" != "" && exclude="grep -iv $exclude" || exclude="cat"
+      test "$exclude" != "" && exclude="grep -iv $exclude" || exclude="cat"
       test "$postfilter" != "" && postfilter="sed \"$postfilter\""|| postfilter="cat"
 
       test "$postregex" != "" && postregex="sed \"$postregex\"" || postregex="cat"
