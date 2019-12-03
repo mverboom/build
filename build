@@ -518,7 +518,7 @@ package_deb() {
 
       local TMP; TMP=$( mktemp -p $TMPDIR -d )
       mkdir -p $TMP/build/DEBIAN
-      local pkgversion; pkgversion=${version//\-/}-$P_BUILDNR+deb$(lsb_release -r -s)
+      local pkgversion; pkgversion=${version//\-/}-$P_BUILDNR+deb$(lsb_release -r -s | cut -d'.' -f 1)
       test "$PKGPOSTFIX" != "" && INFO=$( echo "$INFO" | sed "/^Package:/ s/$/-$PKGPOSTFIX/" | sed "s/B_PF/$PKGPOSTFIX/g" )
       test "$PKGPOSTFIX" != "" && INFO=$( echo "$INFO" | sed "s/B_MAIL/$PKGMAIL/g" )
       test "$PKGORG" != "" && INFO=$( echo "$INFO" | sed "s/B_ORG/$PKGORG/g" )
