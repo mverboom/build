@@ -49,10 +49,10 @@ usage() {
 require_software() {
    case "$OS" in
    "Debian GNU/Linux")
-      echo gawk grep git svn wget fakeroot bzip2 hg lsb_release
+      echo gawk grep git svn wget fakeroot bzip2 hg lsb_release jq
    ;;
    "CentOS Linux")
-      echo gawk grep git svn wget bzip2 hg
+      echo gawk grep git svn wget bzip2 hg jq
    ;;
    esac
    exit 1
