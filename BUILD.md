@@ -239,19 +239,28 @@ The command has options to process the raw output and mold it into something use
 
 The function return the newest tag it can find.
 
-`B_GITHUBVER <github repository>`
+`B_GITHUBVER <github repository uri> <branch>`
 
 This function attempts to find the last date an update was done on a repository on
 github. For projects not using tags, this allow for builds to be created on a date
 stamp.
-The function returns the newest date it can find.
+The function returns the newest date it can find. When <branch> is not supplied, it will look in master.
 
-`B_GITLABVER <gitlab repository>`
+Github's core API is rate-limited to 60 requests per hour, as of now there is no way to increase it.
+
+Example: `B_GITHUBVER username/reponame my_first_branch`
+
+`B_GITLABVER <gitlab repository uri or id> <branch>`
 
 This function attempts to find the last date an update was done on a repository on
 gitlab. For projects not using tags, this allow for builds to be created on a date
 stamp.
-The function returns the newest date it can find.
+The function returns the newest date it can find. When <branch> is not supplied, it will look in master.
+
+Gitlab's API requires uri's to be URL-encoded or you can use the project ID.
+
+Example: `B_GITHUBVER username%2Freponame my_first_branch`
+         `B_GITHUBVER 1 my_first_branch`
 
 `B_SVNDATE <svn repository>`
 

@@ -49,10 +49,10 @@ usage() {
 require_software() {
    case "$OS" in
    "Debian GNU/Linux")
-      echo gawk grep git svn wget fakeroot bzip2 hg lsb_release
+      echo gawk grep git svn wget fakeroot bzip2 hg lsb_release jq
    ;;
    "CentOS Linux")
-      echo gawk grep git svn wget bzip2 hg
+      echo gawk grep git svn wget bzip2 hg jq
    ;;
    esac
    exit 1
@@ -621,10 +621,12 @@ version_get() {
       bash -c "$CMD"
    }
    B_GITLABVER() {
-      wget -q -O - "$1/commits/master" | grep -e "commit-header js-commit-header" | cut -d'"' -f 4 | sed "s/-//g" | head -n 1
+       BRANCH=$2
+       curl -sS https://gitlab.com/api/v4/projects/$1/repository/commits?ref_name=${BRANCH:=master} | jq '.[0].committed_date[0:10] | gsub("-";"")'
    }
    B_GITHUBVER() {
-      wget -q -O - $1 | sed '/time-ago datetime=/!d; s/.*time-ago datetime="[TZ\:0-9\-]*">\([^<]*\)<.*/\1/' | while read line; do date --date="$line" "+%Y%m%d"; done | sort | tail -1
+      BRANCH=$2
+      curl -sS https://api.github.com/repos/$1/commits/${BRANCH:=master} | jq -cr '.commit.committer.date[0:10] | gsub("-";"")'
    }
    B_SVNDATE() {
       date -d "$(svn info --non-interactive --trust-server-cert $1 | grep 'Last Changed Date:' | cut -d':' -f2-)" "+%Y%m%d"

@@ -20,6 +20,7 @@ torepo=y
 Package: build
 Version: B_VERSION
 Section: nbu
+Depends: jq
 Priority: optional
 Architecture: all
 Maintainer: mark@verboom.net
