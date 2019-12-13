@@ -248,7 +248,8 @@ The function returns the newest date it can find. When <branch> is not supplied,
 
 Github's core API is rate-limited to 60 requests per hour, as of now there is no way to increase it.
 
-Example: `B_GITHUBVER username/reponame my_first_branch`
+Example: `B_GITHUBVER https://github.com/user/repo`
+         `B_GITHUBVER https://github.com/user/repo branch`
 
 `B_GITLABVER <gitlab repository uri> <branch>`
 

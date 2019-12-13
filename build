@@ -621,14 +621,15 @@ version_get() {
       bash -c "$CMD"
    }
    B_GITLABVER() {
-       local USR="$( echo $1 | cut -d'/' -f 4)"
-       local REPO="$( echo $1 | cut -d'/' -f 5)"
-       local BRANCH="$2"
-       wget -q -O - https://gitlab.com/api/v4/projects/"$USR"%2F"$REPO"/repository/commits?ref_name="${BRANCH:=master}" | jq -r '.[0].committed_date[0:10] | gsub("-";"")'
+      local USR="$( echo $1 | cut -d'/' -f 4)"
+      local REPO="$( echo $1 | cut -d'/' -f 5)"
+      local BRANCH="$2"
+      wget -q -O - https://gitlab.com/api/v4/projects/"$USR"%2F"$REPO"/repository/commits?ref_name="${BRANCH:=master}" | jq -r '.[0].committed_date[0:10] | gsub("-";"")'
    }
    B_GITHUBVER() {
-      BRANCH=$2
-      curl -sS https://api.github.com/repos/$1/commits/${BRANCH:=master} | jq -cr '.commit.committer.date[0:10] | gsub("-";"")'
+      local URL="$1"
+      local BRANCH="$2"
+      wget -q -O - https://api.github.com/repos/"${URL/*github.com\//}"/commits/"${BRANCH:=master}" | jq -cr '.commit.committer.date[0:10] | gsub("-";"")'
    }
    B_SVNDATE() {
       date -d "$(svn info --non-interactive --trust-server-cert $1 | grep 'Last Changed Date:' | cut -d':' -f2-)" "+%Y%m%d"
