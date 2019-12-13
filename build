@@ -621,8 +621,10 @@ version_get() {
       bash -c "$CMD"
    }
    B_GITLABVER() {
-       BRANCH=$2
-       curl -sS https://gitlab.com/api/v4/projects/$1/repository/commits?ref_name=${BRANCH:=master} | jq '.[0].committed_date[0:10] | gsub("-";"")'
+       local USR="$( echo $1 | cut -d'/' -f 4)"
+       local REPO="$( echo $1 | cut -d'/' -f 5)"
+       local BRANCH="$2"
+       wget -q -O - https://gitlab.com/api/v4/projects/"$USR"%2F"$REPO"/repository/commits?ref_name="${BRANCH:=master}" | jq -r '.[0].committed_date[0:10] | gsub("-";"")'
    }
    B_GITHUBVER() {
       BRANCH=$2

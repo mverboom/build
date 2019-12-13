@@ -250,17 +250,16 @@ Github's core API is rate-limited to 60 requests per hour, as of now there is no
 
 Example: `B_GITHUBVER username/reponame my_first_branch`
 
-`B_GITLABVER <gitlab repository uri or id> <branch>`
+`B_GITLABVER <gitlab repository uri> <branch>`
 
 This function attempts to find the last date an update was done on a repository on
 gitlab. For projects not using tags, this allow for builds to be created on a date
-stamp.
-The function returns the newest date it can find. When <branch> is not supplied, it will look in master.
+stamp.  The function returns the newest date it can find.
 
-Gitlab's API requires uri's to be URL-encoded or you can use the project ID.
+When <branch> is not supplied, it will look in master.
 
-Example: `B_GITHUBVER username%2Freponame my_first_branch`
-         `B_GITHUBVER 1 my_first_branch`
+Example: `B_GITLABVER https://gitlab.com/user/repository`
+         `B_GITLABVER https://gitlab.com/user/repository branch`
 
 `B_SVNDATE <svn repository>`
 
