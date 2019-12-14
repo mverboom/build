@@ -510,6 +510,19 @@ configuration.
 This will be replaced by the value of the PKGMAIL variable if defined in the
 configuration.
 
+* `B_DEPENDS`
+
+This is a special keyword and requires the recipe to contain a section [DEB_DEPENDS].
+This section is supposed to generate any dynamic package dependancies. This can be
+useful when making meta packages which required specific versions of package build
+by other recipes.
+
+`[DEP_DEPENDS]` (optional for debian packages)
+
+This section contains shell code that will be run when a `[DEB]` section contains
+the macro `[DEB_DEPENDS]`. The output of the code should be compatible with the
+debian package dependancy specification.
+
 ## TO REPOSITORY
 
 For pushing a package to a repository, there is no specific section.
