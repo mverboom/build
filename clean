@@ -33,7 +33,7 @@ case $1 in
 "-u")
    echo "Are you sure you want to overwrite the base list? "
    read answer
-   if test "$answer" = "y"
+   if test "${answer^^}" = "Y" -o "${answer^^}" = "YES"
    then
       case $os in
       "Debian GNU/Linux")
