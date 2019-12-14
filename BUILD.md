@@ -308,6 +308,12 @@ Before the code is executed, an environment is set up with supporting informatio
 
 **Variables**
 
+`B_METABUILD`
+
+This variable is used when a recipe needs to build other recipes (for meta
+recipes).  This variable isn't set, but can be set by the recipe. When the recipe
+calls build again, build will skip checking the lockfile.
+
 `B_ARCH`
 
 This variable contains the architecture the build process is run on.
