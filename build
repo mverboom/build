@@ -817,16 +817,18 @@ check_version_built() {
 }
 
 lock_get() {
-   if test -f $LOCK && pgrep -F $LOCK > /dev/null; then
+   test -z "$B_METABUILD" && return 0
+   if -f "$LOCK" && pgrep -F "$LOCK" > /dev/null; then
       return 1
    else
-      echo $$ > $LOCK
+      echo "$$" > "$LOCK"
       return 0
    fi
 }
 
 lock_free() {
-   rm -f $LOCK
+   test -z "$B_METABUILD" && return 0
+   rm -f "$LOCK"
 }
 
 main() {
