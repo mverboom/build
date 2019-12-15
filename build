@@ -189,13 +189,13 @@ build() {
    else
       B_INSTALLDIR="$DESTDIR/$B_ARCH/$B_NAME-$versiondir"
    fi
-   test "$FORCE" -eq 1 && rm -rf "$B_INSTALLDIR"
+   test "$B_FORCE" -eq 1 && rm -rf "$B_INSTALLDIR"
    mkdir -p "$B_INSTALLDIR"
 
    # Define build environment variables and functions
    B_CACHEDIR=$CACHEDIR
    test -d "$RECIPEDIR/$B_NAME.files/B_BUILD" && B_FILES="$RECIPEDIR/$B_NAME.files/B_BUILD"
-   export B_VERSION B_INSTALLDIR B_ARCH B_INSTANCE B_CACHEDIR B_NAME B_BUILDNR B_FILES
+   export B_VERSION B_INSTALLDIR B_ARCH B_INSTANCE B_CACHEDIR B_NAME B_BUILDNR B_FILES B_FORCE
    B_GET() {
       test $# -lt 3 && { >&2 echo "Insufficient arguments to B_GET."; exit 1; }
       local method; method=$1
@@ -689,7 +689,7 @@ recipe_check_builddistro() {
 }
 
 parse_options() {
-   FORCE=0 ; DEBUG= ; DEBUGSHELL= ; PKGS= ; FORCEVERSION=
+   B_FORCE=0 ; DEBUG= ; DEBUGSHELL= ; PKGS= ; FORCEVERSION=
    DO_CHECK=0; DO_BUILD=0; DO_PACKAGE=0; DO_REPO=0; B_NOPKGRM=0
    local all; all=0
 
@@ -730,7 +730,7 @@ parse_options() {
          QUIET=$(( $QUIET +1 ))
       ;;
       f)
-         FORCE=1
+         B_FORCE=1
       ;;
       h)
          usage
@@ -866,7 +866,7 @@ main() {
          B_ARCH=${work_arch[${work_recipes[$i]}]}
          work_version[$i]=$( check_version_built ${work_recipes[$i]} )
          work_built[$i]=$?
-         test $DO_CHECK -eq 1 -o $DO_BUILD -eq 1 -a $FORCE -eq 0 && { test ${work_built[$i]} -eq 1 && output "${work_recipes[$i]} ${work_version[$i]} (already built)"; }
+         test $DO_CHECK -eq 1 -o $DO_BUILD -eq 1 -a $B_FORCE -eq 0 && { test ${work_built[$i]} -eq 1 && output "${work_recipes[$i]} ${work_version[$i]} (already built)"; }
          test $DO_CHECK -eq 1 -o $DO_PACKAGE -ne 0 && { test ${work_built[$1]} -eq 0 && output "${work_recipes[$i]} ${work_version[$i]} (not built)"; }
       done
    fi
@@ -876,7 +876,7 @@ main() {
       lock_get || { echo "Unable to get lock, other instance running?"; exit 1; }
       for i in ${!work_recipes[@]}; do
          B_ARCH=${work_arch[${work_recipes[$i]}]}
-         if test ${work_built[$i]} -eq 0 -o $FORCE -eq 1; then
+         if test ${work_built[$i]} -eq 0 -o $B_FORCE -eq 1; then
             build ${work_recipes[$i]} ${work_version[$i]}
             test $? -eq 1 && { output -f "${work_recipes[$i]} ${work_version[$i]} (build failed)"; work_build[$i]=0; retval=1; } || { work_build[$i]=1; output -f "${work_recipes[$i]} ${work_version[$i]} (build succeeded)"; }
          fi
