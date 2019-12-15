@@ -354,6 +354,11 @@ This variable contains the number of times this specific version of the software
 ben build. This number is also used when creating a package of a build to indicate
 a new package of the same version.
 
+`B_FORCE`
+
+When the build phase of the recipe was forced through -f, this variable will be set to
+1.
+
 `B_FILES`
 
 If a recipe has a recipe specific directory which contains a directory called
