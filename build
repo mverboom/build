@@ -49,7 +49,7 @@ usage() {
 require_software() {
    case "$OS" in
    "Debian GNU/Linux")
-      echo gawk grep git svn wget fakeroot bzip2 hg lsb_release jq
+      echo gawk grep git svn wget fakeroot bzip2 hg lsb_release jq xml2
    ;;
    "CentOS Linux")
       echo gawk grep git svn wget bzip2 hg jq
@@ -214,6 +214,16 @@ build() {
          then
             test -d "$targetdir" || mkdir -p "$targetdir"
             echo "Http downloading files.."
+            flock -w 60 "$target" wget -O "$target" "$url" || { rm "$target"; echo "Error downloading file."; exit 1; }
+         fi
+         flock -w 60 "$target" cp "$target" "$fn"
+      ;;
+      "sf")
+         if ! test -f "$target"
+         then
+            url=$(wget -q -O - "$url/rss?path=/" | xml2 | grep '/rss/channel/item/link' | grep "$B_VERSION" | cut -d '=' -f 2 | tail -1)
+            test -d "$targetdir" || mkdir -p "$targetdir"
+            echo "Http sf downloading files.."
             flock -w 60 "$target" wget -O "$target" "$url" || { rm "$target"; echo "Error downloading file."; exit 1; }
          fi
          flock -w 60 "$target" cp "$target" "$fn"
@@ -636,6 +646,11 @@ version_get() {
       local BRANCH="$2"
       wget -q -O - https://api.github.com/repos/"${URL/*github.com\//}"/commits/"${BRANCH:=master}" | jq -cr '.commit.committer.date[0:10] | gsub("-";"")'
    }
+   B_SFVER() {
+      local URL="$1"
+      wget -q -O - "$URL/rss?path=/" | xml2 | grep '/rss/channel/item/link' | sed 's/.*\/files\/\([^\/]\+\)\/.*/\1/; s/.\+-\(.\+\)/\1/' | sort -t. -k 1,1n -k 2,2n -k 3,3n -k 4,4n | tail -1
+   }
+
    B_SVNDATE() {
       date -d "$(svn info --non-interactive --trust-server-cert $1 | grep 'Last Changed Date:' | cut -d':' -f2-)" "+%Y%m%d"
    }
@@ -645,7 +660,7 @@ version_get() {
    B_HGREV() {
       hg id $1
    }
-   export -f B_GITVER B_GITHUBVER B_SVNDATE B_SVNREV B_HGREV B_GITLABVER
+   export -f B_GITVER B_GITHUBVER B_SVNDATE B_SVNREV B_HGREV B_GITLABVER B_SFVER
    CMD=$( recipe_section_get $pkg VERSION )
    test $? -ne 0 && { output $CMD ; return 1; }
    local ver; ver=$( bash $DEBUG -e -c "$CMD" 2>/dev/null )

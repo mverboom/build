@@ -277,6 +277,11 @@ repository specified.
 This function attemts to find the last revision number for the mercurial
 repository specified.
 
+`B_SFVER <sourceforce project url>`
+
+This function attempts to find the latest version for a project hosted on
+sourceforge.
+
 ## BUILD
 
 For building the version of the software the following sections are used:
@@ -415,6 +420,10 @@ This is used to clone mercurial repositories. This method is beta and not
 completely implemented.
 If `B_GET` completes succesfully, a folder called `name` will be available with
 the repository content.
+
+* sf (sourceforge, status besta)
+
+This is used to download the version of the software from sourceforge.
 
 `B_UPDATEPKGBLD`
 
