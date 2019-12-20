@@ -425,6 +425,15 @@ the repository content.
 
 This is used to download the version of the software from sourceforge.
 
+* go
+
+This is used to download a go repositories. This method does not use the <name>
+argument, as all go software is downloaded to the `src` directory.
+When a newer version of the software is detected an update will be done on the 
+perviously cached go repository. The update will be stored back in the cache.
+If `B_GET` completes succesfully, a folder called `src` will be available with
+the repository content.
+
 `B_UPDATEPKGBLD`
 
 This will retrieve the current build number from the package administration file,

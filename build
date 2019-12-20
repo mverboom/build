@@ -256,6 +256,22 @@ build() {
             fi
          fi
       ;;
+      "go")
+         export GOROOT=/opt/go
+         export PATH=${PATH}:${GOROOT}/bin
+         export GOPATH=$(pwd)
+         if ! test -f "$targetnover"; then
+            test -d "$targetdir" || mkdir -p "$targetdir"
+            echo "Go downloading files.."
+            go get "$url"
+            test $? -ne 0 && { echo "Error cloning repository."; exit 1; }
+            flock -w 60 "$targetnover" tar cfz "$targetnover" .
+         else
+            flock -w 60 "$targetnover" tar xzf "$targetnover"
+            go get -u "$url"
+            flock -w 60 "$targetnover" tar cfz "$targetnover" .
+         fi
+      ;;
       "hg")
          if ! test -f $targetnover; then
             test -d $targetdir || mkdir -p $targetdir
