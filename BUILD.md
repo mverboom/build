@@ -428,11 +428,15 @@ This is used to download the version of the software from sourceforge.
 * go
 
 This is used to download a go repositories. This method does not use the <name>
-argument, as all go software is downloaded to the `src` directory.
+argument, as all go software is downloaded to the `src` directory. Keep in mind
+that the url for a go package does not specify the protocol, so no prefix of
+http or https for example.
 When a newer version of the software is detected an update will be done on the 
 perviously cached go repository. The update will be stored back in the cache.
 If `B_GET` completes succesfully, a folder called `src` will be available with
 the repository content.
+This download method also initialises the following environemnt variables:
+GOROOT GOPATH
 
 `B_UPDATEPKGBLD`
 
