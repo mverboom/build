@@ -338,6 +338,10 @@ build() {
    }
    export -f B_LINKFILE
 
+   # setting to set temporary files to the build folder
+   export XDG_CACHE_HOME="$TMP/.cache" # generic hint
+   export YARN_CACHE_FOLDER=$TMP/.cache/yarn # yarn
+
    local result
    pushd $TMP > /dev/null
    if test "$QUIET" = "1"; then
