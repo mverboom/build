@@ -135,7 +135,7 @@ build_require() {
    test "$toinsttr" != "" && 
       for pkg in $toinsttr
       do
-         sudo apt-get -qq -y -t ${pkg/@*/} install ${pkg/*@/}  > /dev/null 2>&1 || 
+         sudo apt-get -qq -y -t "${pkg/@*/}" install "${pkg/*@/}"  > /dev/null 2>&1 || 
          { output "Error installing dependancy ($pkg)."; 
            return 1 ; }
       done
@@ -426,7 +426,7 @@ package_torepo() {
 
    cd $PKGDIR
    RET=0
-   for type in ${!splittype[@]}; do
+   for type in "${!splittype[@]}"; do
       case "$type" in
       "deb")
          $TODEBREPO ${splittype[$type]}
@@ -897,10 +897,9 @@ main() {
 
    if test $DO_CHECK -ne 0; then
       # Get current version and check if already built
-      check_found=0
-      for i in ${!work_recipes[@]}; do
+      for i in "${!work_recipes[@]}"; do
          B_ARCH=${work_arch[${work_recipes[$i]}]}
-         work_version[$i]=$( check_version_built ${work_recipes[$i]} )
+         work_version[$i]=$( check_version_built "${work_recipes[$i]}" )
          work_built[$i]=$?
          test $DO_CHECK -eq 1 -o $DO_BUILD -eq 1 -a $B_FORCE -eq 0 && { test ${work_built[$i]} -eq 1 && output "${work_recipes[$i]} ${work_version[$i]} (already built)"; }
          test $DO_CHECK -eq 1 -o $DO_PACKAGE -ne 0 && { test ${work_built[$1]} -eq 0 && output "${work_recipes[$i]} ${work_version[$i]} (not built)"; }
@@ -910,7 +909,7 @@ main() {
    if test $DO_BUILD -ne 0; then
       # If not built or forced, then build
       lock_get || { echo "Unable to get lock, other instance running?"; exit 1; }
-      for i in ${!work_recipes[@]}; do
+      for i in "${!work_recipes[@]}"; do
          B_ARCH=${work_arch[${work_recipes[$i]}]}
          if test ${work_built[$i]} -eq 0 -o $B_FORCE -eq 1; then
             build ${work_recipes[$i]} ${work_version[$i]}
@@ -922,13 +921,13 @@ main() {
 
    if test $DO_PACKAGE -ne 0; then
       # if no build action and version built, package. if build action successful, build.
-      for i in ${!work_recipes[@]}; do
+      for i in "${!work_recipes[@]}"; do
          B_ARCH=${work_arch[${work_recipes[$i]}]}
          b=0
          test $DO_BUILD -eq 0 -a ${work_built[$i]} = 1 && b=1
          test "${work_build[$i]}" = "1" && b=1
          if test $b -eq 1; then
-            work_package[$i]=$(package ${work_recipes[$i]} ${work_version[$i]})
+            work_package[$i]=$(package "${work_recipes[$i]}" "${work_version[$i]}")
             work_packaged[$i]=$?
             test ${work_packaged[$i]} -eq 0 && { output "${work_recipes[$i]} ${work_version[$i]} (package created)"; } || { output -f "${work_recipes[$i]} ${work_version[$i]} (package create failed)"; retval=1; }
          else
@@ -940,7 +939,7 @@ main() {
    if test $DO_REPO -ne 0; then
       lock_get || { echo "Unable to get lock, other instance running?"; exit 1; }
       pkgs=""
-      for i in ${!work_recipes[@]}; do
+      for i in "${!work_recipes[@]}"; do
          test "${work_packaged[$i]}" = "0" && pkgs="$pkgs ${work_package[$i]}"
       done
       B_ARCH=${work_arch[${work_recipes[$i]}]}
