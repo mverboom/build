@@ -84,7 +84,7 @@ recipe_section_get() {
    test ! -f "$recipe" && if test "$opt" = ""; then 
          test "$quiet" = 0 && 
             >&2 output "Recipe $recipename ($recipe) does not exist."
-         exit 1
+         return 1
       else
          return 0
       fi
@@ -92,7 +92,7 @@ recipe_section_get() {
    grep "^\[$label\]" "$recipe" > /dev/null 2>&1  || if test "$opt" = ""; then
          test "$quiet" = 0 && 
             >&2 output "No section $label found in recipe $recipe"
-         exit 1
+         return 1
       else
          return 0
       fi
@@ -165,11 +165,6 @@ build() {
    fi
 
    # Find recipe required section if available
-   local distr
-   local rel
-   local pkgs
-   distr=$(lsb_release -i -s | tr '[:lower:]' '[:upper:]')
-   rel=$(lsb_release -c -s | tr '[:lower:]' '[:upper:]')
    pkgs=$( recipe_section_get "$B_NAME" "REQUIRED $distr $rel" opt )
    if test "$pkgs" = ""; then
       pkgs=$(recipe_section_get "$B_NAME" "REQUIRED $distr" opt)
@@ -178,7 +173,6 @@ build() {
       fi
    fi
 
-   #test "$PKGPOSTFIX" != "" && pkgs=$( echo "$pkgs" | sed "s/B_PF/$PKGPOSTFIX/g" )
    test "$PKGPOSTFIX" != "" && pkgs=${pkgs//B_PF/$PKGPOSTFIX}
    build_require "$pkgs" || return 1
 
@@ -562,7 +556,7 @@ package_deb() {
 
       # Find recipe package section
       local rel
-      rel="$(lsb_release -c -s | tr '[:lower:]' '[:upper:]')"
+      #rel="$(lsb_release -c -s | tr '[:lower:]' '[:upper:]')"
       local INFO
       INFO=$(recipe_section_get -q "$pkg" "DEB $rel")
       if test "$?" -ne 0; then
@@ -719,6 +713,22 @@ version_get() {
    return 0
 }
 
+# Check if recipe has build section for this system
+recipe_select_build() {
+   local recipe
+   recipe=$1
+
+   if ! recipe_section_get -q "$recipe" "BUILD $distr $rel" > /dev/null; then
+      if ! recipe_section_get -q "$recipe" "BUILD $distr" > /dev/null ; then
+         if ! recipe_section_get -q "$recipe" "BUILD" > /dev/null; then
+            return 1
+         fi
+      fi
+   fi
+   return 0
+}
+
+# Check if recipe has is for this architecture
 recipe_select_arch() {
    local recipe; recipe=$1
    local arch; arch=$( recipe_item_get "$recipe" INFO arch )
@@ -814,6 +824,11 @@ parse_options() {
    done
    shift $((OPTIND -1))
 
+   if test "$DO_CHECK" = "0" -a "$DO_BUILD" = "0" -a "$DO_PACKAGE" = "0" -a "$DO_REPO" = "0"; then
+      output "No action specified."
+      exit 1
+   fi
+
    for recipe in "$@"; do
       if recipe_select_arch "$recipe"; then
          work_recipes+=("$recipe")
@@ -823,27 +838,30 @@ parse_options() {
       fi
    done
 
-   if test $all -eq 1
-   then
+   if test $all -eq 1; then
       local recipe
       for recipe in "$RECIPEDIR"/*.recipe; do
          recipe=$( basename -s .recipe "$recipe" )
          exclude=$( recipe_item_get "$recipe" INFO excludefromall )
-         if recipe_select_arch "$recipe" && test "$exclude" != "1"; then
-            work_recipes+=( "$recipe" )
-            work_arch[$recipe]="$B_ARCH"
+         if test "$exclude" != "1"; then
+            if recipe_select_arch "$recipe"; then
+               if recipe_select_build "$recipe"; then
+                  work_recipes+=( "$recipe" )
+                  work_arch[$recipe]="$B_ARCH"
+               else
+                  output "$recipe has no build section for this system."
+               fi
+            else
+               output "$recipe not for this architecture or no build section."
+            fi
          else
-            output "$recipe not for this architecture."
+            output "$recipe excluded from building."
          fi
       done
    fi
 
    if test ${#work_recipes[@]} -eq 0; then
       output "No recipe(s) specified."
-      exit 1
-   fi
-   if test "$DO_CHECK" = "0" -a "$DO_BUILD" = "0" -a "$DO_PACKAGE" = "0" -a "$DO_REPO" = "0"; then
-      output "No action specified."
       exit 1
    fi
 }
@@ -930,6 +948,9 @@ main() {
    fi
 
    sanity_check
+
+   distr=$(lsb_release -i -s | tr '[:lower:]' '[:upper:]')
+   rel=$(lsb_release -c -s | tr '[:lower:]' '[:upper:]')
 
    test "$PROXY" != "" && { export http_proxy=$PROXY; export https_proxy=$PROXY; }
 

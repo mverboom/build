@@ -33,7 +33,8 @@ To repository, creates packages and copies to repository for specfified recipe(s
 **Operation modifiers:**
 
 `-a`
-Process all recipes in the recipe directory.
+Process all recipes in the recipe directory. Recipes that are not for the current systems
+architecture or don't have a build section for this system will be excluded.
 
 `-v`
 Specify specific version, will prevent from running version section of recipe(s)
