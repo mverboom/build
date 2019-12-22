@@ -799,9 +799,12 @@ parse_options() {
    shift $((OPTIND -1))
 
    for recipe in "$@"; do
-      recipe_select_arch "$recipe" && { 
-         work_recipes+=("$recipe");
-         work_arch[$recipe]=$B_ARCH;} || output "$recipe not for this architecture."
+      if recipe_select_arch "$recipe"; then
+         work_recipes+=("$recipe")
+         work_arch[$recipe]=$B_ARCH
+      else
+         output "$recipe not for this architecture."
+      fi
    done
 
    if test $all -eq 1
@@ -810,7 +813,12 @@ parse_options() {
       for recipe in "$RECIPEDIR"/*.recipe; do
          recipe=$( basename -s .recipe "$recipe" )
          exclude=$( recipe_item_get "$recipe" INFO excludefromall )
-         recipe_select_arch "$recipe" && test "$exclude" != "1" && { work_recipes+=( "$recipe" ) ; work_arch[$recipe]="$B_ARCH"; } || output "$recipe not for this architecture."
+         if recipe_select_arch "$recipe" && test "$exclude" != "1"; then
+            work_recipes+=( "$recipe" )
+            work_arch[$recipe]="$B_ARCH"
+         else
+            output "$recipe not for this architecture."
+         fi
       done
    fi
 
@@ -829,7 +837,7 @@ sanity_check() {
    local name
 
    for name in $( require_software); do
-      if ! which "$name" > /dev/null 2>&1
+      if ! command -v "$name" > /dev/null 2>&1
       then
          missing="$missing $name"
       fi
@@ -897,7 +905,7 @@ main() {
    DESTDIR="$HOME/build" CACHEDIR="$HOME/cache" TMPDIR="$HOME/temp"
    RECIPEDIR="$HOME/recipes" PKGLIST=$RECIPEDIR/pkglist PKGDIR="$HOME/packages"; LOGDIR="$HOME/log"
    INSTDEP=yes DEINSTDEP=yes
-   test -f "$HOME/.buildrc" && source "$HOME/.buildrc" || { echo "No configuration file found."; exit 1;}
+   test -f "$HOME/.buildrc" && source "$HOME/.buildrc" || { echo "No configuration file found or error parsing."; exit 1;}
 
    sanity_check
 
@@ -924,7 +932,14 @@ main() {
          B_ARCH=${work_arch[${work_recipes[$i]}]}
          if test ${work_built[$i]} -eq 0 -o $B_FORCE -eq 1; then
             build "${work_recipes[$i]}" "${work_version[$i]}"
-            test $? -eq 1 && { output -f "${work_recipes[$i]} ${work_version[$i]} (build failed)"; work_build[$i]=0; retval=1; } || { work_build[$i]=1; output -f "${work_recipes[$i]} ${work_version[$i]} (build succeeded)"; }
+            if test $? -eq 1;then
+               output -f "${work_recipes[$i]} ${work_version[$i]} (build failed)"
+               work_build[$i]=0
+               retval=1;
+            else
+               work_build[$i]=1
+               output -f "${work_recipes[$i]} ${work_version[$i]} (build succeeded)"
+            fi
          fi
       done
       lock_free
@@ -940,7 +955,12 @@ main() {
          if test $b -eq 1; then
             work_package[$i]=$(package "${work_recipes[$i]}" "${work_version[$i]}")
             work_packaged[$i]=$?
-            test ${work_packaged[$i]} -eq 0 && { output "${work_recipes[$i]} ${work_version[$i]} (package created)"; } || { output -f "${work_recipes[$i]} ${work_version[$i]} (package create failed)"; retval=1; }
+            if test ${work_packaged[$i]} -eq 0; then
+               output "${work_recipes[$i]} ${work_version[$i]} (package created)"
+            else
+               output -f "${work_recipes[$i]} ${work_version[$i]} (package create failed)"
+               retval=1
+            fi
          else
             work_package[$i]=1
          fi
@@ -951,12 +971,17 @@ main() {
       lock_get || { echo "Unable to get lock, other instance running?"; exit 1; }
       pkgs=""
       for i in "${!work_recipes[@]}"; do
-         test "${work_packaged[$i]}" = "0" && pkgs="$pkgs ${work_package[$i]}"
+         test "${work_packaged[$i]}" = "0" && pkgs+=( "${work_package[$i]}" )
       done
       B_ARCH=${work_arch[${work_recipes[$i]}]}
-      if test "$pkgs" != ""; then
-         package_torepo $pkgs
-         test $? -eq 0 && { output "packages pushed to repo"; } || { output -f "packages not pushed to repo"; retval=1; }
+      if test "${#pkgs[*]}" != "0"; then
+         package_torepo "${pkgs{@]}"
+         if test $? -eq 0; then
+            output "packages pushed to repo"
+         else
+            output -f "packages not pushed to repo"
+            retval=1
+         fi
       fi
       lock_free
    fi
