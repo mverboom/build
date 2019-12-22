@@ -107,7 +107,7 @@ recipe_section_get() {
 build_require() {
    local pkgs; pkgs=$*
    local missing; missing=0
-   local toinst; toinst=""
+   local toinst
    local toinsttr; toinsttr=""
    local pkg
 
@@ -119,21 +119,21 @@ build_require() {
          output "Package $pkg required for build, but not installed."
          if test "$INSTDEP" = "yes"; then
             test "$pkg" = "${pkg/*@/}" && 
-               toinst="$toinst $pkg" || 
-               toinsttr="$toinsttr $pkg"
+               toinst+=("$pkg") || 
+               toinsttr+=("$pkg")
          else
             missing=1
          fi
       fi
    done
-   test "$toinst" != "" && { 
+   test "${#toinst[*]}" != "0" && { 
       sudo apt-get update > /dev/null 2>&1
-      sudo apt-get -qq -y install $toinst > /dev/null 2>&1 || 
-      { output "Error installing dependancies ($toinst)."; 
+      sudo apt-get -qq -y install "${toinst[@]}" > /dev/null 2>&1 || 
+      { output "Error installing dependancies (${toinst[*]})."; 
        return 1 ;}
    }
-   test "$toinsttr" != "" && 
-      for pkg in $toinsttr
+   test "${#toinsttr[*]}" != "0" && 
+      for pkg in "${toinsttr[@]}"
       do
          sudo apt-get -qq -y -t "${pkg/@*/}" install "${pkg/*@/}"  > /dev/null 2>&1 || 
          { output "Error installing dependancy ($pkg)."; 
@@ -149,9 +149,9 @@ build_require_remove() {
    local list
    for pkg in $pkgs
    do
-      list="$list ${pkg/*@/}"
+      list+=("${pkg/*@/}")
    done
-   sudo apt-get -qq -y --purge remove $list > /dev/null
+   sudo apt-get -qq -y --purge remove "${list[@]}" > /dev/null
    # ToDo: Returncode
 }
 
