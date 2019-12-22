@@ -184,8 +184,11 @@ build() {
 
    test "$B_INSTANCE" != "" && ID=${B_NAME}_${B_VERSION}-${B_INSTANCE}_${B_ARCH} || ID=${B_NAME}_${B_VERSION}_${B_ARCH}
    B_BUILDNR=$( package_buildnr_get "$ID" )
+
+   # Find BUILD section (add extensions for distribution and distribution version)
    local CMD; CMD=$( recipe_section_get "$B_NAME" "BUILD" )
    test $? -ne 0 && return 1
+
    local TMP; TMP=$( mktemp -p "$TMPDIR" -d )
    if test "$DESTSPLIT" != ""; then
       B_INSTALLDIR="$DESTDIR/$B_ARCH/$B_NAME/$versiondir"
@@ -246,7 +249,7 @@ build() {
             flock -w 60 "$targetnover" tar xzf "$targetnover"
             cd "$fn" || exit
             git remote update
-            if test "$(git rev-parse @)" != "$(git rev-parse @{u})"
+            if test "$(git rev-parse @)" != "$(git rev-parse '@{u}')"
             then
                git pull
                if test "$option" = "-s"; then
@@ -324,6 +327,7 @@ build() {
    export -f B_GET
    B_UPDATEPKGBLD() {
       local ID
+      # shellcheck source=/home/builduser/.buildrc
       test -f "$HOME/.buildrc" && source "$HOME/.buildrc"
       if test "$B_INSTANCE" != ""; then
          ID=${B_NAME}_${B_VERSION}-${B_INSTANCE}_${B_ARCH}
@@ -337,17 +341,22 @@ build() {
    B_LINKFILES() {
       local rec; rec=0
       test "$1" = "-r" && { rec=1; shift; }
-      local src; src="$1"; local dst; dst="$2"
+      local src; src="$1"; local dst; dst="$2"; local name
+
       test -d "$B_INSTALLDIR/$src" || { echo "B_LINKFILES: source needs to be a directory within the B_INSTALLDIR tree."; exit 1; }
       test -d "$B_INSTALLDIR/$dst" || mkdir -p "$B_INSTALLDIR/$dst"
-      local name
-      for name in $( ls "$B_INSTALLDIR/$src" | grep -v ".real$" ); do
-         if test -d "$B_INSTALLDIR/$src/$name" -a "$rec" = 1; then
-            B_LINKFILES -r "$src/$name" "$dst/$name"
-         else
-            ln -s "$src/$name" "$B_INSTALLDIR/$dst"
+      shopt -s nullglob
+      pushd "$B_INSTALLDIR/$src" || exit
+      for name in *; do
+         if test "${name/%.real/}" = "$name"; then
+            if test -d "$B_INSTALLDIR/$src/$name" -a "$rec" = 1; then
+               B_LINKFILES -r "$src/$name" "$dst/$name"
+            else
+               ln -s "$src/$name" "$B_INSTALLDIR/$dst"
+            fi
          fi
       done
+      popd || exit
    }
    export -f B_LINKFILES
    B_LINKFILE() {
@@ -905,7 +914,13 @@ main() {
    DESTDIR="$HOME/build" CACHEDIR="$HOME/cache" TMPDIR="$HOME/temp"
    RECIPEDIR="$HOME/recipes" PKGLIST=$RECIPEDIR/pkglist PKGDIR="$HOME/packages"; LOGDIR="$HOME/log"
    INSTDEP=yes DEINSTDEP=yes
-   test -f "$HOME/.buildrc" && source "$HOME/.buildrc" || { echo "No configuration file found or error parsing."; exit 1;}
+   if test -f "$HOME/.buildrc";then
+      # shellcheck source=/home/builduser/.buildrc
+      source "$HOME/.buildrc"
+   else
+      echo "No configuration file found."
+      exit 1
+   fi
 
    sanity_check
 
@@ -975,7 +990,7 @@ main() {
       done
       B_ARCH=${work_arch[${work_recipes[$i]}]}
       if test "${#pkgs[*]}" != "0"; then
-         package_torepo "${pkgs{@]}"
+         package_torepo "${pkgs[@]}"
          if test $? -eq 0; then
             output "packages pushed to repo"
          else
