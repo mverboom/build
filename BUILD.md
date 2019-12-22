@@ -303,7 +303,12 @@ is running on.
 When the name of a package contains B_PF this will be expanded to the value 
 of the PKGPOSTFIX variable.
 
-`[BUILD]` (mandatory)
+`[BUILD] [BUILD DISTRO] [BUILD DISTRO RELEASE]` (mandatory)
+
+This section is required in the recipe and will be matched to the most specific available option:
+* [BUILD DISTRO RELEASE]
+* [BUILD DISTRO]
+* [BUILD]
 
 Everything in this section is executed to build the software. Execution takes place
 in a temporary directory. Creation and cleanup of the directroy is handled by the

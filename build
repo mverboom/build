@@ -186,8 +186,15 @@ build() {
    B_BUILDNR=$( package_buildnr_get "$ID" )
 
    # Find BUILD section (add extensions for distribution and distribution version)
-   local CMD; CMD=$( recipe_section_get "$B_NAME" "BUILD" )
-   test $? -ne 0 && return 1
+   local CMD
+   if ! CMD=$( recipe_section_get -q "$B_NAME" "BUILD $distr $rel" ); then
+      if ! CMD=$( recipe_section_get -q "$B_NAME" "BUILD $distr" ) ; then
+         if ! CMD=$( recipe_section_get -q "$B_NAME" "BUILD" ); then
+            return 1
+         fi
+      fi
+   fi
+   #test $? -ne 0 && return 1
 
    local TMP; TMP=$( mktemp -p "$TMPDIR" -d )
    if test "$DESTSPLIT" != ""; then

@@ -5,7 +5,7 @@ echo 1.0
 excludefromall=1
 arch=all
 
-[BUILD DEB BUSTER]
+[BUILD DEBIAN BUSTER]
 mkdir -p $B_INSTALLDIR/opt/test/bin $B_INSTALLDIR/opt/test/share
 cp $B_FILES/test.sh $B_INSTALLDIR/opt/test/bin
 pushd $B_INSTALLDIR/opt/test/share > /dev/null
