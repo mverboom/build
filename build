@@ -372,6 +372,8 @@ build() {
    # setting to set temporary files to the build folder
    export XDG_CACHE_HOME="$TMP/.cache" # generic hint
    export YARN_CACHE_FOLDER="$TMP/.cache/yarn" # yarn
+   # disable creating compiled python code
+   export PYTHONDONTWRITEBYTECODE=1
 
    local result
    local opts
