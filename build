@@ -957,17 +957,27 @@ main() {
    B_SARCH=$( arch_get )
    parse_options "$@"
 
+   # Check version
    if test $DO_CHECK -ne 0; then
       # Get current version and check if already built
       for i in "${!work_recipes[@]}"; do
          B_ARCH=${work_arch[${work_recipes[$i]}]}
          work_version[$i]=$( check_version_built "${work_recipes[$i]}" )
          work_built[$i]=$?
-         test $DO_CHECK -eq 1 -o $DO_BUILD -eq 1 -a $B_FORCE -eq 0 && { test ${work_built[$i]} -eq 1 && output "${work_recipes[$i]} ${work_version[$i]} (already built)"; }
-         test $DO_CHECK -eq 1 -o $DO_PACKAGE -ne 0 && { test ${work_built[$1]} -eq 0 && output "${work_recipes[$i]} ${work_version[$i]} (not built)"; }
+         if test $DO_CHECK -eq 1 -o $DO_BUILD -eq 1 -a $B_FORCE -eq 0; then
+            if test ${work_built[$i]} -eq 1; then
+               output "${work_recipes[$i]} ${work_version[$i]} (already built)"
+            fi
+         fi
+         if test $DO_CHECK -eq 1 -o $DO_PACKAGE -ne 0; then
+            if test ${work_built[$1]} -eq 0; then
+               output "${work_recipes[$i]} ${work_version[$i]} (not built)"
+            fi
+         fi
       done
    fi
 
+   # Build
    if test $DO_BUILD -ne 0; then
       # If not built or forced, then build
       lock_get || { echo "Unable to get lock, other instance running?"; exit 1; }
@@ -988,31 +998,35 @@ main() {
       lock_free
    fi
 
+   # Create package
    if test $DO_PACKAGE -ne 0; then
-      # if no build action and version built, package. if build action successful, build.
+      # if no build action and version built, package.
+      # if build action successful, build.
+      local built
       for i in "${!work_recipes[@]}"; do
+         work_packaged[$i]=1
          B_ARCH=${work_arch[${work_recipes[$i]}]}
-         b=0
-         test $DO_BUILD -eq 0 -a ${work_build[$i]} = 1 && b=1
-         test "${work_build[$i]}" = "1" && b=1
-         if test $b -eq 1; then
+         built=0
+         test "$DO_BUILD" -eq 0 -a "${work_built[$i]}" = 1 && built=1
+         test "${work_build[$i]}" = "1" && built=1
+         if test "$built" -eq 1; then
             work_package[$i]=$(package "${work_recipes[$i]}" "${work_version[$i]}")
             work_packaged[$i]=$?
-            if test ${work_packaged[$i]} -eq 0; then
+            if test "${work_packaged[$i]}" -eq 0; then
                output "${work_recipes[$i]} ${work_version[$i]} (package created)"
             else
                output -f "${work_recipes[$i]} ${work_version[$i]} (package create failed)"
                retval=1
             fi
-         else
-            work_package[$i]=1
          fi
       done
    fi
 
+   # Push to repo
    if test $DO_REPO -ne 0; then
       lock_get || { echo "Unable to get lock, other instance running?"; exit 1; }
-      pkgs=""
+      local pkgs
+      unset pkgs
       for i in "${!work_recipes[@]}"; do
          test "${work_packaged[$i]}" = "0" && pkgs+=( "${work_package[$i]}" )
       done
