@@ -993,7 +993,7 @@ main() {
       for i in "${!work_recipes[@]}"; do
          B_ARCH=${work_arch[${work_recipes[$i]}]}
          b=0
-         test $DO_BUILD -eq 0 -a ${work_built[$i]} = 1 && b=1
+         test $DO_BUILD -eq 0 -a ${work_build[$i]} = 1 && b=1
          test "${work_build[$i]}" = "1" && b=1
          if test $b -eq 1; then
             work_package[$i]=$(package "${work_recipes[$i]}" "${work_version[$i]}")
