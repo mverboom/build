@@ -208,6 +208,10 @@ This variable contains the name of the recipe being run.
 
 **Functions**
 
+`B_GITDATE <git repostiory>`
+
+Retrieves the last commit date on head for the git repository.
+
 `B_GITVER [option] <git repostiory>`
 
 This function attempts to remotely find the newest tag for a git repository. It filters out some commonly used tags that indicate non-release tags. The processing

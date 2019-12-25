@@ -623,6 +623,19 @@ version_get() {
 
    export B_SARCH
    export B_NAME=$1
+
+   B_GITDATE() {
+      local url; local head; local dt
+      url="$1"
+      # Get head
+      head=$(git ls-remote -h "$url" | cut -d $'\t' -f 1)
+      dt=$(( printf "\x1f\x8b\x08\x00\x00\x00\x00\x00" && 
+         wget -q -O - "$url"/objects/${head:0:2}/${head:2} ) | 
+         gzip -dc 2> /dev/null | cut -d $'\0' -f 1 | 
+         grep "^committer" | sed 's/.* \([0-9]\+\) .*/\1/' )
+      date -d "@$dt" "+%Y%m%d"
+   }
+
    B_GITVER() {
       local exclude='-e "alpha\|beta\|preview\|rc\|a$\|b$\|b[0-9]*$"'
       local include=""
@@ -696,13 +709,16 @@ version_get() {
    B_SVNDATE() {
       date -d "$(svn info --non-interactive --trust-server-cert "$1" | grep 'Last Changed Date:' | cut -d':' -f2-)" "+%Y%m%d"
    }
+
    B_SVNREV() {
       svn info --non-interactive --trust-server-cert "$1" | grep Revision | cut -d' ' -f2
    }
+
    B_HGREV() {
       hg id "$1"
    }
-   export -f B_GITVER B_GITHUBVER B_SVNDATE B_SVNREV B_HGREV B_GITLABVER B_SFVER
+
+   export -f B_GITVER B_GITDATE B_GITHUBVER B_SVNDATE B_SVNREV B_HGREV B_GITLABVER B_SFVER
    CMD=$( recipe_section_get "$pkg" VERSION )
    test $? -ne 0 && { output "$CMD" ; return 1; }
    local opts
