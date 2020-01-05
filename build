@@ -557,8 +557,6 @@ package_deb() {
       local P_BUILDNR; P_BUILDNR=$( package_buildnr_get "${P_PKGNAME}" )
 
       # Find recipe package section
-      local rel
-      #rel="$(lsb_release -c -s | tr '[:lower:]' '[:upper:]')"
       local INFO
       INFO=$(recipe_section_get -q "$pkg" "DEB $rel")
       if test "$?" -ne 0; then
@@ -625,10 +623,12 @@ version_get() {
    export B_NAME=$1
 
    B_GITDATE() {
-      local url; local head; local dt
+      local url; local br; local head; local dt
       url="$1"
+      br="master"
+      test "$2" != "" && br="$2"
       # Get head
-      head=$(git ls-remote -h "$url" | cut -d $'\t' -f 1)
+      head=$(git ls-remote -h "$url" "$br" | cut -d $'\t' -f 1)
       dt=$(( printf "\x1f\x8b\x08\x00\x00\x00\x00\x00" && 
          wget -q -O - "$url"/objects/${head:0:2}/${head:2} ) | 
          gzip -dc 2> /dev/null | cut -d $'\0' -f 1 | 
