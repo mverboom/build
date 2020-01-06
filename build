@@ -271,12 +271,12 @@ build() {
          if ! test -f "$targetnover"; then
             test -d "$targetdir" || mkdir -p "$targetdir"
             echo "Go downloading files.."
-            go get "$url"
+            go get -d "$url"
             test $? -ne 0 && { echo "Error downloading repository."; exit 1; }
             flock -w 60 "$targetnover" tar cfz "$targetnover" .
          else
             flock -w 60 "$targetnover" tar xzf "$targetnover"
-            go get -u "$url"
+            go get -d -u "$url"
             test $? -ne 0 && { echo "Error updating repository."; exit 1; }
             flock -w 60 "$targetnover" tar cfz "$targetnover" .
          fi
