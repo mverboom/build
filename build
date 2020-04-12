@@ -276,8 +276,10 @@ build() {
             flock -w 60 "$targetnover" tar cfz "$targetnover" .
          else
             flock -w 60 "$targetnover" tar xzf "$targetnover"
-            go get -d -u "$url"
+            pushd "src/$url"
+            git pull
             test $? -ne 0 && { echo "Error updating repository."; exit 1; }
+            popd
             flock -w 60 "$targetnover" tar cfz "$targetnover" .
          fi
       ;;
