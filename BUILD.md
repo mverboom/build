@@ -14,6 +14,12 @@ quality software at best.
 The building process is described by recipe files which are explained in the
 recipe section.
 
+The name of a recipe can be appended by a version number. In that case all actions
+will take place for that version and not for the latest available version. A
+version number must be prepended by an @ sign.
+
+Example: `test@1.0.0`
+
 Arguments that can be used are divided into two types:
 
 **Operational mode:**
@@ -35,9 +41,6 @@ To repository, creates packages and copies to repository for specfified recipe(s
 `-a`
 Process all recipes in the recipe directory. Recipes that are not for the current systems
 architecture or don't have a build section for this system will be excluded.
-
-`-v`
-Specify specific version, will prevent from running version section of recipe(s)
 
 `-q`
 Quiet output.

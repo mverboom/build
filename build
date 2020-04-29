@@ -5,7 +5,7 @@
 # Support script to automate software builds outside of base distribution
 # packages
 #
-# Copyright 2011-2019 Mark Verboom
+# Copyright 2011-2020 Mark Verboom
 #
 # This file is part of Build.
 # 
@@ -34,7 +34,6 @@ usage() {
    echo
    echo "Operation modifiers:"
    echo "   -a  Select all recipes available."
-   echo "   -v  Specify specific version, will prevent from running version section of recipe(s)"
    echo "   -q  Quiet output"
    echo "   -x  Enable debugging output"
    echo "   -s  Drop to a shell when building process fails to inspect."
@@ -43,6 +42,9 @@ usage() {
    echo "   -R  Don't remove required packages after building and skip any post build script."
    echo "   -h  This help message"
    echo
+   echo "The name of the recipe can be appended with a specific version number to force"
+   echo "all actions for that specific version. Version must be prepended with @ sign:"
+   echo "   test@1.0.0"
    exit 1
 }
 
@@ -783,11 +785,11 @@ recipe_check_builddistro() {
 }
 
 parse_options() {
-   B_FORCE=0 ; DEBUG= ; DEBUGSHELL= ; FORCEVERSION=
+   B_FORCE=0 ; DEBUG= ; DEBUGSHELL=
    DO_CHECK=0; DO_BUILD=0; DO_PACKAGE=0; DO_REPO=0; B_NOPKGRM=0
    local all; all=0
 
-   while getopts :csbprai:Rxqfhv: opt; do
+   while getopts :csbprai:Rxqfh opt; do
       case $opt in
       c)
          DO_CHECK=1
@@ -829,9 +831,6 @@ parse_options() {
       h)
          usage
       ;;
-      v)
-         FORCEVERSION="$OPTARG"
-      ;;
       \?)
          echo "Unknown option: -$OPTARG"
          usage
@@ -850,6 +849,10 @@ parse_options() {
    fi
 
    for recipe in "$@"; do
+      if test "$recipe" != "${recipe/@/}"; then
+         work_version[${recipe/@*/}]="${recipe/*@/}"
+         recipe="${recipe/@*/}"
+      fi
       if recipe_select_arch "$recipe"; then
          work_recipes+=("$recipe")
          work_arch[$recipe]=$B_ARCH
@@ -912,14 +915,12 @@ output() {
 }
 
 check_version_built() {
-   local pkg; pkg=$1
+   local pkg; pkg="$1"
+   local version; version="$2"
    local RET; RET=0
-   local version
    local pkgdir
 
-   if test "$FORCEVERSION" != ""; then
-      version=$FORCEVERSION
-   else
+   if test "$version" = ""; then
       version=$( version_get "$pkg" ) || return 2
    fi
    if test "$DESTSPLIT" != ""; then
@@ -953,7 +954,8 @@ main() {
    LOCK=/tmp/build.lck
    QUIET=0
 
-   ! test -f /etc/os-release && { echo "Unable to determine os, no /etc/os-release."; exit 1; }
+   ! test -f /etc/os-release && { 
+      echo "Unable to determine os, no /etc/os-release."; exit 1; }
    OS=$(grep "^NAME" /etc/os-release)
    eval "${OS/*=/OS=}"
    DESTDIR="$HOME/build" CACHEDIR="$HOME/cache" TMPDIR="$HOME/temp"
@@ -982,7 +984,7 @@ main() {
       # Get current version and check if already built
       for i in "${!work_recipes[@]}"; do
          B_ARCH=${work_arch[${work_recipes[$i]}]}
-         work_version[$i]=$( check_version_built "${work_recipes[$i]}" )
+         work_version[$i]=$( check_version_built "${work_recipes[$i]}" "${work_version[$i]}")
          work_built[$i]=$?
          if test $DO_CHECK -eq 1 -o $DO_BUILD -eq 1 -a $B_FORCE -eq 0; then
             if test ${work_built[$i]} -eq 1; then
