@@ -583,8 +583,12 @@ package_deb() {
       cd "$pkgdir" || exit
       tar pcfB - . | (cd "$TMP/build" || exit ; tar pxfB - )
       cd "$TMP/build" || exit
-      if test -d "$RECIPEDIR/$pkg.files/B_DEBIAN"; then
-         ( cd "$RECIPEDIR/$pkg.files/B_DEBIAN" || exit ; tar cf - . ) | tar xf -
+      if test -d "$RECIPEDIR/$pkg.files/B_DEBIAN-$rel"; then
+         ( cd "$RECIPEDIR/$pkg.files/B_DEBIAN-$rel" || exit ; tar cf - . ) | tar xf -
+      else
+         if test -d "$RECIPEDIR/$pkg.files/B_DEBIAN"; then
+            ( cd "$RECIPEDIR/$pkg.files/B_DEBIAN" || exit ; tar cf - . ) | tar xf -
+         fi
       fi
 
       # Mark config files
