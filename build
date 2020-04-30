@@ -854,8 +854,12 @@ parse_options() {
          recipe="${recipe/@*/}"
       fi
       if recipe_select_arch "$recipe"; then
-         work_recipes+=("$recipe")
-         work_arch[$recipe]=$B_ARCH
+         if recipe_select_build "$recipe"; then
+            work_recipes+=("$recipe")
+            work_arch[$recipe]=$B_ARCH
+         else
+            output "$recipe has no build section for this system."
+         fi
       else
          output "$recipe not for this architecture."
       fi
