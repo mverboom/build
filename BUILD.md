@@ -522,11 +522,17 @@ Release is determined by checking the system the script is run on.
 
 If the recipe directory contains a files directory for the recipe, all files
 that are available in the `B_DEBIAN` folder will automatically be included
-in the package. One specifiec directory `B_DEBIAN/DEBIAN` can contain files
-used to create the package, like for example post installation commands. For
-more information on this, check the Debian packaging documentation. Any `control`
-file in the `B_DEBIAN/DEBIAN` directory will be overwritten by the inforation
-in this section.
+in the package. It is possible to differentiate based on the release. The order
+of check will be:
+
+* B_DEBIAN-RELEASE
+* B_DEBIAN
+
+One specifiec directory `B_DEBIAN/DEBIAN` can contain files used to create the
+package, like for example post installation commands. For more information on
+this, check the Debian packaging documentation. Any `control` file in the
+`B_DEBIAN/DEBIAN` directory will be overwritten by the inforation in this
+section.
 
 A number of substitutions will be made if specific keywords are used in this
 section. The available keywords are:

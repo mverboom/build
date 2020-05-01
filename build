@@ -583,8 +583,12 @@ package_deb() {
       cd "$pkgdir" || exit
       tar pcfB - . | (cd "$TMP/build" || exit ; tar pxfB - )
       cd "$TMP/build" || exit
-      if test -d "$RECIPEDIR/$pkg.files/B_DEBIAN"; then
-         ( cd "$RECIPEDIR/$pkg.files/B_DEBIAN" || exit ; tar cf - . ) | tar xf -
+      if test -d "$RECIPEDIR/$pkg.files/B_DEBIAN-$rel"; then
+         ( cd "$RECIPEDIR/$pkg.files/B_DEBIAN-$rel" || exit ; tar cf - . ) | tar xf -
+      else
+         if test -d "$RECIPEDIR/$pkg.files/B_DEBIAN"; then
+            ( cd "$RECIPEDIR/$pkg.files/B_DEBIAN" || exit ; tar cf - . ) | tar xf -
+         fi
       fi
 
       # Mark config files
@@ -850,12 +854,17 @@ parse_options() {
 
    for recipe in "$@"; do
       if test "$recipe" != "${recipe/@/}"; then
-         work_version[${recipe/@*/}]="${recipe/*@/}"
+         version="${recipe/*@/}"
          recipe="${recipe/@*/}"
+         work_version[$recipe]="$version"
       fi
       if recipe_select_arch "$recipe"; then
-         work_recipes+=("$recipe")
-         work_arch[$recipe]=$B_ARCH
+         if recipe_select_build "$recipe"; then
+            work_recipes+=("$recipe")
+            work_arch[$recipe]=$B_ARCH
+         else
+            output "$recipe has no build section for this system."
+         fi
       else
          output "$recipe not for this architecture."
       fi
@@ -951,6 +960,7 @@ main() {
    local i
    local retval; retval=0
    declare -A work_arch
+   declare -A work_version
    LOCK=/tmp/build.lck
    QUIET=0
 
@@ -984,7 +994,7 @@ main() {
       # Get current version and check if already built
       for i in "${!work_recipes[@]}"; do
          export B_ARCH=${work_arch[${work_recipes[$i]}]}
-         work_version[$i]=$( check_version_built "${work_recipes[$i]}" "${work_version[$i]}")
+         work_version[$i]=$( check_version_built "${work_recipes[$i]}" "${work_version[${work_recipes[$i]}]}")
          work_built[$i]=$?
          if test $DO_CHECK -eq 1 -o $DO_BUILD -eq 1 -a $B_FORCE -eq 0; then
             if test ${work_built[$i]} -eq 1; then
