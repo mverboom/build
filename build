@@ -983,7 +983,7 @@ main() {
    if test $DO_CHECK -ne 0; then
       # Get current version and check if already built
       for i in "${!work_recipes[@]}"; do
-         B_ARCH=${work_arch[${work_recipes[$i]}]}
+         export B_ARCH=${work_arch[${work_recipes[$i]}]}
          work_version[$i]=$( check_version_built "${work_recipes[$i]}" "${work_version[$i]}")
          work_built[$i]=$?
          if test $DO_CHECK -eq 1 -o $DO_BUILD -eq 1 -a $B_FORCE -eq 0; then
