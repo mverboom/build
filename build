@@ -612,7 +612,7 @@ package_deb() {
          return 1
       else
          file="$pkgdir/*.deb"
-         cp "$file" "$PKGDIR"
+         cp $file "$PKGDIR"
          pkgfile=$(basename "$DESTDIR/$B_ARCH/${P_PKGDIR}"/*.deb)
       fi
    fi
