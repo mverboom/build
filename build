@@ -616,7 +616,7 @@ package_deb() {
          return 1
       else
          file="$pkgdir/*.deb"
-         cp "$file" "$PKGDIR"
+         cp $file "$PKGDIR"
          pkgfile=$(basename "$DESTDIR/$B_ARCH/${P_PKGDIR}"/*.deb)
       fi
    fi
@@ -727,6 +727,7 @@ version_get() {
    }
 
    export -f B_GITVER B_GITDATE B_GITHUBVER B_SVNDATE B_SVNREV B_HGREV B_GITLABVER B_SFVER
+   export B_ARCH
    CMD=$( recipe_section_get "$pkg" VERSION )
    test $? -ne 0 && { output "$CMD" ; return 1; }
    local opts
