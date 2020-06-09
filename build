@@ -957,6 +957,28 @@ lock_free() {
    rm -f "$LOCK"
 }
 
+build_expire() {
+   B_NAME=$1
+   B_VERSION=$2
+   if test "$B_INSTANCE" != ""; then
+      versiondir=$B_VERSION-$B_INSTANCE
+   else
+      versiondir=$B_VERSION
+   fi
+
+   if test "$DESTSPLIT" != ""; then
+      B_INSTALLDIR="$DESTDIR/$B_ARCH/$B_NAME/$versiondir"
+      ls -tr "$B_INSTALLDIR" | head -n -"${MAXBUILDKEEP}" | while read line; do
+         test -d "$B_INSTALLDIR/$line" && rm -rf "$B_INSTALLDIR/$line"
+      done
+   else
+      B_INSTALLDIR="$DESTDIR/$B_ARCH/$B_NAME-"
+      ls -trd "$B_INSTALLDIR"* | head -n -"${MAXBUILDKEEP}" | while read line; do
+         test -d "$line" && rm -rf "$line"
+      done
+   fi
+}
+
 main() {
    local i
    local retval; retval=0
@@ -1025,6 +1047,7 @@ main() {
             else
                work_build[$i]=1
                output -f "${work_recipes[$i]} ${work_version[$i]} (build succeeded)"
+               test -n "$MAXBUILDKEEP" && build_expire "${work_recipes[$i]}"
             fi
          fi
       done
