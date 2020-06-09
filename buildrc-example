@@ -24,3 +24,5 @@ DEINSTDEP=yes
 PKGPOSTFIX=myorganisation
 # Script to run after a build
 POSTBUILD="clean -c"
+# Maximum number of successful builds to keep
+MAXBUILDKEEP=3
