@@ -20,13 +20,13 @@ recipes. For a recipe the following steps will be executed:
 * Create a package from the build software
 * Ship the package to a repository
 
-Everthing is based around bash shell code.
+Everting is based around bash shell code.
 
 ### debclean
 
 In order to build software, a system is usually required which is as clean as possible.
-This helps in determining the exact dependancies for building and running software.
-This script assist in cleaning a debian system. With a minimally installed system it
+This helps in determining the exact dependencies for building and running software.
+This script assist in cleaning a Debian system. With a minimally installed system it
 creates a list of installed packages and reverts that system to that state when requested.
 
 ### torepo

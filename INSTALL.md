@@ -4,13 +4,13 @@ The build script is intended to be able to work on different types of Linux dist
 Currently it is written mainly for Debian, but infrastructure is there to extend to other
 distributions.
 
-Required dependancies will vary with the distribution being used.
+Required dependencies will vary with the distribution being used.
 
-# Dependancies
+# Dependencies
 
 ## Debian
 
-On a debian system, the following packages are required:
+On a Debian system, the following packages are required:
 
 ```
 apt install gawk subversion fakeroot hgsubversion grep wget bzip2
@@ -82,4 +82,4 @@ cp ~/bin/build.git/example-recipes/build.recipe ~/recipes
 ```
 build -b -p build
 ```
-* You should now have a packge in the packages directory.
+* You should now have a package in the packages directory.

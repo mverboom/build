@@ -1,6 +1,6 @@
 # Multi
 
-Initially build has been made to easily create debian packages. However,
+Initially build has been made to easily create Debian packages. However,
 it would be very handy to also make other types of packages. The most important
 being rpm packages.
 
@@ -11,7 +11,7 @@ This file documents the issue's that need to be fixed.
 
 ## Global assumptions
 
-It seems useful to implement builds for different package envirements into
+It seems useful to implement builds for different package environments into
 1 recipe and not create multiple recipes for the same type of software.
 
 This assumes that it is possible to run the same set of build commands and
@@ -35,7 +35,7 @@ is running on.
 ## Created binary storage
 
 The script splits the generated output from the build phase based on arch.
-Normally the folling are used:
+Normally the following are used:
 
 * all
 * i386
@@ -51,7 +51,7 @@ this.
 
 The best solution up till now seems to be the following.
 
-In order to keep backwards compatability, the more detailed information on
+In order to keep backwards compatibility, the more detailed information on
 which system was used to generate the binaries is a recipe level selection.
 
 Default behaviour is:
@@ -70,7 +70,7 @@ Useful options here would be:
 
 * dist: append distribution name (-redhat)
 * dist-major: append distribution name and major version numbers (-redhat-6)
-* dist-minor: append distribution name and major and minor versio numbers (-redhat-6-5)
+* dist-minor: append distribution name and major and minor version numbers (-redhat-6-5)
 
 The list of conversions to use for each distribution:
 
@@ -97,7 +97,7 @@ The list of conversions to use for each distribution:
 
 When running the building phase of a recipe, certain software is required
 to run the build phase. This currently is a generic list of software and is
-targeted towards debian based systems. This needs to be changed so there is
+targeted towards Debian based systems. This needs to be changed so there is
 a platform specific set of required packages for the build phase.
 
 Currently there is one [REQUIRED] section in a recipe. To provide good backwards
@@ -126,7 +126,7 @@ rh-6=xmlrpc-c-1.16.24-1210.1840.el6.x86_64,perl-libxml-perl-0.08-10.el6.noarch
 
 ## RPM package build
 
-Currently there is only a debian package build function available. This
+Currently there is only a Debian package build function available. This
 needs to be extended to rpm support, including the relevant specification
 in the recipe file.
 
@@ -140,7 +140,7 @@ in the recipe file.
 
 ## Debclean script
 
-The debclean script was named debclean and specifically for debian. However,
+The debclean script was named debclean and specifically for Debian. However,
 the configuration file only has support for 1 post processing command. The
 best solution seems to be to change the debclean script to a generic clean
 script, that runs the appropriate action depending on the type of packaging
