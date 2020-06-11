@@ -247,9 +247,15 @@ build() {
                ( cd "$fn" || exit
                git submodule update --init --recursive )
             fi
-            flock -w 60 "$targetnover" tar cfz "$targetnover" "$fn"
+            flock -w 60 "$targetnover" tar cfz "$targetnover" "$fn.new"
+            if test "$?" -eq "0"; then
+               mv "$fn.new" "$fn"
+            else
+               rm -f "$fn.new"
+            fi
          else
             flock -w 60 "$targetnover" tar xzf "$targetnover"
+            test "$?" -ne "0" && exit
             cd "$fn" || exit
             git remote update
             if test "$(git rev-parse @)" != "$(git rev-parse '@{u}')"
@@ -259,7 +265,12 @@ build() {
                   git submodule update --init --recursive
                fi
                cd ..
-               flock -w 60 "$targetnover" tar cfz "$targetnover" "$fn"
+               flock -w 60 "$targetnover" tar cfz "$targetnover" "$fn.new"
+               if test "$?" -eq "0"; then
+                  mv "$fn.new" "$fn"
+               else
+                  rm -f "$fn.new"
+               fi
             else
                cd ..
             fi
