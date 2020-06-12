@@ -247,11 +247,11 @@ build() {
                ( cd "$fn" || exit
                git submodule update --init --recursive )
             fi
-            flock -w 60 "$targetnover" tar cfz "$targetnover" "$fn.new"
+            flock -w 60 "$targetnover" tar cfz "$targetnover.new" "$fn"
             if test "$?" -eq "0"; then
-               mv "$fn.new" "$fn"
+               mv "$targetnover.new" "$targetnover"
             else
-               rm -f "$fn.new"
+               rm -f "$targetnover.new"
             fi
          else
             flock -w 60 "$targetnover" tar xzf "$targetnover"
@@ -265,11 +265,11 @@ build() {
                   git submodule update --init --recursive
                fi
                cd ..
-               flock -w 60 "$targetnover" tar cfz "$targetnover" "$fn.new"
+               flock -w 60 "$targetnover" tar cfz "$targetnover.new" "$fn"
                if test "$?" -eq "0"; then
-                  mv "$fn.new" "$fn"
+                  mv "$targetnover.new" "$targetnover"
                else
-                  rm -f "$fn.new"
+                  rm -f "$targetnover.new"
                fi
             else
                cd ..
