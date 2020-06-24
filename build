@@ -260,7 +260,7 @@ build() {
             git remote update
             if test "$(git rev-parse @)" != "$(git rev-parse '@{u}')"
             then
-               git pull
+               git pull --tags
                if test "$option" = "-s"; then
                   git submodule update --init --recursive
                fi
@@ -290,7 +290,7 @@ build() {
          else
             flock -w 60 "$targetnover" tar xzf "$targetnover"
             pushd "src/$url"
-            git pull
+            git pull --tags
             test $? -ne 0 && { echo "Error updating repository."; exit 1; }
             popd
             flock -w 60 "$targetnover" tar cfz "$targetnover" .
