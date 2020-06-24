@@ -257,7 +257,7 @@ build() {
             flock -w 60 "$targetnover" tar xzf "$targetnover"
             test "$?" -ne "0" && exit
             cd "$fn" || exit
-            git remote update
+            git pull --tags
             if test "$(git rev-parse @)" != "$(git rev-parse '@{u}')"
             then
                git pull --tags
