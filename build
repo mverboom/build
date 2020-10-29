@@ -50,11 +50,15 @@ usage() {
 
 require_software() {
    case "$OS" in
-   "Debian GNU/Linux")
+   "Debian GNU/Linux"|"Raspbian GNU/Linux")
       echo gawk grep git svn wget fakeroot bzip2 hg lsb_release jq xml2
    ;;
    "CentOS Linux")
       echo gawk grep git svn wget bzip2 hg jq
+   ;;
+   *)
+      ERR=1 output "Require software not implemented for $OS"
+      return 1
    ;;
    esac
    exit 1
@@ -422,17 +426,16 @@ build() {
 }
 
 arch_get() {
-   local arch; arch=$(uname -m)
-   case $arch in
-   "i686")
-     echo i386
-     ;;
-   "x86_64")
-     echo amd64
-     ;;
+   local dist; dist=$(lsb_release -i -s)
+
+   case $dist in
+   "Debian"|"Raspbian")
+      dpkg --print-architecture
+   ;;
    *)
-     echo "$arch"
-     ;;
+      ERR=1 output "Architecture detection not implemented for $dist"
+      return 1
+   ;;
    esac
 }
 
