@@ -36,7 +36,7 @@ case $1 in
    if test "${answer^^}" = "Y" -o "${answer^^}" = "YES"
    then
       case $os in
-      "Debian GNU/Linux")
+      "Debian GNU/Linux"|"Raspbian GNU/Linux")
          dpkg -l | grep "^.i" | awk '{print $2}' > $BASE
       ;;
       *)
