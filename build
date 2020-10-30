@@ -511,15 +511,22 @@ package() {
    for pkgtype in ${type/,/ }; do
       case $pkgtype in
       "deb")
-         if test "$OS" = "Debian GNU/Linux"; then
+         if test "$OS" = "Debian GNU/Linux" -o \
+                 "$OS" = "Raspbian GNU/Linux"; then
             package_deb "$pkg" "$version" "$ID"
             return $?
+         else
+            ERR=1 output "Unknown deb distribution ($OS)"
+            return 1
          fi
       ;;
       "rpm")
          if test "$OS" = "CentOS Linux"; then
             package_rpm "$pkg" "$version" "$ID"
             return $?
+         else
+            ERR=1 output "Unknown rpm distribution ($OS)"
+            return 1
          fi
       ;;
 
