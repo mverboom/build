@@ -804,7 +804,7 @@ recipe_check_builddistro() {
 }
 
 parse_options() {
-   B_FORCE=0 ; DEBUG= ; DEBUGSHELL=
+   B_FORCE=0 ; DEBUG= ; DEBUGSHELL=; DRYRUN=0
    DO_CHECK=0; DO_BUILD=0; DO_PACKAGE=0; DO_REPO=0; B_NOPKGRM=0
    local all; all=0
 
