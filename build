@@ -35,6 +35,7 @@ usage() {
    echo "Operation modifiers:"
    echo "   -a  Select all recipes available."
    echo "   -q  Quiet output"
+   echo "   -l  Dry run. Only check versions, don't build, create package etc."
    echo "   -x  Enable debugging output"
    echo "   -s  Drop to a shell when building process fails to inspect."
    echo "   -f  Force build for recipe, even if complete build is already available."
@@ -808,7 +809,7 @@ parse_options() {
    DO_CHECK=0; DO_BUILD=0; DO_PACKAGE=0; DO_REPO=0; B_NOPKGRM=0
    local all; all=0
 
-   while getopts :csbprai:Rxqfh opt; do
+   while getopts :clsbprai:Rxqfh opt; do
       case $opt in
       c)
          DO_CHECK=1
@@ -834,6 +835,9 @@ parse_options() {
       ;;
       R)
          B_NOPKGRM=1
+      ;;
+      l)
+         DRYRUN=1
       ;;
       x)
          DEBUG=1
@@ -1053,6 +1057,11 @@ main() {
       for i in "${!work_recipes[@]}"; do
          B_ARCH=${work_arch[${work_recipes[$i]}]}
          if test ${work_built[$i]} -eq 0 -o $B_FORCE -eq 1; then
+            test "$DRYRUN" -eq 1 && { 
+               output -f "Would build ${work_recipes[$i]} ${work_version[$i]}"
+               work_build[$i]=1
+               continue
+            }
             build "${work_recipes[$i]}" "${work_version[$i]}"
             if test $? -eq 1;then
                output -f "${work_recipes[$i]} ${work_version[$i]} (build failed)"
@@ -1080,6 +1089,11 @@ main() {
          test "$DO_BUILD" -eq 0 -a "${work_built[$i]}" = 1 && built=1
          test "${work_build[$i]}" = "1" && built=1
          if test "$built" -eq 1; then
+           test "$DRYRUN" -eq 1 && { 
+               output -f "Would package ${work_recipes[$i]} ${work_version[$i]}"
+               work_packaged[$i]=0
+               continue
+            }
             work_package[$i]=$(package "${work_recipes[$i]}" "${work_version[$i]}")
             work_packaged[$i]=$?
             if test "${work_packaged[$i]}" -eq 0; then
@@ -1102,12 +1116,16 @@ main() {
       done
       B_ARCH=${work_arch[${work_recipes[$i]}]}
       if test "${#pkgs[*]}" != "0"; then
-         package_torepo "${pkgs[@]}"
-         if test $? -eq 0; then
-            output "packages pushed to repo"
+         if test "$DRYRUN" -eq 1; then
+            output -f "Would send packages to repo"
          else
-            output -f "packages not pushed to repo"
-            retval=1
+            package_torepo "${pkgs[@]}"
+            if test $? -eq 0; then
+               output "packages pushed to repo"
+            else
+               output -f "packages not pushed to repo"
+               retval=1
+            fi
          fi
       fi
       lock_free
