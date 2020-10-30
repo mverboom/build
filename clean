@@ -52,7 +52,7 @@ case $1 in
    if test -f $BASE
    then
       case $os in
-      "Debian GNU/Linux")
+      "Debian GNU/Linux"|"Raspbian GNU/Linux")
          dpkg -l | grep "^.i" | awk '{print $2}' > $CUR
          diff $BASE $CUR | grep '<' | cut -d' ' -f2 | xargs sudo apt-get -qq -y install > /dev/null 2>&1
       	 test ${PIPESTATUS[3]} -ne 0 && echo "Error installing missing packages."
