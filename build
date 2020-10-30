@@ -34,6 +34,7 @@ usage() {
    echo
    echo "Operation modifiers:"
    echo "   -a  Select all recipes available."
+   echo "   -A  Only build for this systems architecture."
    echo "   -q  Quiet output"
    echo "   -l  Dry run. Only check versions, don't build, create package etc."
    echo "   -x  Enable debugging output"
@@ -776,10 +777,8 @@ recipe_select_arch() {
    local arch; arch=$( recipe_item_get "$recipe" INFO arch )
    test "$arch" = "" && arch="$B_SARCH"
    for B_ARCH in ${arch/,/ }; do
-      if test "$B_ARCH" = "all" -o "$B_ARCH" = "$B_SARCH"
-      then
-         return 0
-      fi
+      test "$B_ARCH" = "all" -a "$LOCALARCH" != "1" && return 0
+      test "$B_ARCH" = "$B_SARCH" && return 0
    done
    return 1
 }
@@ -809,7 +808,7 @@ parse_options() {
    DO_CHECK=0; DO_BUILD=0; DO_PACKAGE=0; DO_REPO=0; B_NOPKGRM=0
    local all; all=0
 
-   while getopts :clsbprai:Rxqfh opt; do
+   while getopts :clAsbprai:Rxqfh opt; do
       case $opt in
       c)
          DO_CHECK=1
@@ -829,6 +828,9 @@ parse_options() {
       ;;
       a)
          all=1
+      ;;
+      A)
+         LOCALARCH=1
       ;;
       i)
          B_INSTANCE="$OPTARG"
