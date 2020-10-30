@@ -42,29 +42,36 @@ To repository, creates packages and copies to repository for specified recipe(s)
 Process all recipes in the recipe directory. Recipes that are not for the current systems
 architecture or don't have a build section for this system will be excluded.
 
+`-A`
+Filter recipes that are specific for this systems architecture. Skip all other
+architecture and recipes for any architecture.
+
+`-f`
+Force build for recipe, even if complete build is already available.
+
+`-h`
+Show help message.
+
+`-i`
+Specify an instance for a recipe
+
+`-l`
+Dry run. Check version information, but do not build, package or push to repo.
+
 `-q`
 Quiet output.
 Specify once will still show output on successful and failed builds.
 Specify twice will not show output.
 
-`-x`
-Enable debugging output
+`-R`
+Do not remove required packages after build and skip any post build script.
 
 `-s`
 When build of a recipe fails, drop into a shell so the build environment can be
 examined.
 
-`-f`
-Force build for recipe, even if complete build is already available.
-
-`-i`
-Specify an instance for a recipe
-
-`-R`
-Do not remove required packages after build and skip any post build script.
-
-`-h`
-This help message
+`-x`
+Enable debugging output
 
 # CONFIGURATION FILE
 
