@@ -864,7 +864,7 @@ parse_options() {
 
    if test "$DO_CHECK" = "0" -a "$DO_BUILD" = "0" -a "$DO_PACKAGE" = "0" -a "$DO_REPO" = "0"; then
       output "No action specified."
-      exit 1
+      usage
    fi
 
    for recipe in "$@"; do
