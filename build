@@ -782,7 +782,7 @@ recipe_select_build() {
 recipe_select_arch() {
    local recipe; recipe=$1
    local arch; arch=$( recipe_item_get "$recipe" INFO arch )
-   test "$arch" = "" && arch="$B_SARCH"
+   test "$arch" = "" && arch="all"
    for B_ARCH in ${arch/,/ }; do
       test "$B_ARCH" = "all" -a "$LOCALARCH" != "1" && return 0
       test "$B_ARCH" = "$B_SARCH" && return 0
