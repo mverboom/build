@@ -210,6 +210,7 @@ build() {
    # Define build environment variables and functions
    B_CACHEDIR=$CACHEDIR
    test -d "$RECIPEDIR/$B_NAME.files/B_BUILD" && B_FILES="$RECIPEDIR/$B_NAME.files/B_BUILD"
+   B_PF="$PKGPOSTFIX"
    export B_VERSION B_INSTALLDIR B_ARCH B_INSTANCE B_CACHEDIR B_NAME B_BUILDNR B_FILES B_FORCE B_PF
    B_GET() {
       test $# -lt 3 && { >&2 echo "Insufficient arguments to B_GET."; exit 1; }
@@ -263,10 +264,10 @@ build() {
             flock -w 60 "$targetnover" tar xzf "$targetnover"
             test "$?" -ne "0" && exit
             cd "$fn" || exit
-            git pull --tags
+            git fetch --tags
             if test "$(git rev-parse @)" != "$(git rev-parse '@{u}')"
             then
-               git pull --tags
+               git fetch --tags
                if test "$option" = "-s"; then
                   git submodule update --init --recursive
                fi
