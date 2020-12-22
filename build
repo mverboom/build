@@ -22,6 +22,8 @@
 #     You should have received a copy of the GNU General Public License
 #     along with Build.  If not, see <http://www.gnu.org/licenses/>.
 #
+export http_proxy=http://wwwproxy:8080
+export https_proxy=http://wwwproxy:8080
 
 usage() {
    echo "Usage: build [OPTION]... [RECIPE]..."
@@ -733,6 +735,10 @@ version_get() {
       local BRANCH="$2"
       wget -q -O - https://api.github.com/repos/"${URL/*github.com\//}"/commits/"${BRANCH:=master}" | jq -cr '.commit.committer.date[0:10] | gsub("-";"")'
    }
+   B_GITHUBREL() {
+      local URL="$1"
+      wget -q -O - https://api.github.com/repos/"${URL/*github.com\//}"/releases/latest | jq -r '.tag_name | gsub("v";"")'
+   }
    B_SFVER() {
       local URL="$1"
       wget -q -O - "$URL/rss?path=/" | xml2 | grep '/rss/channel/item/link' | sed 's/.*\/files\/\([^\/]\+\)\/.*/\1/; s/.\+-\(.\+\)/\1/' | sort -t. -k 1,1n -k 2,2n -k 3,3n -k 4,4n | tail -1
@@ -750,7 +756,7 @@ version_get() {
       hg id "$1"
    }
 
-   export -f B_GITVER B_GITDATE B_GITHUBVER B_SVNDATE B_SVNREV B_HGREV B_GITLABVER B_SFVER
+   export -f B_GITVER B_GITDATE B_GITHUBVER B_GITHUBREL B_SVNDATE B_SVNREV B_HGREV B_GITLABVER B_SFVER
    export B_ARCH
    CMD=$( recipe_section_get "$pkg" VERSION )
    test $? -ne 0 && { output "$CMD" ; return 1; }

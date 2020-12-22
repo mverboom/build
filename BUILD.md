@@ -271,6 +271,13 @@ Github's core API is rate-limited to 60 requests per hour, as of now there is no
 Example: `B_GITHUBVER https://github.com/user/repo`
          `B_GITHUBVER https://github.com/user/repo branch`
 
+`B_GITHUBREL <github repository uri>`
+
+This function uses the github api to determine the latest release of the project
+that was published.
+
+Example: `B_GITHUBREL https://github.com/user/repo`
+
 `B_GITLABVER <gitlab repository uri> <branch>`
 
 This function attempts to find the last date an update was done on a repository on
