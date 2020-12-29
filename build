@@ -398,6 +398,8 @@ build() {
    export YARN_CACHE_FOLDER="$TMP/.cache/yarn" # yarn
    # disable creating compiled python code
    export PYTHONDONTWRITEBYTECODE=1
+   # set npm cache to builddir
+   export npm_config_cache=$TMP/.npm
 
    local result
    local opts
