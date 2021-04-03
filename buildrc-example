@@ -22,7 +22,13 @@ INSTDEP=yes
 DEINSTDEP=yes
 # Set package name postfix or empty if not set
 PKGPOSTFIX=myorganisation
+# Set package organisation name
+PKGORG=MYORG
+#  Set package email address
+PKGMAIL=me@example.com
 # Script to run after a build
 POSTBUILD="clean -c"
 # Maximum number of successful builds to keep
 MAXBUILDKEEP=3
+# Optional proxy settings
+PROXY=http://proxy:8080
