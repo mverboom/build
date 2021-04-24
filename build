@@ -23,6 +23,43 @@
 #     along with Build.  If not, see <http://www.gnu.org/licenses/>.
 #
 
+sendmail() {
+   local buildtotal=0
+   local built=0
+   local packaged=0
+   local alreadybuilt=0
+   local summary=""
+   for id in "${!work_recipes[@]}"; do
+      test "{work_built[$id]}" = "1" && alreadybuilt=$(( alreadybuilt + 1 ))
+      if test "${work_build[$id]}" != ""; then
+         summary="${summary}${work_recipes[$id]} ${work_version[$i]}:"
+         buildtotal=$(( total + 1 ))
+         if test "${work_build[$id]}"  = "1"; then
+            summary="${summary} build ok"
+            built=$(( built + 1 ))
+            if test "${work_packaged[$id]}" = "0"; then
+               packaged=$(( packaged + 1 ))
+               summary="${summary}, pacakge ok"
+            else
+               summary="${summary}, pacakge fail"
+            fi
+         else
+            summary="${summary} build fail"
+         fi
+         summary="${summary}\n"
+      fi
+   done
+   local buildperc=0
+   test "$buildtotal" -gt 0 && buildperc=$(( built * 100 / buildtotal ))
+   local pkgperc=0
+   test "$built" -gt 0 && pkgperc=$(( packaged * 100 / built ))
+   ( echo "Summary:"
+     echo -e "${summary}"
+     echo "Logs:"
+   cat "$logfile"
+   )  | mail -s "build completed (${buildperc}% built, ${pkgperc}% packaged)" "$email"
+}
+
 usage() {
    echo "Usage: build [OPTION]... [RECIPE]..."
    echo
@@ -33,16 +70,17 @@ usage() {
    echo "   -r  To repository, creates packages and copies to repository for specfified recipe(s)"
    echo
    echo "Operation modifiers:"
-   echo "   -a  Select all recipes available."
-   echo "   -A  Only build for this systems architecture."
-   echo "   -f  Force build for recipe, even if complete build is already available."
-   echo "   -h  This help message"
-   echo "   -i  Specify an instance for a recipe"
-   echo "   -l  Dry run. Only check versions, don't build, create package etc."
-   echo "   -q  Quiet output"
-   echo "   -R  Don't remove required packages after building and skip any post build script."
-   echo "   -s  Drop to a shell when building process fails to inspect."
-   echo "   -x  Enable debugging output"
+   echo "   -a          Select all recipes available."
+   echo "   -A          Only build for this systems architecture."
+   echo "   -f          Force build for recipe, even if complete build is already available."
+   echo "   -h          This help message"
+   echo "   -i          Specify an instance for a recipe"
+   echo "   -l          Dry run. Only check versions, don't build, create package etc."
+   echo "   -q          Quiet output"
+   echo "   -R          Don't remove required packages after building and skip any post build script."
+   echo "   -s          Drop to a shell when building process fails to inspect."
+   echo "   -x          Enable debugging output"
+   echo "   -m  <email> Mail summary to email address"
    echo
    echo "The name of the recipe can be appended with a specific version number to force"
    echo "all actions for that specific version. Version must be prepended with @ sign:"
@@ -404,11 +442,12 @@ build() {
    test "$DEBUG" = "1" && opts+=( "-x" )
    opts+=("-e" "-c")
    pushd "$TMP" > /dev/null || exit
-   if test "$QUIET" = "1"; then
-      bash "${opts[@]}" "$CMD" 2>&1 | tee "$LOGDIR/${B_NAME}-${B_ARCH}.log" > /dev/null
-   else
-      bash "${opts[@]}" "$CMD" 2>&1 | tee "$LOGDIR/${B_NAME}-${B_ARCH}.log"
-   fi
+   bash "${opts[@]}" "$CMD" 2>&1 | tee "$LOGDIR/${B_NAME}-${B_ARCH}.log" | outputpipe > /dev/null
+   #if test "$QUIET" -ge "1"; then
+   #   bash "${opts[@]}" "$CMD" 2>&1 | tee "$LOGDIR/${B_NAME}-${B_ARCH}.log" > /dev/null
+   #else
+   #   bash "${opts[@]}" "$CMD" 2>&1 | tee "$LOGDIR/${B_NAME}-${B_ARCH}.log"
+   #fi
    result=${PIPESTATUS[0]}
    if test "$result" -ne 0 -a -n "$DEBUGSHELL"; then
       echo "## Build failed. Dropping to shell."
@@ -822,7 +861,7 @@ parse_options() {
    DO_CHECK=0; DO_BUILD=0; DO_PACKAGE=0; DO_REPO=0; B_NOPKGRM=0
    local all; all=0
 
-   while getopts :clAsbprai:Rxqfh opt; do
+   while getopts :clm:Asbprai:Rxqfm:h opt; do
       case $opt in
       c)
          DO_CHECK=1
@@ -854,6 +893,9 @@ parse_options() {
       ;;
       l)
          DRYRUN=1
+      ;;
+      m) email="$OPTARG"
+         logfile="$(tempfile)"
       ;;
       x)
          DEBUG=1
@@ -950,9 +992,19 @@ sanity_check() {
    test -d "$TMPDIR" || { ERR=1 output "TMPDIR $TMPDIR does not exist, creating."; mkdir -p "$TMPDIR"; }
 }
 
+outputpipe() {
+   while read line; do
+      output "$@" "$line"
+   done
+}
+
 output() {
    local force; force=0
    test "$1" = "-f" && { force=1; shift; }
+   if test "$logfile" != ""; then
+      stamp=$(date "+%Y%m%d %H:%M:%S")
+      echo "$stamp $*" >> "$logfile"
+   fi
    test $QUIET -eq 2 && return
    test $force -eq 0 -a $QUIET -eq 1 && return
    test "$ERR" != "" && (>&2 echo "$1") || echo "$1"
@@ -965,7 +1017,7 @@ check_version_built() {
    local pkgdir
 
    if test "$version" = ""; then
-      version=$( version_get "$pkg" ) || return 2
+      version=$( version_get "$pkg" ) || return 255
    fi
    if test "$DESTSPLIT" != ""; then
       pkgdir="$DESTDIR/$B_ARCH/$pkg/$version"
@@ -1146,6 +1198,9 @@ main() {
       fi
       lock_free
    fi
+
+   test "$email" != "" && sendmail
+   test "$logfile" != "" && rm -f "$logfile"
 
    return $retval
 }
