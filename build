@@ -26,38 +26,59 @@
 sendmail() {
    local buildtotal=0
    local built=0
+   local pkgtotal=0
    local packaged=0
    local alreadybuilt=0
-   local summary=""
+   local summaryok=""
+   local summaryfail=""
+   local pkg
    for id in "${!work_recipes[@]}"; do
       test "{work_built[$id]}" = "1" && alreadybuilt=$(( alreadybuilt + 1 ))
       if test "${work_build[$id]}" != ""; then
-         summary="${summary}${work_recipes[$id]} ${work_version[$i]}:"
-         buildtotal=$(( total + 1 ))
+         #summary="${summary}${work_recipes[$id]} ${work_version[$i]}:"
+         pkg="${work_recipes[$id]} ${work_version[$i]}:"
+         buildtotal=$(( buildtotal + 1 ))
          if test "${work_build[$id]}"  = "1"; then
-            summary="${summary} build ok"
+            summaryok="${summaryok}${pkg} build ok"
             built=$(( built + 1 ))
-            if test "${work_packaged[$id]}" = "0"; then
-               packaged=$(( packaged + 1 ))
-               summary="${summary}, pacakge ok"
-            else
-               summary="${summary}, pacakge fail"
+            if test "${work_packaged[$id]}" != ""; then
+               pkgtotal=$(( pkgtotal + 1 ))
+               if test "${work_packaged[$id]}" = "0"; then
+                  packaged=$(( packaged + 1 ))
+                  summaryok="${summaryok}, package ok"
+               else
+                  summaryok="${summaryok}, package fail"
+               fi
             fi
+            summaryok="$summaryok\n"
          else
-            summary="${summary} build fail"
+            summaryfail="${summaryfail}${pkg} build fail\n"
          fi
-         summary="${summary}\n"
       fi
    done
+   local subject
    local buildperc=0
-   test "$buildtotal" -gt 0 && buildperc=$(( built * 100 / buildtotal ))
+   if test "$buildtotal" -gt 0; then
+      buildperc=$(( built * 100 / buildtotal ))
+      buildsubject="${buildperc}% built"
+   fi
    local pkgperc=0
-   test "$built" -gt 0 && pkgperc=$(( packaged * 100 / built ))
+   if test "$pkgtotal" -gt 0; then
+      pkgperc=$(( packaged * 100 / pkgtotal ))
+      pkgsubject="${pkgperc}% packaged"
+   fi
+   test "$buildsubject" != "" -o "$pkgsubject" != "" && subject="$buildsubject, $pkgsubject"
    ( echo "Summary:"
-     echo -e "${summary}"
+     test "$summaryok" != "" && echo -e "${summaryok}"
+     test "$summaryfail" != "" && echo -e "${summaryfail}"
      echo "Logs:"
-   cat "$logfile"
-   )  | mail -s "build completed (${buildperc}% built, ${pkgperc}% packaged)" "$email"
+     for id in "${!work_recipes[@]}"; do
+        echo "${work_recipes[$id]} ${work_version[$id]}:"
+        log="$LOGDIR/${work_recipes[$id]}-${work_arch[${work_recipes[$id]}]}.log"
+        { head -5 "$log"; echo "Skip middle..."; tail -5 "$log"; } | sed "s/^/  /"
+        echo
+     done
+   )  | mail -s "build completed (${subject%%, })" "$email"
 }
 
 usage() {
@@ -77,6 +98,7 @@ usage() {
    echo "   -i          Specify an instance for a recipe"
    echo "   -l          Dry run. Only check versions, don't build, create package etc."
    echo "   -q          Quiet output"
+   echo "   -v          Verbose output"
    echo "   -R          Don't remove required packages after building and skip any post build script."
    echo "   -s          Drop to a shell when building process fails to inspect."
    echo "   -x          Enable debugging output"
@@ -861,7 +883,7 @@ parse_options() {
    DO_CHECK=0; DO_BUILD=0; DO_PACKAGE=0; DO_REPO=0; B_NOPKGRM=0
    local all; all=0
 
-   while getopts :clm:Asbprai:Rxqfm:h opt; do
+   while getopts :clm:Asbprai:Rxvqfm:h opt; do
       case $opt in
       c)
          DO_CHECK=1
@@ -905,6 +927,9 @@ parse_options() {
       ;;
       q)
          QUIET=$(( QUIET +1 ))
+      ;;
+      v)
+         VERBOSE=$(( VERBOSE +1 ))
       ;;
       f)
          B_FORCE=1
@@ -958,13 +983,13 @@ parse_options() {
                   work_recipes+=( "$recipe" )
                   work_arch[$recipe]="$B_ARCH"
                else
-                  output "$recipe has no build section for this system."
+                  output -v "$recipe has no build section for this system."
                fi
             else
-               output "$recipe not for this architecture or no build section."
+               output -v "$recipe not for this architecture or no build section."
             fi
          else
-            output "$recipe excluded from building."
+            output -v "$recipe excluded from building."
          fi
       done
    fi
@@ -994,20 +1019,23 @@ sanity_check() {
 
 outputpipe() {
    while read line; do
-      output "$@" "$line"
+      test "$VERBOSE" -gt 0 && output "$@" "$line"
    done
 }
 
 output() {
    local force; force=0
+   local verbose; verbose=0
    test "$1" = "-f" && { force=1; shift; }
+   test "$1" = "-v" && { force=1; shift; }
    if test "$logfile" != ""; then
       stamp=$(date "+%Y%m%d %H:%M:%S")
       echo "$stamp $*" >> "$logfile"
    fi
    test $QUIET -eq 2 && return
    test $force -eq 0 -a $QUIET -eq 1 && return
-   test "$ERR" != "" && (>&2 echo "$1") || echo "$1"
+   test "$ERR" != "" && { (>&2 echo "$1"); return; }
+   test "$verbose" -le "$VERBOSE" && echo "$1"
 }
 
 check_version_built() {
@@ -1072,6 +1100,7 @@ main() {
    declare -A work_version
    LOCK=/tmp/build.lck
    QUIET=0
+   VERBOSE=0
 
    ! test -f /etc/os-release && { 
       echo "Unable to determine os, no /etc/os-release."; exit 1; }
