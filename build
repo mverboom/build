@@ -32,10 +32,10 @@ sendmail() {
    local summaryok=""
    local summaryfail=""
    local pkg
+   test "${#work_build[*]}" = "0" -a "${#work_packaged[*]}" = "0" && return
    for id in "${!work_recipes[@]}"; do
       test "{work_built[$id]}" = "1" && alreadybuilt=$(( alreadybuilt + 1 ))
       if test "${work_build[$id]}" != ""; then
-         #summary="${summary}${work_recipes[$id]} ${work_version[$i]}:"
          pkg="${work_recipes[$id]} ${work_version[$i]}:"
          buildtotal=$(( buildtotal + 1 ))
          if test "${work_build[$id]}"  = "1"; then
@@ -69,15 +69,20 @@ sendmail() {
    fi
    test "$buildsubject" != "" -o "$pkgsubject" != "" && subject="$buildsubject, $pkgsubject"
    ( echo "Summary:"
-     test "$summaryok" != "" && echo -e "${summaryok}"
-     test "$summaryfail" != "" && echo -e "${summaryfail}"
-     echo "Logs:"
-     for id in "${!work_recipes[@]}"; do
-        echo "${work_recipes[$id]} ${work_version[$id]}:"
-        log="$LOGDIR/${work_recipes[$id]}-${work_arch[${work_recipes[$id]}]}.log"
-        { head -5 "$log"; echo "Skip middle..."; tail -5 "$log"; } | sed "s/^/  /"
-        echo
-     done
+     test "$summaryok" != "" && echo -n -e "${summaryok}"
+     test "$summaryfail" != "" && echo -n -e "${summaryfail}"
+     echo
+     if test "$built" -lt "$buildtotal"; then
+        echo "Log excerpt for failed builds:"
+        for id in "${!work_recipes[@]}"; do
+           if test "${work_build[$id]}"  = "0"; then
+              echo "${work_recipes[$id]} ${work_version[$id]}:"
+              log="$LOGDIR/${work_recipes[$id]}-${work_arch[${work_recipes[$id]}]}.log"
+              { head -5 "$log"; echo "Skip middle..."; tail -5 "$log"; } | sed "s/^/  /"
+              echo
+           fi
+        done
+     fi
    )  | mail -s "build completed (${subject%%, })" "$email"
 }
 
