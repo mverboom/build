@@ -75,12 +75,16 @@ sendmail() {
      if test "$built" -lt "$buildtotal"; then
         echo "Log excerpt for failed builds:"
         for id in "${!work_recipes[@]}"; do
-           if test "${work_build[$id]}"  = "0"; then
-              echo "${work_recipes[$id]} ${work_version[$id]}:"
-              log="$LOGDIR/${work_recipes[$id]}-${work_arch[${work_recipes[$id]}]}.log"
+           test "${work_build[$id]}"  != "0" && continue
+           echo "${work_recipes[$id]} ${work_version[$id]}:"
+           log="$LOGDIR/${work_recipes[$id]}-${work_arch[${work_recipes[$id]}]}.log"
+           ! test -e "$log" && { echo; continue; }
+           if test "$(wc -l < $log)" -gt 10; then
               { head -5 "$log"; echo "Skip middle..."; tail -5 "$log"; } | sed "s/^/  /"
-              echo
+           else
+              sed "s/^/  /" "$log"
            fi
+           echo
         done
      fi
    )  | mail -s "build completed (${subject%%, })" "$email"
@@ -184,8 +188,7 @@ build_require() {
    local toinsttr; toinsttr=""
    local pkg
 
-   for pkg in $pkgs
-   do
+   for pkg in $pkgs; do
       dpkg-query -s "${pkg/*@/}" 2>&1 | grep not-installed > /dev/null
       if test "${PIPESTATUS[0]}" -ne 0 -o "${PIPESTATUS[1]}" -ne 1
       then
@@ -206,8 +209,7 @@ build_require() {
        return 1 ;}
    }
    test "${#toinsttr[*]}" != "0" && 
-      for pkg in "${toinsttr[@]}"
-      do
+      for pkg in "${toinsttr[@]}"; do
          sudo apt-get -qq -y -t "${pkg/@*/}" install "${pkg/*@/}"  > /dev/null 2>&1 || 
          { output "Error installing dependancy ($pkg)."; 
            return 1 ; }
@@ -220,8 +222,7 @@ build_require_remove() {
    local pkgs; pkgs="$1"
    local pkg
    local list
-   for pkg in $pkgs
-   do
+   for pkg in $pkgs; do
       list+=("${pkg/*@/}")
    done
    sudo apt-get -qq -y --purge remove "${list[@]}" > /dev/null
@@ -261,7 +262,6 @@ build() {
          fi
       fi
    fi
-   #test $? -ne 0 && return 1
 
    local TMP; TMP=$( mktemp -p "$TMPDIR" -d )
    if test "$DESTSPLIT" != ""; then
@@ -470,11 +470,6 @@ build() {
    opts+=("-e" "-c")
    pushd "$TMP" > /dev/null || exit
    bash "${opts[@]}" "$CMD" 2>&1 | tee "$LOGDIR/${B_NAME}-${B_ARCH}.log" | outputpipe > /dev/null
-   #if test "$QUIET" -ge "1"; then
-   #   bash "${opts[@]}" "$CMD" 2>&1 | tee "$LOGDIR/${B_NAME}-${B_ARCH}.log" > /dev/null
-   #else
-   #   bash "${opts[@]}" "$CMD" 2>&1 | tee "$LOGDIR/${B_NAME}-${B_ARCH}.log"
-   #fi
    result=${PIPESTATUS[0]}
    if test "$result" -ne 0 -a -n "$DEBUGSHELL"; then
       echo "## Build failed. Dropping to shell."
@@ -614,24 +609,19 @@ package_rpm() {
    local pkgready; pkgready=$( recipe_item_get "$pkg" PKG pkgready )
    local P_PKGDIR; P_PKGDIR="${pkg}-${ID}"
 
-   if test "$pkgready" = ""; then
-      local P_PKGNAME; P_PKGNAME="${pkg}_${ID}_${B_ARCH}"
-      local P_BUILDNR; P_BUILDNR=$( package_buildnr_get "${P_PKGNAME}" )
-      local INFO; INFO=$(recipe_section_get "$pkg" DEB) || return 1
-      local TMP; TMP=$( mktemp -p "$TMPDIR" -d )
+   test "$pkgready" != "" && { echo "pkgready not implemented for rpm."; exit 1; }
+   local P_PKGNAME; P_PKGNAME="${pkg}_${ID}_${B_ARCH}"
+   local P_BUILDNR; P_BUILDNR=$( package_buildnr_get "${P_PKGNAME}" )
+   local INFO; INFO=$(recipe_section_get "$pkg" DEB) || return 1
+   local TMP; TMP=$( mktemp -p "$TMPDIR" -d )
 
-      echo "P_PKGNAME $P_PKGNAME"
-      echo "P_BUILDNR $P_BUILDNR"
+   echo "P_PKGNAME $P_PKGNAME"
+   echo "P_BUILDNR $P_BUILDNR"
 
-      mkdir -p "$TMP/DEBIAN"
+   mkdir -p "$TMP/DEBIAN"
 
-      echo "Creating rpm packages is not implemented."
-      exit 1
-   else
-      echo "pkgready not implemented for rpm."
-      exit 1
-   fi
-
+   echo "Creating rpm packages is not implemented."
+   exit 1
 }
 
 package_deb() {
@@ -1010,8 +1000,7 @@ sanity_check() {
    local name
 
    for name in $( require_software); do
-      if ! command -v "$name" > /dev/null 2>&1
-      then
+      if ! command -v "$name" > /dev/null 2>&1; then
          missing="$missing $name"
       fi
    done
