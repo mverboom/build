@@ -36,7 +36,7 @@ sendmail() {
    for id in "${!work_recipes[@]}"; do
       test "{work_built[$id]}" = "1" && alreadybuilt=$(( alreadybuilt + 1 ))
       if test "${work_build[$id]}" != ""; then
-         pkg="${work_recipes[$id]} ${work_version[$i]}:"
+         pkg="${work_recipes[$id]} ${work_version[$id]}:"
          buildtotal=$(( buildtotal + 1 ))
          if test "${work_build[$id]}"  = "1"; then
             summaryok="${summaryok}${pkg} build ok"
