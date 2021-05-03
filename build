@@ -469,7 +469,7 @@ build() {
    test "$DEBUG" = "1" && opts+=( "-x" )
    opts+=("-e" "-c")
    pushd "$TMP" > /dev/null || exit
-   bash "${opts[@]}" "$CMD" 2>&1 | tee "$LOGDIR/${B_NAME}-${B_ARCH}.log" | outputpipe > /dev/null
+   bash "${opts[@]}" "$CMD" 2>&1 | tee "$LOGDIR/${B_NAME}-${B_ARCH}.log" | outputpipe
    result=${PIPESTATUS[0]}
    if test "$result" -ne 0 -a -n "$DEBUGSHELL"; then
       echo "## Build failed. Dropping to shell."
