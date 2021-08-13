@@ -955,15 +955,20 @@ parse_options() {
          recipe="${recipe/@*/}"
          work_version[$recipe]="$version"
       fi
+      if ! test -e "${RECIPEDIR}/${recipe}.recipe"; then
+         output "recipe $recipe does not exist."
+         continue
+      fi
+
       if recipe_select_arch "$recipe"; then
          if recipe_select_build "$recipe"; then
             work_recipes+=("$recipe")
             work_arch[$recipe]=$B_ARCH
          else
-            output "$recipe has no build section for this system."
+            output "recipe $recipe has no build section for this system."
          fi
       else
-         output "$recipe not for this architecture."
+         output "recipe $recipe not for this architecture."
       fi
    done
 
@@ -978,13 +983,13 @@ parse_options() {
                   work_recipes+=( "$recipe" )
                   work_arch[$recipe]="$B_ARCH"
                else
-                  output -v "$recipe has no build section for this system."
+                  output -v "recipe $recipe has no build section for this system."
                fi
             else
-               output -v "$recipe not for this architecture or no build section."
+               output -v "recipe $recipe not for this architecture or no build section."
             fi
          else
-            output -v "$recipe excluded from building."
+            output -v "recipe $recipe excluded from building."
          fi
       done
    fi
