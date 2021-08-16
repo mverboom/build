@@ -912,7 +912,7 @@ parse_options() {
          DRYRUN=1
       ;;
       m) email="$OPTARG"
-         logfile="$(tempfile)"
+         logfile="$(mktemp)"
       ;;
       x)
          DEBUG=1
