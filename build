@@ -202,8 +202,9 @@ build_require() {
          fi
       fi
    done
-   test "${#toinst[*]}" != "0" && { 
+   test "${#toinst[*]}" != "0" -o "${#toinsttr[*]}" != "0" && 
       sudo apt-get update > /dev/null 2>&1
+   test "${#toinst[*]}" != "0" && { 
       sudo apt-get -qq -y install "${toinst[@]}" > /dev/null 2>&1 || 
       { output "Error installing dependancies (${toinst[*]})."; 
        return 1 ;}
@@ -237,6 +238,8 @@ build() {
    else
       versiondir=$B_VERSION
    fi
+   local buildlogfile="$LOGDIR/${B_NAME}-${B_ARCH}.log"
+   rm -f "$buildlogfile"
 
    # Find recipe required section if available
    pkgs=$( recipe_section_get "$B_NAME" "REQUIRED $distr $rel" opt )
@@ -469,7 +472,7 @@ build() {
    test "$DEBUG" = "1" && opts+=( "-x" )
    opts+=("-e" "-c")
    pushd "$TMP" > /dev/null || exit
-   bash "${opts[@]}" "$CMD" 2>&1 | tee "$LOGDIR/${B_NAME}-${B_ARCH}.log" | outputpipe
+   bash "${opts[@]}" "$CMD" 2>&1 | tee -a "$buildlogfile" | outputpipe
    result=${PIPESTATUS[0]}
    if test "$result" -ne 0 -a -n "$DEBUGSHELL"; then
       echo "## Build failed. Dropping to shell."
@@ -912,7 +915,7 @@ parse_options() {
          DRYRUN=1
       ;;
       m) email="$OPTARG"
-         logfile="$(mktemp)"
+         maillogfile="$(mktemp)"
       ;;
       x)
          DEBUG=1
@@ -1027,9 +1030,12 @@ output() {
    local verbose; verbose=0
    test "$1" = "-f" && { force=1; shift; }
    test "$1" = "-v" && { force=1; shift; }
-   if test "$logfile" != ""; then
+   if test "$maillogfile" != ""; then
       stamp=$(date "+%Y%m%d %H:%M:%S")
-      echo "$stamp $*" >> "$logfile"
+      echo "$stamp $*" >> "$maillogfile"
+   fi
+   if test "$buildlogfile" != ""; then
+      echo "$stamp $*" >> "$buildlogfile"
    fi
    test $QUIET -eq 2 && return
    test $force -eq 0 -a $QUIET -eq 1 && return
@@ -1228,7 +1234,7 @@ main() {
    fi
 
    test "$email" != "" && sendmail
-   test "$logfile" != "" && rm -f "$logfile"
+   test "$maillogfile" != "" && rm -f "$maillogfile"
 
    return $retval
 }
