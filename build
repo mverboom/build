@@ -319,7 +319,7 @@ build() {
             git clone "$url" "$fn"
             test $? -ne 0 && { echo "Error cloning repository."; exit 1; }
             if test "$option" = "-s"; then
-               ( cd "$fn" || exit
+               ( cd "$fn" || exit 1
                git submodule update --init --recursive )
             fi
             flock -w 60 "$targetnover" tar cfz "$targetnover.new" "$fn"
@@ -329,22 +329,21 @@ build() {
                rm -f "$targetnover.new"
             fi
          else
-            flock -w 60 "$targetnover" tar xzf "$targetnover"
-            test "$?" -ne "0" && exit
-            cd "$fn" || exit
+            flock -w 60 "$targetnover" tar xzf "$targetnover" || {
+               echo "Error extracting archive $targetnover"; exit 1; }
+            cd "$fn" || exit 1
             git fetch --tags
-            if test "$(git rev-parse @)" != "$(git rev-parse '@{u}')"
-            then
+            if test "$(git rev-parse @)" != "$(git rev-parse '@{u}')"; then
                git fetch --tags
-               if test "$option" = "-s"; then
-                  git submodule update --init --recursive
-               fi
+               test "$option" = "-s" && git submodule update --init --recursive
                cd ..
                flock -w 60 "$targetnover" tar cfz "$targetnover.new" "$fn"
                if test "$?" -eq "0"; then
                   mv "$targetnover.new" "$targetnover"
                else
+                  echo "Unable to store in cache."
                   rm -f "$targetnover.new"
+                  exit 1
                fi
             else
                cd ..
