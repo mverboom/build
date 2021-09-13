@@ -1034,7 +1034,7 @@ output() {
       echo "$stamp $*" >> "$maillogfile"
    fi
    if test "$buildlogfile" != ""; then
-      echo "$stamp $*" >> "$buildlogfile"
+      echo "$*" >> "$buildlogfile"
    fi
    test $QUIET -eq 2 && return
    test $force -eq 0 -a $QUIET -eq 1 && return
