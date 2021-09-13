@@ -332,7 +332,7 @@ build() {
             flock -w 60 "$targetnover" tar xzf "$targetnover" || {
                echo "Error extracting archive $targetnover"; exit 1; }
             cd "$fn" || exit 1
-            git fetch --tags
+            git fetch --tags -f
             if test "$(git rev-parse @)" != "$(git rev-parse '@{u}')"; then
                git fetch --tags
                test "$option" = "-s" && git submodule update --init --recursive
