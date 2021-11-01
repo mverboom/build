@@ -298,7 +298,7 @@ build() {
          then
             test -d "$targetdir" || mkdir -p "$targetdir"
             echo "Http downloading files.."
-            flock -w 60 "$target" wget -O "$target" "$url" || { rm "$target"; echo "Error downloading file."; exit 1; }
+            flock -w 60 "$target" wget -q -O "$target" "$url" || { rm "$target"; echo "Error downloading file."; exit 1; }
          fi
          flock -w 60 "$target" cp "$target" "$fn"
       ;;
@@ -640,70 +640,69 @@ package_deb() {
       pkgdir="$DESTDIR/$B_ARCH/$pkg-$version"
    fi
 
-   if test "$pkgready" = ""; then
-      local P_PKGNAME; P_PKGNAME=${pkg}_${ID}_${B_ARCH}
-      local P_BUILDNR; P_BUILDNR=$( package_buildnr_get "${P_PKGNAME}" )
+   if test "$pkgready" != ""; then
+      test "$( echo "$pkgdir"/*.deb )" = "$pkgdir/*.deb" && { 
+         ERR=1 output "Recipe indicates package should be in build dir, but it isn't."; return 1; }
+      file="$pkgdir/*.deb"
+      cp $file "$PKGDIR"
+      pkgfile=$(basename -a "$DESTDIR/$B_ARCH/${P_PKGDIR}"/*.deb)
+      echo "$pkgfile"
+      return
+   fi
 
-      # Find recipe package section
-      local INFO
-      INFO=$(recipe_section_get -q "$pkg" "DEB $rel")
-      if test "$?" -ne 0; then
-         INFO=$(recipe_section_get "$pkg" DEB)
-         test "$?" -ne 0 && return 1
-      fi
+   local P_PKGNAME; P_PKGNAME=${pkg}_${ID}_${B_ARCH}
+   local P_BUILDNR; P_BUILDNR=$( package_buildnr_get "${P_PKGNAME}" )
 
-      local TMP; TMP=$( mktemp -p "$TMPDIR" -d )
-      mkdir -p "$TMP/build/DEBIAN"
-      local pkgversion; pkgversion="${version//\-/}-$P_BUILDNR+deb"$(lsb_release -r -s | cut -d'.' -f 1)
-      test "$(echo "$INFO" | grep B_DEPENDS)" != "" &&  {
-         local CMD; local DEPS;
-         CMD=$( recipe_section_get "$pkg" DEB_DEPENDS ); DEPS=$(B_VERSION=$version bash -c "$CMD")
-         INFO=$( echo "$INFO" | sed "/^Depends:/ s/B_DEPENDS/$DEPS/" )
-      }
-      test "$PKGPOSTFIX" != "" && INFO=$( echo "$INFO" | sed "/^Package:/ s/$/-$PKGPOSTFIX/" | sed "s/B_PF/$PKGPOSTFIX/g" )
-      test "$PKGPOSTFIX" != "" && INFO="${INFO//B_MAIL/$PKGMAIL}"
-      test "$PKGORG" != "" && INFO="${INFO//B_ORG/$PKGORG}"
-      test "$PKGMAIL" != "" && INFO="${INFO//B_MAIL/$PKGMAIL}"
-      cd "$pkgdir" || exit
-      tar pcfB - . | (cd "$TMP/build" || exit ; tar pxfB - )
-      cd "$TMP/build" || exit
-      if test -d "$RECIPEDIR/$pkg.files/B_DEBIAN-$rel"; then
-         ( cd "$RECIPEDIR/$pkg.files/B_DEBIAN-$rel" || exit ; tar cf - . ) | tar xf -
-      else
-         if test -d "$RECIPEDIR/$pkg.files/B_DEBIAN"; then
-            ( cd "$RECIPEDIR/$pkg.files/B_DEBIAN" || exit ; tar cf - . ) | tar xf -
-         fi
-      fi
+   # Find recipe package section
+   local INFO
+   INFO=$(recipe_section_get -q "$pkg" "DEB $rel")
+   if test "$?" -ne 0; then
+      INFO=$(recipe_section_get "$pkg" DEB)
+      test "$?" -ne 0 && return 1
+   fi
 
-      # Mark config files
-      find . -path "*/etc/*" -type f | sed "s/^\.//" > DEBIAN/conffiles
-      local configfiles; configfiles=$( recipe_item_get "$pkg" PKG configfiles )
-      test "$configfiles" != "" && { echo "$configfiles" | tr ' ' '\n' >> DEBIAN/conffiles; }
-      echo "$INFO" | sed "s/B_VERSION/$pkgversion/" | sed "s/B_ARCH/$B_ARCH/" > "$TMP"/build/DEBIAN/control
-      cd "$TMP" || exit
-      fakeroot dpkg --build "$TMP"/build . > "$TMP"/.buildoutput
-      result=$?
-      local pkgfile; pkgfile=$(cut -d \' -f 4 "$TMP"/.buildoutput)
-      pkgfile=${pkgfile/*\//}
-      if test $result -ne 0; then
-         rm -rf "$TMP"
-         ERR=1 output "Error while building package."
-         return 1
-      fi
-      grep "^${P_PKGNAME}_${B_ARCH}" "$PKGLIST" > /dev/null && sed -i "/^${P_PKGNAME}_${B_ARCH}/d" "$PKGLIST"
-      echo -e "${P_PKGNAME}_${B_ARCH}\t$P_BUILDNR" >> "$PKGLIST"
-      mv "$TMP"/"$pkgfile" "$PKGDIR"
-      rm -rf "$TMP"
+   local TMP; TMP=$( mktemp -p "$TMPDIR" -d )
+   mkdir -p "$TMP/build/DEBIAN"
+   local pkgversion; pkgversion="${version//\-/}-$P_BUILDNR+deb"$(lsb_release -r -s | cut -d'.' -f 1)
+   test "$(echo "$INFO" | grep B_DEPENDS)" != "" &&  {
+      local CMD; local DEPS;
+      CMD=$( recipe_section_get "$pkg" DEB_DEPENDS ); DEPS=$(B_VERSION=$version bash -c "$CMD")
+      INFO=$( echo "$INFO" | sed "/^Depends:/ s/B_DEPENDS/$DEPS/" )
+   }
+   test "$PKGPOSTFIX" != "" && INFO=$( echo "$INFO" | sed "/^Package:/ s/$/-$PKGPOSTFIX/" | sed "s/B_PF/$PKGPOSTFIX/g" )
+   test "$PKGPOSTFIX" != "" && INFO="${INFO//B_MAIL/$PKGMAIL}"
+   test "$PKGORG" != "" && INFO="${INFO//B_ORG/$PKGORG}"
+   test "$PKGMAIL" != "" && INFO="${INFO//B_MAIL/$PKGMAIL}"
+   cd "$pkgdir" || exit
+   tar pcfB - . | (cd "$TMP/build" || exit ; tar pxfB - )
+   cd "$TMP/build" || exit
+   if test -d "$RECIPEDIR/$pkg.files/B_DEBIAN-$rel"; then
+      ( cd "$RECIPEDIR/$pkg.files/B_DEBIAN-$rel" || exit ; tar cf - . ) | tar xf -
    else
-      if test "$( echo "$pkgdir"/*.deb )" = "$pkgdir/*.deb"; then
-         ERR=1 output "Recipe indicates package should be in build dir, but it isn't."
-         return 1
-      else
-         file="$pkgdir/*.deb"
-         cp $file "$PKGDIR"
-         pkgfile=$(basename "$DESTDIR/$B_ARCH/${P_PKGDIR}"/*.deb)
+      if test -d "$RECIPEDIR/$pkg.files/B_DEBIAN"; then
+         ( cd "$RECIPEDIR/$pkg.files/B_DEBIAN" || exit ; tar cf - . ) | tar xf -
       fi
    fi
+
+   # Mark config files
+   find . -path "*/etc/*" -type f | sed "s/^\.//" > DEBIAN/conffiles
+   local configfiles; configfiles=$( recipe_item_get "$pkg" PKG configfiles )
+   test "$configfiles" != "" && { echo "$configfiles" | tr ' ' '\n' >> DEBIAN/conffiles; }
+   echo "$INFO" | sed "s/B_VERSION/$pkgversion/" | sed "s/B_ARCH/$B_ARCH/" > "$TMP"/build/DEBIAN/control
+   cd "$TMP" || exit
+   fakeroot dpkg --build "$TMP"/build . > "$TMP"/.buildoutput
+   result=$?
+   local pkgfile; pkgfile=$(cut -d \' -f 4 "$TMP"/.buildoutput)
+   pkgfile=${pkgfile/*\//}
+   if test $result -ne 0; then
+      rm -rf "$TMP"
+      ERR=1 output "Error while building package."
+      return 1
+   fi
+   grep "^${P_PKGNAME}_${B_ARCH}" "$PKGLIST" > /dev/null && sed -i "/^${P_PKGNAME}_${B_ARCH}/d" "$PKGLIST"
+   echo -e "${P_PKGNAME}_${B_ARCH}\t$P_BUILDNR" >> "$PKGLIST"
+   mv "$TMP"/"$pkgfile" "$PKGDIR"
+   rm -rf "$TMP"
    echo "$pkgfile"
 }
 
