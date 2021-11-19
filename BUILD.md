@@ -20,6 +20,22 @@ version number must be prepended by an @ sign.
 
 Example: `test@1.0.0`
 
+The name of a recipe can be appended by an instance designator. This designator
+will be appended to the version and is available in the environment during the
+build process. This can be used to create specific versions of software based
+on different configuration files (for example kernel configuration). The example
+below uses an instance of global.
+
+Example: `test:global`
+
+Version and instance can be combined in any order. The following examples are
+all valid
+
+Example: `test@1.0.0:global`
+         `test:lan@5.1`
+         `test@3.0`
+         `test:network`
+
 Arguments that can be used are divided into two types:
 
 **Operational mode:**
@@ -51,9 +67,6 @@ Force build for recipe, even if complete build is already available.
 
 `-h`
 Show help message.
-
-`-i`
-Specify an instance for a recipe
 
 `-l`
 Dry run. Check version information, but do not build, package or push to repo.
@@ -114,8 +127,9 @@ Log directory where output of the build process for each build is stored.
 `RECIPEDIR` (defaults to ~/recipes)
 Directory with recipe files.
 
-`PKGLIST` (defaults to RECIPEDIR/pkglist)
-File used for package administration.
+`PKGLIST` (defaults to RECIPEDIR/pkglist-$HOSTNAME)
+File used for package administration. The hostname of the system building is
+appended to provide for seperation when multiple systems use the same environment.
 
 `PKGDIR` (defaults to ~/packages)
 Directory where built packages are placed
@@ -199,6 +213,12 @@ excludefromall
 If this option is set to 1, the recipe will not be included when running the build
 script with the -a flag. This can be useful for recipes under development, not ready
 to include in a nightly run.
+
+intancereq
+
+If this option is set to 1, it indicates this recipe requires an instance to be
+passed for it to work. When no instance is passed to this recipe an error will
+be generated.
 
 ## CHECK VERSION
 
@@ -374,8 +394,8 @@ Architecture software is being build for.
 
 `B_INSTANCE`
 
-Instance name of software being build. This is only set if an instance was provided on
-the invocation of the build script.
+Instance name of software being build. This is only set if an instance was
+provided on the invocation of the build script.
 
 `B_CACHEDIR`
 
@@ -470,10 +490,10 @@ the repository content.
 This download method also initialises the following environment variables:
 GOROOT GOPATH
 
-`B_UPDATEPKGBLD`
+`B_GETPKGBLD`
 
-This will retrieve the current build number from the package administration file,
-and rewrite it using the `B_BUILDNR` variable information.
+Returns the next sequence of package number to be used for this version of the
+package. This can be used in recipes where the build produces a package.
 
 `B_LINKFILES <source directory> <destination directory>`
 
