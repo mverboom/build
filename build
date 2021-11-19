@@ -5,7 +5,7 @@
 # Support script to automate software builds outside of base distribution
 # packages
 #
-# Copyright 2011-2020 Mark Verboom
+# Copyright 2011-2021 Mark Verboom
 #
 # This file is part of Build.
 # 
@@ -100,18 +100,17 @@ usage() {
    echo "   -r  To repository, creates packages and copies to repository for specfified recipe(s)"
    echo
    echo "Operation modifiers:"
-   echo "   -a          Select all recipes available."
-   echo "   -A          Only build for this systems architecture."
-   echo "   -f          Force build for recipe, even if complete build is already available."
-   echo "   -h          This help message"
-   echo "   -i          Specify an instance for a recipe"
-   echo "   -l          Dry run. Only check versions, don't build, create package etc."
-   echo "   -q          Quiet output"
-   echo "   -v          Verbose output"
-   echo "   -R          Don't remove required packages after building and skip any post build script."
-   echo "   -s          Drop to a shell when building process fails to inspect."
-   echo "   -x          Enable debugging output"
-   echo "   -m  <email> Mail summary to email address"
+   echo "   -a            Select all recipes available."
+   echo "   -A            Only build for this systems architecture."
+   echo "   -f            Force build for recipe, even if complete build is already available."
+   echo "   -h            This help message"
+   echo "   -l            Dry run. Only check versions, don't build, create package etc."
+   echo "   -q            Quiet output"
+   echo "   -v            Verbose output"
+   echo "   -R            Don't remove required packages after building and skip any post build script."
+   echo "   -s            Drop to a shell when building process fails to inspect."
+   echo "   -x            Enable debugging output"
+   echo "   -m <email>    Mail summary to email address"
    echo
    echo "The name of the recipe can be appended with a specific version number to force"
    echo "all actions for that specific version. Version must be prepended with @ sign:"
@@ -231,13 +230,13 @@ build_require_remove() {
 }
 
 build() {
-   B_NAME=$1
-   B_VERSION=$2
-   if test "$B_INSTANCE" != ""; then
-      versiondir=$B_VERSION-$B_INSTANCE
-   else
-      versiondir=$B_VERSION
-   fi
+   B_NAME="$1"
+   B_VERSION="$2"
+   B_INSTANCE="$3"
+
+   versiondir=$B_VERSION
+   test "$B_INSTANCE" != "" && versiondir=$B_VERSION-$B_INSTANCE
+
    local buildlogfile="$LOGDIR/${B_NAME}-${B_ARCH}.log"
    rm -f "$buildlogfile"
 
@@ -245,22 +244,21 @@ build() {
    pkgs=$( recipe_section_get "$B_NAME" "REQUIRED $distr $rel" opt )
    if test "$pkgs" = ""; then
       pkgs=$(recipe_section_get "$B_NAME" "REQUIRED $distr" opt)
-      if test "$pkgs" = ""; then
-         pkgs=$(recipe_section_get "$B_NAME" "REQUIRED" opt)
-      fi
+      test "$pkgs" = "" && pkgs=$(recipe_section_get "$B_NAME" "REQUIRED" opt)
    fi
 
    test "$PKGPOSTFIX" != "" && pkgs=${pkgs//B_PF/$PKGPOSTFIX}
+   test "$B_INSTANCE" != "" && pkgs=${pkgs//B_INSTANCE/$B_INSTANCE}
    build_require "$pkgs" || return 1
 
-   test "$B_INSTANCE" != "" && ID=${B_NAME}_${B_VERSION}-${B_INSTANCE}_${B_ARCH} || ID=${B_NAME}_${B_VERSION}_${B_ARCH}
-   B_BUILDNR=$( package_buildnr_get "$ID" )
+   test "$B_INSTANCE" != "" && pkgid=${B_NAME}_${B_VERSION}-${B_INSTANCE}_${B_ARCH} || pkgid=${B_NAME}_${B_VERSION}_${B_ARCH}
+   B_BUILDNR=$( package_buildnr_get "$pkgid" )
 
    # Find BUILD section (add extensions for distribution and distribution version)
-   local CMD
-   if ! CMD=$( recipe_section_get -q "$B_NAME" "BUILD $distr $rel" ); then
-      if ! CMD=$( recipe_section_get -q "$B_NAME" "BUILD $distr" ) ; then
-         if ! CMD=$( recipe_section_get -q "$B_NAME" "BUILD" ); then
+   local cmd
+   if ! cmd=$( recipe_section_get -q "$B_NAME" "BUILD $distr $rel" ); then
+      if ! cmd=$( recipe_section_get -q "$B_NAME" "BUILD $distr" ) ; then
+         if ! cmd=$( recipe_section_get -q "$B_NAME" "BUILD" ); then
             return 1
          fi
       fi
@@ -280,6 +278,364 @@ build() {
    test -d "$RECIPEDIR/$B_NAME.files/B_BUILD" && B_FILES="$RECIPEDIR/$B_NAME.files/B_BUILD"
    B_PF="$PKGPOSTFIX"
    export B_VERSION B_INSTALLDIR B_ARCH B_INSTANCE B_CACHEDIR B_NAME B_BUILDNR B_FILES B_FORCE B_PF
+
+   # setting to set temporary files to the build folder
+   export XDG_CACHE_HOME="$TMP/.cache" # generic hint
+   export YARN_CACHE_FOLDER="$TMP/.cache/yarn" # yarn
+   # disable creating compiled python code
+   export PYTHONDONTWRITEBYTECODE=1
+   # set npm cache to builddir
+   export npm_config_cache=$TMP/.npm
+
+   local result
+   local opts
+   test "$DEBUG" = "1" && opts+=( "-x" )
+   opts+=("-e" "-c")
+   pushd "$TMP" > /dev/null || exit
+   bash "${opts[@]}" "$cmd" 2>&1 | tee -a "$buildlogfile" | outputpipe
+   result=${PIPESTATUS[0]}
+   if test "$result" -ne 0 -a -n "$DEBUGSHELL"; then
+      echo "## Build failed. Dropping to shell."
+      echo "## See $LOGDIR/${B_NAME}-${B_ARCH}.log for build information."
+      echo "## Any changes to the build root will be removed after exit."
+      echo "## Type exit to return."
+      echo
+      PS1="\h:\w buildroot \$ " bash --norc
+   fi
+   popd > /dev/null || exit
+   find "$TMP" -type d -print0 | xargs -0 chmod +w # fix readonly dir removal
+   rm -rf "$TMP"
+   test "$pkgs" != "" -a "$DEINSTDEP" = "yes" -a "$B_NOPKGRM" -eq 0 && build_require_remove "$pkgs"
+   test "$POSTBUILD" != "" -a "$B_NOPKGRM" -eq 0 && $POSTBUILD
+   if test "$result" -ne 0; then
+      rm -rf "$B_INSTALLDIR"
+      return 1
+   fi
+   return 0
+}
+
+arch_get() {
+   local dist; dist=$(lsb_release -i -s)
+
+   case $dist in
+   "Debian"|"Raspbian")
+      dpkg --print-architecture
+   ;;
+   *)
+      ERR=1 output "Architecture detection not implemented for $dist"
+      return 1
+   ;;
+   esac
+}
+
+package_buildnr_get() {
+   local pkgid; pkgid="$1"
+   test -f "$PKGLIST" || touch "$PKGLIST"
+   local buildnr; buildnr=$(grep "^$pkgid" "$PKGLIST" | cut -d'	' -f 2 )
+   test "$buildnr" = "" && buildnr=0
+   echo $(( buildnr + 1 ))
+}
+
+package_buildnr_set() {
+   local pkgid; pkgid="$1"
+   local buildnr
+   buildnr=$(package_buildnr_get "$pkgid")
+   sed -i "/^${pkgid}\t/d" "$PKGLIST"
+   echo -e "${pkgid}\t${buildnr}" >> "$PKGLIST"
+}
+
+package_torepo() {
+   local type
+   local pkg
+   local pkgs; pkgs="$*"
+   local splittype
+   local RET
+   declare -A splittype
+
+   for pkg in $pkgs; do
+      type=${pkg/*./}
+      splittype[$type]="${splittype[$type]} $pkg"
+   done
+
+   cd "$PKGDIR" || exit
+   RET=0
+   for type in "${!splittype[@]}"; do
+      case "$type" in
+      "deb")
+         $TODEBREPO "${splittype[$type]}"
+         test $? -ne 0 && RET=1
+      ;;
+      *)
+         ERR=1 output "Copy to repository not implemented for type $type"
+         RET=1
+      ;;
+      esac
+   done
+   return $RET
+}
+
+package() {
+   local pkg; pkg="$1"
+   local version; version="$2"
+   local instance; instance="$3"
+   local pkgtype
+   local installdir
+
+   recipe_section_get "$pkg" PKG > /dev/null || exit 1
+
+   installdir=$version
+   test "$instance" != "" && installdir="$version-$instance"
+   if test "$DESTSPLIT" != ""; then
+      installdir="$pkg/$installdir"
+   else
+      installdir="$pkg-$installdir"
+   fi
+
+   test ! -d "$DESTDIR/$B_ARCH/$installdir" && { 
+      ERR=1 output "Version $version of $pkg is not available for packaging.";
+      return 1; }
+
+   local type; type=$( recipe_item_get "$pkg" PKG type )
+   for pkgtype in ${type/,/ }; do
+      case $pkgtype in
+      "deb")
+         if test "$OS" = "Debian GNU/Linux" -o \
+                 "$OS" = "Raspbian GNU/Linux"; then
+            package_deb "$pkg" "$version" "$instance"
+            return $?
+         else
+            ERR=1 output "Unknown deb distribution ($OS)"
+            return 1
+         fi
+      ;;
+      "rpm")
+         if test "$OS" = "CentOS Linux"; then
+            package_rpm "$pkg" "$version" "$instance" "$installdir"
+            return $?
+         else
+            ERR=1 output "Unknown rpm distribution ($OS)"
+            return 1
+         fi
+      ;;
+      *)
+         ERR=1 output "Unknown package type ($pkgtype)."
+         return 1
+      ;;
+      esac
+   done
+}
+
+package_rpm() {
+   local pkg; pkg="$1"
+   local version; version="$2"
+   local instance; instance="$3"
+
+   local pkgready; pkgready=$( recipe_item_get "$pkg" PKG pkgready )
+   #local p_pkgdir; p_pkgdir="${pkg}-${ID}"
+
+   test "$pkgready" != "" && { echo "pkgready not implemented for rpm."; exit 1; }
+   local p_pkgname; p_pkgname="${pkg}_${ID}_${B_ARCH}"
+   local p_buildnr; p_buildnr=$( package_buildnr_get "${p_pkgname}" )
+   local INFO; INFO=$(recipe_section_get "$pkg" DEB) || return 1
+   local TMP; TMP=$( mktemp -p "$TMPDIR" -d )
+
+   echo "p_pkgname $p_pkgname"
+   echo "p_buildnr $p_buildnr"
+
+   mkdir -p "$TMP/DEBIAN"
+
+   echo "Creating rpm packages is not implemented."
+   exit 1
+}
+
+package_deb() {
+   local pkg; pkg="$1"
+   local version; version="$2"
+   local instance; instance="$3"
+
+   test "$instance" != "" && instanceadd="-${instance}"
+
+   local pkgready; pkgready=$( recipe_item_get "$pkg" PKG pkgready )
+   #local p_pkgdir; p_pkgdir="${pkg}-${ID}"
+
+   local pkgdir
+   pkgdir="$DESTDIR/$B_ARCH/$pkg-${version}${instanceadd}"
+   test "$DESTSPLIT" != "" && pkgdir="$DESTDIR/$B_ARCH/$pkg/${version}${instanceadd}"
+
+   if test "$pkgready" != ""; then
+      test "$( echo "$pkgdir"/*.deb )" = "$pkgdir/*.deb" && { 
+         ERR=1 output "Recipe indicates package should be in build dir, but it isn't."; return 1; }
+      file="$pkgdir/*.deb"
+      cp $file "$PKGDIR"
+      #pkgfile=$(basename -a "$DESTDIR/$B_ARCH/${p_pkgdir}"/*.deb)
+      pkgfile=$(basename -a "$pkgdir"/*.deb)
+      echo "$pkgfile"
+      return
+   fi
+
+   local pkgname; pkgname=${pkg}_${version}_${B_ARCH}
+   local buildnr; buildnr=$( package_buildnr_get "${pkgname}" )
+
+   # Find recipe package section
+   local info
+   info=$(recipe_section_get -q "$pkg" "DEB $rel")
+   if test "$?" -ne 0; then
+      info=$(recipe_section_get "$pkg" DEB)
+      test "$?" -ne 0 && return 1
+   fi
+
+   local TMP; TMP=$( mktemp -p "$TMPDIR" -d )
+   mkdir -p "$TMP/build/DEBIAN"
+   local pkgversion; pkgversion="${version//\-/}-${buildnr}+deb"$(lsb_release -r -s | cut -d'.' -f 1)
+   test "$(echo "$info" | grep B_DEPENDS)" != "" &&  {
+      local cmd; local DEPS;
+      cmd=$( recipe_section_get "$pkg" DEB_DEPENDS ); DEPS=$(B_VERSION=$version bash -c "$cmd")
+      info=$( echo "$info" | sed "/^Depends:/ s/B_DEPENDS/$DEPS/" )
+   }
+   test "$PKGPOSTFIX" != "" && info=$( echo "$info" | sed "/^Package:/ s/$/-$PKGPOSTFIX/" | sed "s/B_PF/$PKGPOSTFIX/g" )
+   test "$PKGPOSTFIX" != "" && info="${info//B_MAIL/$PKGMAIL}"
+   test "$PKGORG" != "" && info="${info//B_ORG/$PKGORG}"
+   test "$PKGMAIL" != "" && info="${info//B_MAIL/$PKGMAIL}"
+   cd "$pkgdir" || exit
+   tar pcfB - . | (cd "$TMP/build" || exit ; tar pxfB - )
+   cd "$TMP/build" || exit
+   if test -d "$RECIPEDIR/$pkg.files/B_DEBIAN-$rel"; then
+      ( cd "$RECIPEDIR/$pkg.files/B_DEBIAN-$rel" || exit ; tar cf - . ) | tar xf -
+   else
+      if test -d "$RECIPEDIR/$pkg.files/B_DEBIAN"; then
+         ( cd "$RECIPEDIR/$pkg.files/B_DEBIAN" || exit ; tar cf - . ) | tar xf -
+      fi
+   fi
+
+   # Mark config files
+   find . -path "*/etc/*" -type f | sed "s/^\.//" > DEBIAN/conffiles
+   local configfiles; configfiles=$( recipe_item_get "$pkg" PKG configfiles )
+   test "$configfiles" != "" && { echo "$configfiles" | tr ' ' '\n' >> DEBIAN/conffiles; }
+   echo "$info" | sed "s/B_VERSION/$pkgversion; s/B_ARCH/$B_ARCH/" > "$TMP"/build/DEBIAN/control
+   cd "$TMP" || exit
+   fakeroot dpkg --build "$TMP"/build . > "$TMP"/.buildoutput
+   result=$?
+   local pkgfile; pkgfile=$(cut -d \' -f 4 "$TMP"/.buildoutput)
+   pkgfile=${pkgfile/*\//}
+   if test $result -ne 0; then
+      rm -rf "$TMP"
+      ERR=1 output "Error while building package."
+      return 1
+   fi
+   package_buildnr_set "$pkgname"
+   mv "$TMP"/"$pkgfile" "$PKGDIR"
+   rm -rf "$TMP"
+   echo "$pkgfile"
+}
+
+support_functions() {
+   B_GITDATE() {
+      local url; local br; local head; local dt
+      url="$1"
+      br="master"
+      test "$2" != "" && br="$2"
+      # Get head
+      head=$(git ls-remote -h "$url" "$br" | cut -d $'\t' -f 1)
+      dt=$(( printf "\x1f\x8b\x08\x00\x00\x00\x00\x00" && 
+         wget -q -O - "$url"/objects/${head:0:2}/${head:2} ) | 
+         gzip -dc 2> /dev/null | cut -d $'\0' -f 1 | 
+         grep "^committer" | sed 's/.* \([0-9]\+\) .*/\1/' )
+      date -d "@$dt" "+%Y%m%d"
+   }
+   export -f B_GITDATE
+   B_GITVER() {
+      local exclude='-e "alpha\|beta\|preview\|rc\|a$\|b$\|b[0-9]*$"'
+      local include=""
+      local preregex=""
+      local postregex=""
+      local prefilter="s/^v//"
+      local postfilter=""
+      local DEBUG=0
+      while getopts :aDr:R:i:e:f:F: opt; do
+         case $opt in
+           r) preregex="$preregex; $OPTARG"
+           ;;
+           R) postregex="$postregex; $OPTARG"
+           ;;
+           f) prefilter="$prefilter; s/$OPTARG//"
+           ;;
+           i) include="$include -e $OPTARG"
+           ;;
+           e) exclude="$exclude -e $OPTARG"
+           ;;
+           F) postfilter="$postfilter; s/$OPTARG//"
+           ;;
+           a) exclude=""
+           ;;
+           D) DEBUG=1
+           ;;
+           \?) echo "Unknown option: -$OPTARG"
+           ;;
+           :) echo "Option -$OPTARG requires argument"
+           ;;
+         esac
+      done
+      shift $((OPTIND -1))
+      test "$preregex"  != "" && preregex="sed \"$preregex\"" || preregex="cat"
+      prefilter="sed \"$prefilter\""
+      test "$include" != "" && include="grep -i $include" || include="cat"
+      test "$exclude" != "" && exclude="grep -iv $exclude" || exclude="cat"
+      test "$postfilter" != "" && postfilter="sed \"$postfilter\""|| postfilter="cat"
+
+      test "$postregex" != "" && postregex="sed \"$postregex\"" || postregex="cat"
+      local cmd="git ls-remote --tags $1 | grep -v '{}' | 
+                 sed 's#.*refs/tags/##' |
+                 $preregex | 
+                 $prefilter | 
+                 $include | 
+                 $exclude | 
+                 $postfilter | 
+                 $postregex | 
+                 sort -t. -k 1,1n -k 2,2n -k 3,3n -k 4,4n | tail -1"
+      test "$DEBUG" = 1 && echo "$cmd" > /tmp/b_gitver
+      bash -c "$cmd"
+   }
+   export -f B_GITVER
+   B_GITLABVER() {
+      local USR
+      local REPO
+      local BRANCH="$2"
+      USR="$( echo "$1" | cut -d'/' -f 4)"
+      REPO="$( echo "$1" | cut -d'/' -f 5)"
+      wget -q -O - https://gitlab.com/api/v4/projects/"$USR"%2F"$REPO"/repository/commits?ref_name="${BRANCH:=master}" | jq -r '.[0].committed_date[0:10] | gsub("-";"")'
+   }
+   export -f B_GITLABVER
+   B_GITHUBVER() {
+      local URL="$1"
+      local BRANCH="$2"
+      wget -q -O - https://api.github.com/repos/"${URL/*github.com\//}"/commits/"${BRANCH:=master}" | jq -cr '.commit.committer.date[0:10] | gsub("-";"")'
+   }
+   export -f B_GITHUBVER
+   B_GITHUBREL() {
+      local URL="$1"
+      wget -q -O - https://api.github.com/repos/"${URL/*github.com\//}"/releases/latest | jq -r '.tag_name | gsub("v";"")'
+   }
+   export -f B_GITHUBREL
+   B_SFVER() {
+      local URL="$1"
+      wget -q -O - "$URL/rss?path=/" | xml2 | grep '/rss/channel/item/link' | sed 's/.*\/files\/\([^\/]\+\)\/.*/\1/; s/.\+-\(.\+\)/\1/' | sort -t. -k 1,1n -k 2,2n -k 3,3n -k 4,4n | tail -1
+   }
+   export -f B_SFVER
+
+   B_SVNDATE() {
+      date -d "$(svn info --non-interactive --trust-server-cert "$1" | grep 'Last Changed Date:' | cut -d':' -f2-)" "+%Y%m%d"
+   }
+   export -f B_SVNDATE
+
+   B_SVNREV() {
+      svn info --non-interactive --trust-server-cert "$1" | grep Revision | cut -d' ' -f2
+   }
+   export -f B_SVNREV
+
+   B_HGREV() {
+      hg id "$1"
+   }
+   export -f B_HGREV
    B_GET() {
       test $# -lt 3 && { >&2 echo "Insufficient arguments to B_GET."; exit 1; }
       local method; method=$1
@@ -415,6 +771,19 @@ build() {
       esac
    }
    export -f B_GET
+   B_GETPKGBLD() {
+      local ID version
+      # shellcheck source=/home/builduser/.buildrc
+      test -f "$HOME/.buildrc" && source "$HOME/.buildrc"
+      if test "$B_INSTANCE" != ""; then
+         ID=${B_NAME}_${B_VERSION}-${B_INSTANCE}_${B_ARCH}
+      else
+         ID=${B_NAME}_${B_VERSION}_${B_ARCH}
+      fi
+      version=$( ( grep ^${ID}$'\t' "$PKGLIST" || echo 0) | cut -d $'\t' -f 2)
+      echo $(( version + 1 ))
+   }
+   export -f B_GETPKGBLD
    B_UPDATEPKGBLD() {
       local ID
       # shellcheck source=/home/builduser/.buildrc
@@ -457,370 +826,22 @@ build() {
       ln -s "$src" "$B_INSTALLDIR/$dst"
    }
    export -f B_LINKFILE
-
-   # setting to set temporary files to the build folder
-   export XDG_CACHE_HOME="$TMP/.cache" # generic hint
-   export YARN_CACHE_FOLDER="$TMP/.cache/yarn" # yarn
-   # disable creating compiled python code
-   export PYTHONDONTWRITEBYTECODE=1
-   # set npm cache to builddir
-   export npm_config_cache=$TMP/.npm
-
-   local result
-   local opts
-   test "$DEBUG" = "1" && opts+=( "-x" )
-   opts+=("-e" "-c")
-   pushd "$TMP" > /dev/null || exit
-   bash "${opts[@]}" "$CMD" 2>&1 | tee -a "$buildlogfile" | outputpipe
-   result=${PIPESTATUS[0]}
-   if test "$result" -ne 0 -a -n "$DEBUGSHELL"; then
-      echo "## Build failed. Dropping to shell."
-      echo "## See $LOGDIR/${B_NAME}-${B_ARCH}.log for build information."
-      echo "## Any changes to the build root will be removed after exit."
-      echo "## Type exit to return."
-      echo
-      PS1="\h:\w buildroot \$ " bash --norc
-   fi
-   popd > /dev/null || exit
-   find "$TMP" -type d -print0 | xargs -0 chmod +w # fix readonly dir removal
-   rm -rf "$TMP"
-   test "$pkgs" != "" -a "$DEINSTDEP" = "yes" -a "$B_NOPKGRM" -eq 0 && build_require_remove "$pkgs"
-   test "$POSTBUILD" != "" -a "$B_NOPKGRM" -eq 0 && $POSTBUILD
-   if test "$result" -ne 0; then
-      rm -rf "$B_INSTALLDIR"
-      return 1
-   fi
-   return 0
-}
-
-arch_get() {
-   local dist; dist=$(lsb_release -i -s)
-
-   case $dist in
-   "Debian"|"Raspbian")
-      dpkg --print-architecture
-   ;;
-   *)
-      ERR=1 output "Architecture detection not implemented for $dist"
-      return 1
-   ;;
-   esac
-}
-
-package_buildnr_get() {
-   local ID; ID=$1
-   test -f "$PKGLIST" || touch "$PKGLIST"
-   local BUILDNR; BUILDNR=$(grep "^$ID" "$PKGLIST" | cut -d'	' -f 2 )
-   test "$BUILDNR" = "" && BUILDNR=0
-   echo $(( BUILDNR + 1 ))
-}
-
-package_torepo() {
-   local type
-   local pkg
-   local pkgs; pkgs="$*"
-   local splittype
-   local RET
-   declare -A splittype
-
-   for pkg in $pkgs; do
-      type=${pkg/*./}
-      splittype[$type]="${splittype[$type]} $pkg"
-   done
-
-   cd "$PKGDIR" || exit
-   RET=0
-   for type in "${!splittype[@]}"; do
-      case "$type" in
-      "deb")
-         $TODEBREPO "${splittype[$type]}"
-         test $? -ne 0 && RET=1
-      ;;
-      *)
-         ERR=1 output "Copy to repository not implemented for type $type"
-         RET=1
-      ;;
-      esac
-   done
-   return $RET
-}
-
-package() {
-   local pkg; pkg=$1
-   local version; version=$2
-   local pkgtype
-   local ID
-
-   recipe_section_get "$pkg" PKG > /dev/null || exit 1
-
-   if test "$B_INSTANCE" != ""; then
-      ID=$version-$B_INSTANCE
-   else
-      ID=$version
-   fi
-   if test "$DESTSPLIT" != ""; then
-      ID="$pkg/$ID"
-   else
-      ID="$pkg-$ID"
-   fi
-
-   test ! -d "$DESTDIR/$B_ARCH/$ID" && { 
-      ERR=1 output "Version $version of $pkg is not available for packaging.";
-      return 1; }
-
-   if test "$B_INSTANCE" != ""; then
-      ID=${version}-${B_INSTANCE}
-   else
-      ID=${version}
-   fi
-   local type; type=$( recipe_item_get "$pkg" PKG type )
-   for pkgtype in ${type/,/ }; do
-      case $pkgtype in
-      "deb")
-         if test "$OS" = "Debian GNU/Linux" -o \
-                 "$OS" = "Raspbian GNU/Linux"; then
-            package_deb "$pkg" "$version" "$ID"
-            return $?
-         else
-            ERR=1 output "Unknown deb distribution ($OS)"
-            return 1
-         fi
-      ;;
-      "rpm")
-         if test "$OS" = "CentOS Linux"; then
-            package_rpm "$pkg" "$version" "$ID"
-            return $?
-         else
-            ERR=1 output "Unknown rpm distribution ($OS)"
-            return 1
-         fi
-      ;;
-
-      *)
-         ERR=1 output "Unknown package type ($pkgtype)."
-         return 1
-      ;;
-      esac
-   done
-}
-
-package_rpm() {
-   local pkg; pkg=$1
-   local version; version=$2
-
-   local pkgready; pkgready=$( recipe_item_get "$pkg" PKG pkgready )
-   local P_PKGDIR; P_PKGDIR="${pkg}-${ID}"
-
-   test "$pkgready" != "" && { echo "pkgready not implemented for rpm."; exit 1; }
-   local P_PKGNAME; P_PKGNAME="${pkg}_${ID}_${B_ARCH}"
-   local P_BUILDNR; P_BUILDNR=$( package_buildnr_get "${P_PKGNAME}" )
-   local INFO; INFO=$(recipe_section_get "$pkg" DEB) || return 1
-   local TMP; TMP=$( mktemp -p "$TMPDIR" -d )
-
-   echo "P_PKGNAME $P_PKGNAME"
-   echo "P_BUILDNR $P_BUILDNR"
-
-   mkdir -p "$TMP/DEBIAN"
-
-   echo "Creating rpm packages is not implemented."
-   exit 1
-}
-
-package_deb() {
-   local pkg; pkg=$1
-   local version; version=$2
-
-   local pkgready; pkgready=$( recipe_item_get "$pkg" PKG pkgready )
-   local P_PKGDIR; P_PKGDIR="${pkg}-${ID}"
-
-   local pkgdir
-   if test "$DESTSPLIT" != ""; then
-      pkgdir="$DESTDIR/$B_ARCH/$pkg/$version"
-   else
-      pkgdir="$DESTDIR/$B_ARCH/$pkg-$version"
-   fi
-
-   if test "$pkgready" != ""; then
-      test "$( echo "$pkgdir"/*.deb )" = "$pkgdir/*.deb" && { 
-         ERR=1 output "Recipe indicates package should be in build dir, but it isn't."; return 1; }
-      file="$pkgdir/*.deb"
-      cp $file "$PKGDIR"
-      pkgfile=$(basename -a "$DESTDIR/$B_ARCH/${P_PKGDIR}"/*.deb)
-      echo "$pkgfile"
-      return
-   fi
-
-   local P_PKGNAME; P_PKGNAME=${pkg}_${ID}_${B_ARCH}
-   local P_BUILDNR; P_BUILDNR=$( package_buildnr_get "${P_PKGNAME}" )
-
-   # Find recipe package section
-   local INFO
-   INFO=$(recipe_section_get -q "$pkg" "DEB $rel")
-   if test "$?" -ne 0; then
-      INFO=$(recipe_section_get "$pkg" DEB)
-      test "$?" -ne 0 && return 1
-   fi
-
-   local TMP; TMP=$( mktemp -p "$TMPDIR" -d )
-   mkdir -p "$TMP/build/DEBIAN"
-   local pkgversion; pkgversion="${version//\-/}-$P_BUILDNR+deb"$(lsb_release -r -s | cut -d'.' -f 1)
-   test "$(echo "$INFO" | grep B_DEPENDS)" != "" &&  {
-      local CMD; local DEPS;
-      CMD=$( recipe_section_get "$pkg" DEB_DEPENDS ); DEPS=$(B_VERSION=$version bash -c "$CMD")
-      INFO=$( echo "$INFO" | sed "/^Depends:/ s/B_DEPENDS/$DEPS/" )
-   }
-   test "$PKGPOSTFIX" != "" && INFO=$( echo "$INFO" | sed "/^Package:/ s/$/-$PKGPOSTFIX/" | sed "s/B_PF/$PKGPOSTFIX/g" )
-   test "$PKGPOSTFIX" != "" && INFO="${INFO//B_MAIL/$PKGMAIL}"
-   test "$PKGORG" != "" && INFO="${INFO//B_ORG/$PKGORG}"
-   test "$PKGMAIL" != "" && INFO="${INFO//B_MAIL/$PKGMAIL}"
-   cd "$pkgdir" || exit
-   tar pcfB - . | (cd "$TMP/build" || exit ; tar pxfB - )
-   cd "$TMP/build" || exit
-   if test -d "$RECIPEDIR/$pkg.files/B_DEBIAN-$rel"; then
-      ( cd "$RECIPEDIR/$pkg.files/B_DEBIAN-$rel" || exit ; tar cf - . ) | tar xf -
-   else
-      if test -d "$RECIPEDIR/$pkg.files/B_DEBIAN"; then
-         ( cd "$RECIPEDIR/$pkg.files/B_DEBIAN" || exit ; tar cf - . ) | tar xf -
-      fi
-   fi
-
-   # Mark config files
-   find . -path "*/etc/*" -type f | sed "s/^\.//" > DEBIAN/conffiles
-   local configfiles; configfiles=$( recipe_item_get "$pkg" PKG configfiles )
-   test "$configfiles" != "" && { echo "$configfiles" | tr ' ' '\n' >> DEBIAN/conffiles; }
-   echo "$INFO" | sed "s/B_VERSION/$pkgversion/" | sed "s/B_ARCH/$B_ARCH/" > "$TMP"/build/DEBIAN/control
-   cd "$TMP" || exit
-   fakeroot dpkg --build "$TMP"/build . > "$TMP"/.buildoutput
-   result=$?
-   local pkgfile; pkgfile=$(cut -d \' -f 4 "$TMP"/.buildoutput)
-   pkgfile=${pkgfile/*\//}
-   if test $result -ne 0; then
-      rm -rf "$TMP"
-      ERR=1 output "Error while building package."
-      return 1
-   fi
-   grep "^${P_PKGNAME}_${B_ARCH}" "$PKGLIST" > /dev/null && sed -i "/^${P_PKGNAME}_${B_ARCH}/d" "$PKGLIST"
-   echo -e "${P_PKGNAME}_${B_ARCH}\t$P_BUILDNR" >> "$PKGLIST"
-   mv "$TMP"/"$pkgfile" "$PKGDIR"
-   rm -rf "$TMP"
-   echo "$pkgfile"
 }
 
 version_get() {
    local pkg; pkg=$1
-   local CMD
+   local cmd
 
    export B_SARCH
    export B_NAME=$1
 
-   B_GITDATE() {
-      local url; local br; local head; local dt
-      url="$1"
-      br="master"
-      test "$2" != "" && br="$2"
-      # Get head
-      head=$(git ls-remote -h "$url" "$br" | cut -d $'\t' -f 1)
-      dt=$(( printf "\x1f\x8b\x08\x00\x00\x00\x00\x00" && 
-         wget -q -O - "$url"/objects/${head:0:2}/${head:2} ) | 
-         gzip -dc 2> /dev/null | cut -d $'\0' -f 1 | 
-         grep "^committer" | sed 's/.* \([0-9]\+\) .*/\1/' )
-      date -d "@$dt" "+%Y%m%d"
-   }
-
-   B_GITVER() {
-      local exclude='-e "alpha\|beta\|preview\|rc\|a$\|b$\|b[0-9]*$"'
-      local include=""
-      local preregex=""
-      local postregex=""
-      local prefilter="s/^v//"
-      local postfilter=""
-      local DEBUG=0
-      while getopts :aDr:R:i:e:f:F: opt; do
-         case $opt in
-           r) preregex="$preregex; $OPTARG"
-           ;;
-           R) postregex="$postregex; $OPTARG"
-           ;;
-           f) prefilter="$prefilter; s/$OPTARG//"
-           ;;
-           i) include="$include -e $OPTARG"
-           ;;
-           e) exclude="$exclude -e $OPTARG"
-           ;;
-           F) postfilter="$postfilter; s/$OPTARG//"
-           ;;
-           a) exclude=""
-           ;;
-           D) DEBUG=1
-           ;;
-           \?) echo "Unknown option: -$OPTARG"
-           ;;
-           :) echo "Option -$OPTARG requires argument"
-           ;;
-         esac
-      done
-      shift $((OPTIND -1))
-      test "$preregex"  != "" && preregex="sed \"$preregex\"" || preregex="cat"
-      prefilter="sed \"$prefilter\""
-      test "$include" != "" && include="grep -i $include" || include="cat"
-      test "$exclude" != "" && exclude="grep -iv $exclude" || exclude="cat"
-      test "$postfilter" != "" && postfilter="sed \"$postfilter\""|| postfilter="cat"
-
-      test "$postregex" != "" && postregex="sed \"$postregex\"" || postregex="cat"
-      local CMD="git ls-remote --tags $1 | grep -v '{}' | 
-                 sed 's#.*refs/tags/##' |
-                 $preregex | 
-                 $prefilter | 
-                 $include | 
-                 $exclude | 
-                 $postfilter | 
-                 $postregex | 
-                 sort -t. -k 1,1n -k 2,2n -k 3,3n -k 4,4n | tail -1"
-      test "$DEBUG" = 1 && echo "$CMD" > /tmp/b_gitver
-      bash -c "$CMD"
-   }
-   B_GITLABVER() {
-      local USR
-      local REPO
-      local BRANCH="$2"
-      USR="$( echo "$1" | cut -d'/' -f 4)"
-      REPO="$( echo "$1" | cut -d'/' -f 5)"
-      wget -q -O - https://gitlab.com/api/v4/projects/"$USR"%2F"$REPO"/repository/commits?ref_name="${BRANCH:=master}" | jq -r '.[0].committed_date[0:10] | gsub("-";"")'
-   }
-   B_GITHUBVER() {
-      local URL="$1"
-      local BRANCH="$2"
-      wget -q -O - https://api.github.com/repos/"${URL/*github.com\//}"/commits/"${BRANCH:=master}" | jq -cr '.commit.committer.date[0:10] | gsub("-";"")'
-   }
-   B_GITHUBREL() {
-      local URL="$1"
-      wget -q -O - https://api.github.com/repos/"${URL/*github.com\//}"/releases/latest | jq -r '.tag_name | gsub("v";"")'
-   }
-   B_SFVER() {
-      local URL="$1"
-      wget -q -O - "$URL/rss?path=/" | xml2 | grep '/rss/channel/item/link' | sed 's/.*\/files\/\([^\/]\+\)\/.*/\1/; s/.\+-\(.\+\)/\1/' | sort -t. -k 1,1n -k 2,2n -k 3,3n -k 4,4n | tail -1
-   }
-
-   B_SVNDATE() {
-      date -d "$(svn info --non-interactive --trust-server-cert "$1" | grep 'Last Changed Date:' | cut -d':' -f2-)" "+%Y%m%d"
-   }
-
-   B_SVNREV() {
-      svn info --non-interactive --trust-server-cert "$1" | grep Revision | cut -d' ' -f2
-   }
-
-   B_HGREV() {
-      hg id "$1"
-   }
-
-   export -f B_GITVER B_GITDATE B_GITHUBVER B_GITHUBREL B_SVNDATE B_SVNREV B_HGREV B_GITLABVER B_SFVER
    export B_ARCH
-   CMD=$( recipe_section_get "$pkg" VERSION )
-   test $? -ne 0 && { output "$CMD" ; return 1; }
+   cmd=$( recipe_section_get "$pkg" VERSION )
+   test $? -ne 0 && { output "$cmd" ; return 1; }
    local opts
    test "$DEBUG" = "1" && opts+=("-x")
    opts+=("-e" "-c")
-   local ver; ver=$( bash "${opts[@]}" "$CMD" 2>/dev/null )
+   local ver; ver=$( bash "${opts[@]}" "$cmd" 2>/dev/null )
    test $? -ne 0 && { >&2 output "Error while running version command for $pkg." ; return 1 ; }
    test "$ver" = "" && { >&2 output "Version command for $pkg returned no output." ; return 1 ; }
    echo "$ver"
@@ -879,92 +900,64 @@ parse_options() {
    DO_CHECK=0; DO_BUILD=0; DO_PACKAGE=0; DO_REPO=0; B_NOPKGRM=0
    local all; all=0
 
-   while getopts :clm:Asbprai:Rxvqfm:h opt; do
+   while getopts :clm:AsbpraRxvqfm:h opt; do
       case $opt in
-      c)
-         DO_CHECK=1
-      ;;
-      b)
-         DO_CHECK=2
-         DO_BUILD=1
-      ;;
-      p)
-         DO_CHECK=2
-         DO_PACKAGE=1
-      ;;
-      r)
-         DO_CHECK=2
+      c) DO_CHECK=1 ;;
+      b) DO_CHECK=2
+         DO_BUILD=1 ;;
+      p) DO_CHECK=2
+         DO_PACKAGE=1 ;;
+      r) DO_CHECK=2
          DO_PACKAGE=2
-         DO_REPO=1
-      ;;
-      a)
-         all=1
-      ;;
-      A)
-         LOCALARCH=1
-      ;;
-      i)
-         B_INSTANCE="$OPTARG"
-      ;;
-      R)
-         B_NOPKGRM=1
-      ;;
-      l)
-         DRYRUN=1
-      ;;
+         DO_REPO=1 ;;
+      a) all=1 ;;
+      A) LOCALARCH=1 ;;
+      R) B_NOPKGRM=1 ;;
+      l) DRYRUN=1 ;;
       m) email="$OPTARG"
-         maillogfile="$(mktemp)"
-      ;;
-      x)
-         DEBUG=1
-      ;;
-      s)
-         DEBUGSHELL=1
-      ;;
-      q)
-         QUIET=$(( QUIET +1 ))
-      ;;
-      v)
-         VERBOSE=$(( VERBOSE +1 ))
-      ;;
-      f)
-         B_FORCE=1
-      ;;
-      h)
-         usage
-      ;;
-      \?)
-         echo "Unknown option: -$OPTARG"
-         usage
-      ;;
-      :)
-         echo "Option -$OPTARG requires argument"
-         usage
-      ;;
+         maillogfile="$(mktemp)" ;;
+      x) DEBUG=1 ;;
+      s) DEBUGSHELL=1 ;;
+      q) QUIET=$(( QUIET +1 )) ;;
+      v) VERBOSE=$(( VERBOSE +1 )) ;;
+      f) B_FORCE=1 ;;
+      h) usage ;;
+      \?) echo "Unknown option: -$OPTARG"
+          usage ;;
+      :) echo "Option -$OPTARG requires argument"
+         usage ;;
       esac
    done
    shift $((OPTIND -1))
 
-   if test "$DO_CHECK" = "0" -a "$DO_BUILD" = "0" -a "$DO_PACKAGE" = "0" -a "$DO_REPO" = "0"; then
+   if test "$DO_CHECK" = "0" -a "$DO_BUILD" = "0" -a "$DO_PACKAGE" = "0" -a \
+           "$DO_REPO" = "0"; then
       output "No action specified."
       usage
    fi
 
    for recipe in "$@"; do
-      if test "$recipe" != "${recipe/@/}"; then
-         version="${recipe/*@/}"
-         recipe="${recipe/@*/}"
-         work_version[$recipe]="$version"
-      fi
+      unset baserecipe version instance
+      baserecipe=$(echo "$recipe" | sed 's/\([!:@]*\)[:@].*/\1/' )
+      version=$(echo "$recipe" | sed -n 's/'$baserecipe'//; s/.*@\([^:]*\).*/\1/p' )
+      instance=$(echo "$recipe" | sed -n 's/'$baserecipe'//; s/.*:\([^@]*\).*/\1/p' )
+      recipe="$baserecipe"
+ 
       if ! test -e "${RECIPEDIR}/${recipe}.recipe"; then
          output "recipe $recipe does not exist."
          continue
       fi
-
       if recipe_select_arch "$recipe"; then
          if recipe_select_build "$recipe"; then
+            instancereq=$( recipe_item_get "$recipe" INFO instance )
+            test "$instancereq" != "" -a "$instance" = "" &&  {
+               output "Recipe $recipe requires instance, but not specified."
+               continue
+            }
             work_recipes+=("$recipe")
             work_arch[$recipe]=$B_ARCH
+            test "$version" != "" && work_version[$recipe]="$version"
+            test "$instance" != "" && work_instance[$recipe]="$instance"
          else
             output "recipe $recipe has no build section for this system."
          fi
@@ -1012,9 +1005,12 @@ sanity_check() {
    done
    test "$missing" != "" && { output "Missing required software to run script:$missing" ; exit 1;}
    test "$PKGDIR" = ""  && { ERR=1 output "PKGDIR not defined"; exit 1;}
-   test -d "$PKGDIR" || { ERR=1 output "PKGDIR $PKGDIR does not exist, creating."; mkdir -p "$PKGDIR"; }
-   test -d "$LOGDIR" || { ERR=1 output "LOGDIR $LOGDIR does not exist, creating."; mkdir -p "$LOGDIR"; }
-   test -d "$TMPDIR" || { ERR=1 output "TMPDIR $TMPDIR does not exist, creating."; mkdir -p "$TMPDIR"; }
+   test -d "$PKGDIR" || { ERR=1 output "PKGDIR $PKGDIR does not exist, creating."; 
+                          mkdir -p "$PKGDIR"; }
+   test -d "$LOGDIR" || { ERR=1 output "LOGDIR $LOGDIR does not exist, creating."; 
+                          mkdir -p "$LOGDIR"; }
+   test -d "$TMPDIR" || { ERR=1 output "TMPDIR $TMPDIR does not exist, creating."; 
+                          mkdir -p "$TMPDIR"; }
 }
 
 outputpipe() {
@@ -1044,19 +1040,22 @@ output() {
 check_version_built() {
    local pkg; pkg="$1"
    local version; version="$2"
-   local RET; RET=0
+   local instance; instance="$3"
+   local ret; ret=0
    local pkgdir
+
+   test "$instance" != "" && instance="-${instance}"
 
    if test "$version" = ""; then
       version=$( version_get "$pkg" ) || return 255
    fi
    if test "$DESTSPLIT" != ""; then
-      pkgdir="$DESTDIR/$B_ARCH/$pkg/$version"
+      pkgdir="$DESTDIR/$B_ARCH/$pkg/$version$instance"
    else
-      pkgdir="$DESTDIR/$B_ARCH/$pkg-$version"
+      pkgdir="$DESTDIR/$B_ARCH/$pkg-$version$instance"
    fi
-   test -d "$pkgdir" && { echo "$version" ; RET=1 ;} || echo "$version"
-   return $RET
+   test -d "$pkgdir" && { echo "$version" ; ret=1 ;} || echo "$version"
+   return $ret
 }
 
 lock_get() {
@@ -1075,21 +1074,22 @@ lock_free() {
 }
 
 build_expire() {
-   B_NAME=$1
-   B_VERSION=$2
-   if test "$B_INSTANCE" != ""; then
-      versiondir=$B_VERSION-$B_INSTANCE
+   b_name="$1"
+   b_version="$2"
+   b_instance="$3"
+   if test "$b_instance" != ""; then
+      versiondir=$b_version-$b_instance
    else
-      versiondir=$B_VERSION
+      versiondir=$b_version
    fi
 
    if test "$DESTSPLIT" != ""; then
-      B_INSTALLDIR="$DESTDIR/$B_ARCH/$B_NAME/$versiondir"
+      B_INSTALLDIR="$DESTDIR/$B_ARCH/$b_name"
       ls -tr "$B_INSTALLDIR" | head -n -"${MAXBUILDKEEP}" | while read line; do
          test -d "$B_INSTALLDIR/$line" && rm -rf "$B_INSTALLDIR/$line"
       done
    else
-      B_INSTALLDIR="$DESTDIR/$B_ARCH/$B_NAME-"
+      B_INSTALLDIR="$DESTDIR/$B_ARCH/$b_name-"
       ls -trd "$B_INSTALLDIR"* | head -n -"${MAXBUILDKEEP}" | while read line; do
          test -d "$line" && rm -rf "$line"
       done
@@ -1130,12 +1130,14 @@ main() {
    B_SARCH=$( arch_get )
    parse_options "$@"
 
+   support_functions
+
    # Check version
    if test $DO_CHECK -ne 0; then
       # Get current version and check if already built
       for i in "${!work_recipes[@]}"; do
          B_ARCH=${work_arch[${work_recipes[$i]}]}
-         work_version[$i]=$( check_version_built "${work_recipes[$i]}" "${work_version[${work_recipes[$i]}]}")
+         work_version[$i]=$( check_version_built "${work_recipes[$i]}" "${work_version[${work_recipes[$i]}]}" "${work_instance[$i]}")
          work_built[$i]=$?
          if test $DO_CHECK -eq 1 -o $DO_BUILD -eq 1 -a $B_FORCE -eq 0; then
             if test ${work_built[$i]} -eq 1; then
@@ -1162,7 +1164,7 @@ main() {
                work_build[$i]=1
                continue
             }
-            build "${work_recipes[$i]}" "${work_version[$i]}"
+            build "${work_recipes[$i]}" "${work_version[$i]}" "${work_instance[$i]}"
             if test $? -eq 1;then
                output -f "${work_recipes[$i]} ${work_version[$i]} (build failed)"
                work_build[$i]=0
@@ -1170,7 +1172,7 @@ main() {
             else
                work_build[$i]=1
                output -f "${work_recipes[$i]} ${work_version[$i]} (build succeeded)"
-               test -n "$MAXBUILDKEEP" && build_expire "${work_recipes[$i]}"
+               test -n "$MAXBUILDKEEP" && build_expire "${work_recipes[$i]}" "${work_version[$i]}" "${work_instance[$i]}"
             fi
          fi
       done
@@ -1194,7 +1196,7 @@ main() {
                work_packaged[$i]=0
                continue
             }
-            work_package[$i]=$(package "${work_recipes[$i]}" "${work_version[$i]}")
+            work_package[$i]=$(package "${work_recipes[$i]}" "${work_version[$i]}" "${work_instance[$i]}")
             work_packaged[$i]=$?
             if test "${work_packaged[$i]}" -eq 0; then
                output "${work_recipes[$i]} ${work_version[$i]} (package created)"
@@ -1217,7 +1219,7 @@ main() {
       B_ARCH=${work_arch[${work_recipes[$i]}]}
       if test "${#pkgs[*]}" != "0"; then
          if test "$DRYRUN" -eq 1; then
-            output -f "Would send packages to repo"
+            output -f "Would send packages to repo (${pkgs[@]})"
          else
             package_torepo "${pkgs[@]}"
             if test $? -eq 0; then
