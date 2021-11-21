@@ -631,65 +631,57 @@ support_functions() {
       fi
       local url; url=$2
       local fn; fn=$3
-      local targetdir; targetdir=$B_CACHEDIR/$B_NAME
-      local target; target=$targetdir/$fn-$B_VERSION
-      local targetnover; targetnover=$targetdir/$fn
+      local cachedir; cachedir=$B_CACHEDIR/$B_NAME
+      local cache_version; cache_version=$cachedir/$fn-$B_VERSION
+      local cache_no_version; cache_no_version=$cachedir/$fn
       case $method in
       "http")
-         if ! test -f "$target"
+         if ! test -f "$cache_version"
          then
-            test -d "$targetdir" || mkdir -p "$targetdir"
+            test -d "$cachedir" || mkdir -p "$cachedir"
             echo "Http downloading files.."
-            flock -w 60 "$target" wget -q -O "$target" "$url" || { rm "$target"; echo "Error downloading file."; exit 1; }
+            flock -w 60 "$cache_version" wget -q -O "$cache_version" "$url" || { rm "$cache_version"; echo "Error downloading file."; exit 1; }
          fi
-         flock -w 60 "$target" cp "$target" "$fn"
+         flock -w 60 "$cache_version" cp "$cache_version" "$fn"
       ;;
       "sf")
-         if ! test -f "$target"
+         if ! test -f "$cache_version"
          then
             url=$(wget -q -O - "$url/rss?path=/" | xml2 | grep '/rss/channel/item/link' | grep "$B_VERSION" | cut -d '=' -f 2 | tail -1)
-            test -d "$targetdir" || mkdir -p "$targetdir"
+            test -d "$cachedir" || mkdir -p "$cachedir"
             echo "Http sf downloading files.."
-            flock -w 60 "$target" wget -O "$target" "$url" || { rm "$target"; echo "Error downloading file."; exit 1; }
+            flock -w 60 "$cache_version" wget -O "$cache_version" "$url" || { rm "$cache_version"; echo "Error downloading file."; exit 1; }
          fi
-         flock -w 60 "$target" cp "$target" "$fn"
+         flock -w 60 "$cache_version" cp "$cache_version" "$fn"
       ;;
       "git")
-         if ! test -f "$targetnover"; then
-            test -d "$targetdir" || mkdir -p "$targetdir"
+         if ! test -f "$cache_no_version"; then
+            test -d "$cachedir" || mkdir -p "$cachedir"
             echo "Git downloading files.."
-            git clone "$url" "$fn"
-            test $? -ne 0 && { echo "Error cloning repository."; exit 1; }
+            git clone "$url" "$fn" || { echo "Error cloning repository."; exit 1; }
             if test "$option" = "-s"; then
                ( cd "$fn" || exit 1
                git submodule update --init --recursive )
             fi
-            flock -w 60 "$targetnover" tar cfz "$targetnover.new" "$fn"
-            if test "$?" -eq "0"; then
-               mv "$targetnover.new" "$targetnover"
-            else
-               rm -f "$targetnover.new"
-            fi
          else
-            flock -w 60 "$targetnover" tar xzf "$targetnover" || {
-               echo "Error extracting archive $targetnover"; exit 1; }
+            flock -w 60 "$cache_no_version" tar xzf "$cache_no_version" || {
+               echo "Error extracting archive $cache_no_version"; exit 1; }
             cd "$fn" || exit 1
             git fetch --tags -f
+            git status > /dev/null 2>&1
             if test "$(git rev-parse @)" != "$(git rev-parse '@{u}')"; then
                git fetch --tags
                test "$option" = "-s" && git submodule update --init --recursive
-               cd ..
-               flock -w 60 "$targetnover" tar cfz "$targetnover.new" "$fn"
-               if test "$?" -eq "0"; then
-                  mv "$targetnover.new" "$targetnover"
-               else
-                  echo "Unable to store in cache."
-                  rm -f "$targetnover.new"
-                  exit 1
-               fi
-            else
-               cd ..
             fi
+            cd ..
+         fi
+         flock -w 60 "$cache_no_version" tar cfz "$cache_no_version.new" "$fn"
+         if test "$?" -eq "0"; then
+            mv "$cache_no_version.new" "$cache_no_version"
+         else
+            echo "Unable to store in cache."
+            rm -f "$cache_no_version.new"
+            exit 1
          fi
       ;;
       "go")
@@ -697,54 +689,54 @@ support_functions() {
          export PATH=${PATH}:${GOROOT}/bin
          export GOPATH
          GOPATH=$(pwd)
-         if ! test -f "$targetnover"; then
-            test -d "$targetdir" || mkdir -p "$targetdir"
+         if ! test -f "$cache_no_version"; then
+            test -d "$cachedir" || mkdir -p "$cachedir"
             echo "Go downloading files.."
             go get -d "$url"
             test $? -ne 0 && { echo "Error downloading repository."; exit 1; }
-            flock -w 60 "$targetnover" tar cfz "$targetnover" .
+            flock -w 60 "$cache_no_version" tar cfz "$cache_no_version" .
          else
-            flock -w 60 "$targetnover" tar xzf "$targetnover"
+            flock -w 60 "$cache_no_version" tar xzf "$cache_no_version"
             pushd "src/$url"
             git pull --tags
             test $? -ne 0 && { echo "Error updating repository."; exit 1; }
             popd
-            flock -w 60 "$targetnover" tar cfz "$targetnover" .
+            flock -w 60 "$cache_no_version" tar cfz "$cache_no_version" .
          fi
       ;;
       "hg")
-         if ! test -f "$targetnover"; then
-            test -d "$targetdir" || mkdir -p "$targetdir"
+         if ! test -f "$cache_no_version"; then
+            test -d "$cachedir" || mkdir -p "$cachedir"
             echo "Mercurial downloading files.."
             hg clone "$url" "$fn"
             test $? -ne 0 && { echo "Error cloning repository."; exit 1; }
-            flock -w 60 "$targetnover" tar cfz "$targetnover" "$fn"
+            flock -w 60 "$cache_no_version" tar cfz "$cache_no_version" "$fn"
          else
-            flock -w 60 "$targetnover" tar xzf "$targetnover"
+            flock -w 60 "$cache_no_version" tar xzf "$cache_no_version"
             cd "$fn" || exit
             if test "$(hg id | cut -d' ' -f 1)" != "$(hg id "$url")"; then
                hg pull
                cd ..
-               flock -w 60 "$targetnover" tar cfz "$targetnover" "$fn"
+               flock -w 60 "$cache_no_version" tar cfz "$cache_no_version" "$fn"
             else
                cd ..
             fi
          fi
       ;;
       "svn")  
-         if ! test -f "$targetnover"; then
-            test -d "$targetdir" || mkdir -p "$targetdir"
+         if ! test -f "$cache_no_version"; then
+            test -d "$cachedir" || mkdir -p "$cachedir"
             echo "Subversion downloading files.."
             svn checkout --non-interactive --trust-server-cert -q "$url" "$fn"
             test $? -ne 0 && { echo "Error checking out repository."; exit 1; }
-            flock -w 60 "$targetnover" tar cfz "$targetnover" "$fn"
+            flock -w 60 "$cache_no_version" tar cfz "$cache_no_version" "$fn"
          else
-            flock -w 60 "$targetnover" tar xzf "$targetnover"
+            flock -w 60 "$cache_no_version" tar xzf "$cache_no_version"
             cd "$fn" || exit
             if test "$(svn info --non-interactive --trust-server-cert "$url" | grep Revision | cut -d' ' -f2)" != "$( svn info --non-interactive --trust-server-cert | grep Revision | cut -d' ' -f 2)"; then
                svn update --non-interactive --trust-server-cert
                cd ..
-               flock -w 60 "$targetnover" tar cfz "$targetnover" "$fn"
+               flock -w 60 "$cache_no_version" tar cfz "$cache_no_version" "$fn"
             else
                cd ..
             fi
