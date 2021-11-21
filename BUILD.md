@@ -590,6 +590,10 @@ being created.
 This will be replaced by the value of the PKGPOSTFIX variable if defined in the
 configuration.
 
+* `B_INSTANCE`
+
+This will be replaced by the instance requested.
+
 * `B_MAIL`
 
 This will be replaced by the value of the PKGMAIL variable if defined in the
