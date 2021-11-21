@@ -489,7 +489,7 @@ package_deb() {
       cmd=$( recipe_section_get "$pkg" DEB_DEPENDS ); DEPS=$(B_VERSION=$version bash -c "$cmd")
       info=$( echo "$info" | sed "/^Depends:/ s/B_DEPENDS/$DEPS/" )
    }
-   test "$PKGPOSTFIX" != "" && info=$( echo "$info" | sed "/^Package:/ s/$/-$PKGPOSTFIX/" | sed "s/B_PF/$PKGPOSTFIX/g" )
+   test "$PKGPOSTFIX" != "" && info=$( echo "$info" | sed "/^Package:/ s/$/-$PKGPOSTFIX/; s/B_PF/$PKGPOSTFIX/g; s/B_INSTANCE/$instance/g" )
    test "$PKGPOSTFIX" != "" && info="${info//B_MAIL/$PKGMAIL}"
    test "$PKGORG" != "" && info="${info//B_ORG/$PKGORG}"
    test "$PKGMAIL" != "" && info="${info//B_MAIL/$PKGMAIL}"
