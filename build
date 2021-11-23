@@ -307,10 +307,12 @@ build() {
    find "$TMP" -type d -print0 | xargs -0 chmod +w # fix readonly dir removal
    rm -rf "$TMP"
    test "$pkgs" != "" -a "$DEINSTDEP" = "yes" -a "$B_NOPKGRM" -eq 0 && build_require_remove "$pkgs"
-   test "$POSTBUILD" != "" -a "$B_NOPKGRM" -eq 0 && $POSTBUILD
+   if test "$POSTBUILD" != "" -a "$B_NOPKGRM" -eq 0; then 
+      $POSTBUILD || { ERR=1 output "Error running postbuild command $POSTBUILD"; result=2; }
+   fi
    if test "$result" -ne 0; then
       rm -rf "$B_INSTALLDIR"
-      return 1
+      return $result
    fi
    return 0
 }
@@ -1134,16 +1136,25 @@ main() {
                work_build[$i]=1
                continue
             }
+            set -x
             build "${work_recipes[$i]}" "${work_version[$i]}" "${work_instance[$i]}"
-            if test $? -eq 1;then
+            ret="$?"
+            case "$ret" in
+            "1")
                output -f "${work_recipes[$i]} ${work_version[$i]} (build failed)"
                work_build[$i]=0
                retval=1;
-            else
+               ;;
+            "2")
+               output -f "${work_recipes[$i]} ${work_version[$i]} build failed critically, aboring builds."
+               break
+               ;;
+            *)
                work_build[$i]=1
                output -f "${work_recipes[$i]} ${work_version[$i]} (build succeeded)"
                test -n "$MAXBUILDKEEP" && build_expire "${work_recipes[$i]}" "${work_version[$i]}" "${work_instance[$i]}"
-            fi
+               ;;
+            esac
          fi
       done
       lock_free
