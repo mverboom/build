@@ -308,7 +308,7 @@ build() {
    rm -rf "$TMP"
    test "$pkgs" != "" -a "$DEINSTDEP" = "yes" -a "$B_NOPKGRM" -eq 0 && build_require_remove "$pkgs"
    if test "$POSTBUILD" != "" -a "$B_NOPKGRM" -eq 0; then 
-      $POSTBUILD || { ERR=1 output "Error running postbuild command $POSTBUILD"; result=2; }
+      $POSTBUILD || { ERR=1 output "Error running postbuild command $POSTBUILD"; result=255; }
    fi
    if test "$result" -ne 0; then
       rm -rf "$B_INSTALLDIR"
@@ -1136,23 +1136,22 @@ main() {
                work_build[$i]=1
                continue
             }
-            set -x
             build "${work_recipes[$i]}" "${work_version[$i]}" "${work_instance[$i]}"
             ret="$?"
             case "$ret" in
-            "1")
-               output -f "${work_recipes[$i]} ${work_version[$i]} (build failed)"
-               work_build[$i]=0
-               retval=1;
+            "0")
+               work_build[$i]=1
+               output -f "${work_recipes[$i]} ${work_version[$i]} (build succeeded)"
+               test -n "$MAXBUILDKEEP" && build_expire "${work_recipes[$i]}" "${work_version[$i]}" "${work_instance[$i]}"
                ;;
-            "2")
+            "255")
                output -f "${work_recipes[$i]} ${work_version[$i]} build failed critically, aboring builds."
                break
                ;;
             *)
-               work_build[$i]=1
-               output -f "${work_recipes[$i]} ${work_version[$i]} (build succeeded)"
-               test -n "$MAXBUILDKEEP" && build_expire "${work_recipes[$i]}" "${work_version[$i]}" "${work_instance[$i]}"
+               output -f "${work_recipes[$i]} ${work_version[$i]} (build failed)"
+               work_build[$i]=0
+               retval=1;
                ;;
             esac
          fi
