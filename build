@@ -699,10 +699,11 @@ support_functions() {
             flock -w 60 "$cache_no_version" tar cfz "$cache_no_version" .
          else
             flock -w 60 "$cache_no_version" tar xzf "$cache_no_version"
-            pushd "src/$url"
-            git pull --tags
+            #pushd "src/$url"
+            #git pull --tags
+            go get -d "$url"
             test $? -ne 0 && { echo "Error updating repository."; exit 1; }
-            popd
+            #popd
             flock -w 60 "$cache_no_version" tar cfz "$cache_no_version" .
          fi
       ;;
@@ -808,7 +809,7 @@ version_get() {
    local opts
    test "$DEBUG" = "1" && opts+=("-x")
    opts+=("-e" "-c")
-   local ver; ver=$( bash "${opts[@]}" "$cmd" 2>/dev/null )
+   local ver; ver=$( bash "${opts[@]}" "$cmd" )
    test $? -ne 0 && { >&2 output "Error while running version command for $pkg." ; return 1 ; }
    test "$ver" = "" && { >&2 output "Version command for $pkg returned no output." ; return 1 ; }
    echo "$ver"
