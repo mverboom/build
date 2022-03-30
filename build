@@ -488,7 +488,7 @@ package_deb() {
    local pkgversion; pkgversion="${version//\-/}-${buildnr}+deb"$(lsb_release -r -s | cut -d'.' -f 1)
    test "$(echo "$info" | grep B_DEPENDS)" != "" &&  {
       local cmd; local DEPS;
-      cmd=$( recipe_section_get "$pkg" DEB_DEPENDS ); DEPS=$(B_VERSION=$version bash -c "$cmd")
+      cmd=$( recipe_section_get "$pkg" DEB_DEPENDS ); DEPS=$(B_VERSION=$version B_INSTANCE=$instance bash -c "$cmd")
       info=$( echo "$info" | sed "/^Depends:/ s/B_DEPENDS/$DEPS/" )
    }
    test "$PKGPOSTFIX" != "" && info=$( echo "$info" | sed "/^Package:/ s/$/-$PKGPOSTFIX/; s/B_PF/$PKGPOSTFIX/g; s/B_INSTANCE/$instance/g" )
@@ -564,13 +564,13 @@ support_functions() {
          esac
       done
       shift $((OPTIND -1))
-      test "$preregex"  != "" && preregex="sed \"$preregex\"" || preregex="cat"
+      test "$preregex"  != "" && preregex="sed -r \"$preregex\"" || preregex="cat"
       prefilter="sed \"$prefilter\""
       test "$include" != "" && include="grep -i $include" || include="cat"
       test "$exclude" != "" && exclude="grep -iv $exclude" || exclude="cat"
       test "$postfilter" != "" && postfilter="sed \"$postfilter\""|| postfilter="cat"
 
-      test "$postregex" != "" && postregex="sed \"$postregex\"" || postregex="cat"
+      test "$postregex" != "" && postregex="sed -r \"$postregex\"" || postregex="cat"
       local cmd="git ls-remote --tags $1 | grep -v '{}' | 
                  sed 's#.*refs/tags/##' |
                  $preregex | 
@@ -701,7 +701,7 @@ support_functions() {
             flock -w 60 "$cache_no_version" tar xzf "$cache_no_version"
             #pushd "src/$url"
             #git pull --tags
-            go get -d "$url"
+            go get -u -d "$url"
             test $? -ne 0 && { echo "Error updating repository."; exit 1; }
             #popd
             flock -w 60 "$cache_no_version" tar cfz "$cache_no_version" .
@@ -1013,21 +1013,23 @@ output() {
 check_version_built() {
    local pkg; pkg="$1"
    local version; version="$2"
-   local instance; instance="$3"
+   export B_INSTANCE="$3"
    local ret; ret=0
-   local pkgdir
+   export B_PKGDIR
 
-   test "$instance" != "" && instance="-${instance}"
+   test "$B_INSTANCE" != "" && B_INSTANCE="-${B_INSTANCE}"
+
+   if test "$DESTSPLIT" != ""; then
+      B_PKGDIR="$DESTDIR/$B_ARCH/$pkg/"
+   else
+      B_PKGDIR="$DESTDIR/$B_ARCH/$pkg-"
+   fi
 
    if test "$version" = ""; then
       version=$( version_get "$pkg" ) || return 255
    fi
-   if test "$DESTSPLIT" != ""; then
-      pkgdir="$DESTDIR/$B_ARCH/$pkg/$version$instance"
-   else
-      pkgdir="$DESTDIR/$B_ARCH/$pkg-$version$instance"
-   fi
-   test -d "$pkgdir" && { echo "$version" ; ret=1 ;} || echo "$version"
+   B_PKGDIR="${B_PKGDIR}$version${B_INSTANCE}"
+   test -d "$B_PKGDIR" && { echo "$version" ; ret=1 ;} || echo "$version"
    return $ret
 }
 
