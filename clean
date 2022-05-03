@@ -57,8 +57,9 @@ case $1 in
          diff $BASE $CUR | grep '<' | cut -d' ' -f2 | xargs sudo apt-get -qq -y install > /dev/null 2>&1
       	 test ${PIPESTATUS[3]} -ne 0 && echo "Error installing missing packages."
          sudo apt-get -qq -y --purge autoremove > /dev/null 2>&1
-         sudo apt-get clean > /dev/null 2>&1
          test $? -ne 0 && echo "Error removing no longer required packages."
+         sudo apt-get clean > /dev/null 2>&1
+         test $? -ne 0 && echo "Error cleaning apt cache."
          diff $BASE $CUR | grep '>' | cut -d' ' -f2 | xargs sudo apt-get -qq --purge -y remove > /dev/null 2>&1
          test ${PIPESTATUS[3]} -ne 0 && echo "Error removing extra packages."
          rm -f $CUR
