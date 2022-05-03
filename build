@@ -201,8 +201,11 @@ build_require() {
          fi
       fi
    done
-   test "${#toinst[*]}" != "0" -o "${#toinsttr[*]}" != "0" && 
-      sudo apt-get update > /dev/null 2>&1
+   test "${#toinst[*]}" != "0" -o "${#toinsttr[*]}" != "0" && {
+       sudo apt-get update > /dev/null 2>&1 ||
+       { output "Error updating package sources.";
+         return 1 ;}
+   }
    test "${#toinst[*]}" != "0" && { 
       sudo apt-get -qq -y install "${toinst[@]}" > /dev/null 2>&1 || 
       { output "Error installing dependancies (${toinst[*]})."; 
@@ -225,8 +228,9 @@ build_require_remove() {
    for pkg in $pkgs; do
       list+=("${pkg/*@/}")
    done
-   sudo apt-get -qq -y --purge remove "${list[@]}" > /dev/null
-   # ToDo: Returncode
+   sudo apt-get -qq -y --purge remove "${list[@]}" > /dev/null || {
+      output "Error purging packages.";
+      return 1; }
 }
 
 build() {
