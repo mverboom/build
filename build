@@ -32,7 +32,7 @@ sendmail() {
    local summaryok=""
    local summaryfail=""
    local pkg
-   test "${#work_build[*]}" = "0" -a "${#work_packaged[*]}" = "0" && return
+
    for id in "${!work_recipes[@]}"; do
       test "{work_built[$id]}" = "1" && alreadybuilt=$(( alreadybuilt + 1 ))
       if test "${work_build[$id]}" != ""; then
@@ -56,6 +56,8 @@ sendmail() {
          fi
       fi
    done
+   test "$buildtotal" -eq 0 -a "$pkgtotal" -eq 0 && return
+
    local subject
    local buildperc=0
    if test "$buildtotal" -gt 0; then
