@@ -666,10 +666,10 @@ support_functions() {
          if ! test -f "$cache_no_version"; then
             test -d "$cachedir" || mkdir -p "$cachedir"
             echo "Git downloading files.."
-            git clone "$url" "$fn" || { echo "Error cloning repository."; exit 1; }
             if test "$option" = "-s"; then
-               ( cd "$fn" || exit 1
-               git submodule update --init --recursive )
+               git clone --recursive "$url" "$fn" || { echo "Error cloning repository."; exit 1; }
+            else
+               git clone "$url" "$fn" || { echo "Error cloning repository."; exit 1; }
             fi
          else
             flock -w 60 "$cache_no_version" tar xzf "$cache_no_version" || {
