@@ -293,6 +293,9 @@ build() {
    export PYTHONDONTWRITEBYTECODE=1
    # set npm cache to builddir
    export npm_config_cache=$TMP/.npm
+   # set cabal config to builddir
+   export CABAL_DIR=$TMP/.cabal
+   export CABAL_CONFIG=$TMP/.cabal/config
 
    local result
    local opts
