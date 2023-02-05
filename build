@@ -300,9 +300,12 @@ build() {
    local result
    local opts
    test "$DEBUG" = "1" && opts+=( "-x" )
-   opts+=("-e" "-c")
+   opts+=("-e" "-c" )
    pushd "$TMP" > /dev/null || exit
-   bash "${opts[@]}" "$cmd" 2>&1 | tee -a "$buildlogfile" | outputpipe
+
+   logcmd=( dd status=none of="$buildlogfile" )
+   test "$VERBOSE" -gt 0 && logcmd=( tee -a "$buildlogfile" )
+   bash "${opts[@]}" "$cmd" 2>&1 | stdbuf -i0 -o0 -e0 ${logcmd[@]}
    result=${PIPESTATUS[0]}
    if test "$result" -ne 0 -a -n "$DEBUGSHELL"; then
       echo "## Build failed. Dropping to shell."
@@ -993,12 +996,6 @@ sanity_check() {
                           mkdir -p "$LOGDIR"; }
    test -d "$TMPDIR" || { ERR=1 output "TMPDIR $TMPDIR does not exist, creating."; 
                           mkdir -p "$TMPDIR"; }
-}
-
-outputpipe() {
-   while read line; do
-      test "$VERBOSE" -gt 0 && output "$@" "$line"
-   done
 }
 
 output() {
