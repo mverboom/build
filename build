@@ -89,7 +89,7 @@ sendmail() {
            echo
         done
      fi
-   )  | mail -s "build completed (${subject%%, })" "$email"
+   )  | mail -r "$HOSTNAME" -s "build completed (${subject%%, })" "$email"
 }
 
 usage() {
@@ -284,7 +284,7 @@ build() {
    B_CACHEDIR=$CACHEDIR
    test -d "$RECIPEDIR/$B_NAME.files/B_BUILD" && B_FILES="$RECIPEDIR/$B_NAME.files/B_BUILD"
    B_PF="$PKGPOSTFIX"
-   export B_VERSION B_INSTALLDIR B_ARCH B_INSTANCE B_CACHEDIR B_NAME B_BUILDNR B_FILES B_FORCE B_PF
+   export B_VERSION B_INSTALLDIR B_ARCH B_INSTANCE B_CACHEDIR B_NAME B_BUILDNR B_FILES B_FORCE B_PF B_RECIPEDIR="$RECIPEDIR"
 
    # setting to set temporary files to the build folder
    export XDG_CACHE_HOME="$TMP/.cache" # generic hint
@@ -500,7 +500,8 @@ package_deb() {
    local pkgversion; pkgversion="${version//\-/}-${buildnr}+deb"$(lsb_release -r -s | cut -d'.' -f 1)
    test "$(echo "$info" | grep B_DEPENDS)" != "" &&  {
       local cmd; local DEPS;
-      cmd=$( recipe_section_get "$pkg" DEB_DEPENDS ); DEPS=$(B_VERSION=$version B_INSTANCE=$instance bash -c "$cmd")
+      cmd=$( recipe_section_get "$pkg" DEB_DEPENDS )
+      DEPS=$(B_VERSION=$version B_INSTANCE=$instance bash -c "$cmd")
       info=$( echo "$info" | sed "/^Depends:/ s/B_DEPENDS/$DEPS/" )
    }
    test "$PKGPOSTFIX" != "" && info=$( echo "$info" | sed "/^Package:/ s/$/-$PKGPOSTFIX/; s/B_PF/$PKGPOSTFIX/g; s/B_INSTANCE/$instance/g" )
