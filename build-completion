@@ -1,0 +1,12 @@
+# build completion
+
+_build_completions() {
+   local RECIPEDIR
+   local buildrc=~/.buildrc
+   local cur="${COMP_WORDS[COMP_CWORD]}"
+   ! test -e "$buildrc" && return
+   eval "$(grep "^RECIPEDIR=" "$buildrc")"
+   COMPREPLY=( $(compgen -W "$(find $RECIPEDIR -name "*.recipe" -printf "%f\n" | sed "s/.recipe$//")" -- ${cur} ) )
+}
+
+complete -F _build_completions build
