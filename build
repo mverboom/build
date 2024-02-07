@@ -243,6 +243,8 @@ build() {
    versiondir=$B_VERSION
    test "$B_INSTANCE" != "" && versiondir=$B_VERSION-$B_INSTANCE
 
+   output "Building $B_NAME $B_VERSION"
+
    local buildlogfile="$LOGDIR/${B_NAME}-${B_ARCH}.log"
    rm -f "$buildlogfile"
 
@@ -1153,9 +1155,15 @@ main() {
                work_build[$i]=1
                output -f "${work_recipes[$i]} ${work_version[$i]} (build succeeded)"
                test -n "$MAXBUILDKEEP" && build_expire "${work_recipes[$i]}" "${work_version[$i]}" "${work_instance[$i]}"
+               if test -n "$MAXCACHEKEEP"; then
+                  cachedir=$B_CACHEDIR/$B_NAME
+                  ls -tr "$cachedir" | head -n -"${MAXCACHEKEEP}" | while read line; do
+                     test -e "$cachedir/$line" && rm -f "$cachedir/$line"
+                  done
+               fi
                ;;
             "255")
-               output -f "${work_recipes[$i]} ${work_version[$i]} build failed critically, aboring builds."
+               output -f "${work_recipes[$i]} ${work_version[$i]} build failed critically, aborting builds."
                break
                ;;
             *)
