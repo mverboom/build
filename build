@@ -1157,7 +1157,7 @@ main() {
                test -n "$MAXBUILDKEEP" && build_expire "${work_recipes[$i]}" "${work_version[$i]}" "${work_instance[$i]}"
                if test -n "$MAXCACHEKEEP"; then
                   cachedir=$B_CACHEDIR/$B_NAME
-                  ls -tr "$cachedir" | head -n -"${MAXCACHEKEEP}" | while read line; do
+                  ls -tr "$cachedir" 2> /dev/null | head -n -"${MAXCACHEKEEP}" | while read line; do
                      test -e "$cachedir/$line" && rm -f "$cachedir/$line"
                   done
                fi
