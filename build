@@ -5,7 +5,7 @@
 # Support script to automate software builds outside of base distribution
 # packages
 #
-# Copyright 2011-2021 Mark Verboom
+# Copyright 2011-2024 Mark Verboom
 #
 # This file is part of Build.
 # 
@@ -298,6 +298,8 @@ build() {
    # set cabal config to builddir
    export CABAL_DIR=$TMP/.cabal
    export CABAL_CONFIG=$TMP/.cabal/config
+   # set go directory
+   export GOPATH=$TMP/.go
 
    local result
    local opts
@@ -676,19 +678,19 @@ support_functions() {
             test -d "$cachedir" || mkdir -p "$cachedir"
             echo "Git downloading files.."
             if test "$option" = "-s"; then
-               git clone --recursive "$url" "$fn" || { echo "Error cloning repository."; exit 1; }
+               git -c gc.auto=0 clone --recursive "$url" "$fn" || { echo "Error cloning repository."; exit 1; }
             else
-               git clone "$url" "$fn" || { echo "Error cloning repository."; exit 1; }
+               git -c gc.auto=0 clone "$url" "$fn" || { echo "Error cloning repository."; exit 1; }
             fi
          else
             flock -w 60 "$cache_no_version" tar xzf "$cache_no_version" || {
                echo "Error extracting archive $cache_no_version"; exit 1; }
             cd "$fn" || exit 1
-            git fetch --tags -f
+            git -c gc.auto=0 fetch --tags -f
             git status > /dev/null 2>&1
             if test "$(git rev-parse @)" != "$(git rev-parse '@{u}')"; then
-               git fetch --tags
-               test "$option" = "-s" && git submodule update --init --recursive
+               git -c gc.auto=0 fetch --tags
+               test "$option" = "-s" && git -c gc.auto=0 submodule update --init --recursive
             fi
             cd ..
          fi
