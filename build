@@ -690,6 +690,7 @@ support_functions() {
             git status > /dev/null 2>&1
             if test "$(git rev-parse @)" != "$(git rev-parse '@{u}')"; then
                git -c gc.auto=0 fetch --tags
+               git pull
                test "$option" = "-s" && git -c gc.auto=0 submodule update --init --recursive
             fi
             cd ..
