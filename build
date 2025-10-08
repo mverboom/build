@@ -297,7 +297,7 @@ build() {
    export npm_config_cache=$TMP/.npm
    # set cabal config to builddir
    export CABAL_DIR=$TMP/.cabal
-   export CABAL_CONFIG=$TMP/.cabal/config
+   #export CABAL_CONFIG=$TMP/.cabal/config
    # set go directory
    export GOPATH=$TMP/.go
 
@@ -820,8 +820,9 @@ version_get() {
 
    export B_SARCH
    export B_NAME=$1
+   test -d "$RECIPEDIR/$B_NAME.files/B_BUILD" && B_FILES="$RECIPEDIR/$B_NAME.files/B_BUILD"
 
-   export B_ARCH
+   export B_ARCH B_FILES
    cmd=$( recipe_section_get "$pkg" VERSION )
    test $? -ne 0 && { output "$cmd" ; return 1; }
    local opts
