@@ -504,6 +504,7 @@ package_deb() {
    local pkgversion; pkgversion="${version//\-/}-${buildnr}+deb"$(lsb_release -r -s | cut -d'.' -f 1)
    test "$(echo "$info" | grep B_DEPENDS)" != "" &&  {
       local cmd; local DEPS;
+      export B_PF="$PKGPOSTFIX"
       cmd=$( recipe_section_get "$pkg" DEB_DEPENDS )
       DEPS=$(B_VERSION=$version B_INSTANCE=$instance bash -c "$cmd")
       info=$( echo "$info" | sed "/^Depends:/ s/B_DEPENDS/$DEPS/" )
