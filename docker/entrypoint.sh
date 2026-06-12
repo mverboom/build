@@ -70,7 +70,7 @@ if [[ -f "/tmp/build-cmd.sh" ]]; then
    # Write a wrapper script that sources the env and runs the build
    log_dir="${LOGDIR:-/tmp}"
    log_file="${log_dir}/${B_NAME:-build}-${B_ARCH:-all}.log"
-   cat > /tmp/run-build.sh << WRAPPER
+   cat > /tmp/run-build.sh << 'WRAPPER'
 #!/usr/bin/env bash
 set -e
 source /tmp/build-env.sh
@@ -80,12 +80,12 @@ WRAPPER
    chmod +x /tmp/run-build.sh
 
    if [[ -n "${HOST_UID:-}" ]]; then
-      # Run as builduser, redirect output to log file and stdout
-      # Use su with -c and redirect both stdout and stderr
-      su builduser -s /bin/bash -c "/tmp/run-build.sh" > "${log_file}" 2>&1
-      exit_code=$?
+      # Run as builduser using su, capturing output to log file
+      # Redirect stdout+stderr to log, then cat to stdout for docker logs
+      su builduser -s /bin/bash <<'SU_SCRIPT' > "${log_file}" 2>&1
+/tmp/run-build.sh
+SU_SCRIPT
       cat "${log_file}"
-      exit ${exit_code}
    else
       /tmp/run-build.sh 2>&1 | tee "${log_file}"
    fi
