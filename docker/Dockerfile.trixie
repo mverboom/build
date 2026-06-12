@@ -1,0 +1,10 @@
+FROM debian:trixie
+
+RUN apt-get update && apt-get -y install \
+    gawk grep git svn wget fakeroot bzip2 mercurial lsb-release jq xml2 \
+    && apt-get clean
+
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]

@@ -48,6 +48,13 @@ PKGORG=""
 POSTBUILD=""
 PROXY=""
 
+# Docker build configuration (overridden by ~/.buildrc)
+BUILDMODE="native"
+BUILDDISTRO=""
+DOCKER_DIR=""
+DOCKER_IMAGE_PREFIX=""
+BUILD_DEPS=""
+
 # Initialize option variables (set by parse_options)
 B_FORCE=0
 DEBUG=""
@@ -106,6 +113,7 @@ usage() {
    printf '%s\n' "   -x  Enable debugging output"
    printf '%s\n' "   -s  Drop to a shell when building process fails to inspect."
    printf '%s\n' "   -f  Force build for recipe, even if complete build is already available."
+   printf '%s\n' "   -d  Specify target distribution for Docker mode (e.g., trixie, bookworm)"
    printf '%s\n' "   -i  Specify an instance for a recipe"
    printf '%s\n' "   -R  Don't remove required packages after building and skip any post build script."
    printf '%s\n' "   -h  This help message"
@@ -138,11 +146,21 @@ sanity_check() {
          missing="$missing $name"
       fi
    done
-   [[ -n "$missing" ]] && { output "Missing required software to run script:$missing"; return 1; }
+   # In Docker mode, missing host tools are OK — they'll be in the container
+   if [[ "$BUILDMODE" != "docker" ]]; then
+      [[ -n "$missing" ]] && { output "Missing required software to run script:$missing"; return 1; }
+   fi
    [[ -z "$PKGDIR" ]] && { ERR=1 output "PKGDIR not defined"; return 1; }
    [[ -d "$PKGDIR" ]] || { ERR=1 output "PKGDIR $PKGDIR does not exist, creating."; mkdir -p "$PKGDIR"; }
    [[ -d "$LOGDIR" ]] || { ERR=1 output "LOGDIR $LOGDIR does not exist, creating."; mkdir -p "$LOGDIR"; }
    [[ -d "$TMPDIR" ]] || { ERR=1 output "TMPDIR $TMPDIR does not exist, creating."; mkdir -p "$TMPDIR"; }
+
+   # Docker-specific sanity checks
+   if [[ "$BUILDMODE" == "docker" ]]; then
+      command -v docker > /dev/null 2>&1 || { ERR=1 output "Docker not found but BUILDMODE=docker."; return 1; }
+      docker info > /dev/null 2>&1 || { ERR=1 output "Docker daemon not running or not accessible."; return 1; }
+      [[ -n "$BUILDDISTRO" ]] || { ERR=1 output "BUILDMODE=docker requires --distro (-d) to be specified."; return 1; }
+   fi
 }
 
 # Determine architecture string for the current system.
@@ -239,12 +257,20 @@ recipe_section_get() {
 
 # Install required build dependencies.
 # Parameters: space-separated list of package names
+# In Docker mode, packages are installed inside the container by the entrypoint.
+# The package list is stored in BUILD_DEPS for the entrypoint to process.
 build_require() {
    local pkgs="$*"
    local missing=0
    local -a toinst=()
    local -a toinsttr=()
    local pkg
+
+   # In Docker mode, collect dependencies for the container entrypoint
+   if [[ "$BUILDMODE" == "docker" ]]; then
+      [[ -n "$pkgs" ]] && BUILD_DEPS="${BUILD_DEPS:-} $pkgs"
+      return 0
+   fi
 
    for pkg in $pkgs; do
       local query_result
@@ -350,6 +376,9 @@ build() {
    B_CACHEDIR="$CACHEDIR"
    [[ -d "$RECIPEDIR/$B_NAME.files/B_BUILD" ]] && B_FILES="$RECIPEDIR/$B_NAME.files/B_BUILD"
    export B_VERSION B_INSTALLDIR B_ARCH B_INSTANCE B_CACHEDIR B_NAME B_BUILDNR B_FILES B_FORCE
+
+   # Define build environment functions (used in both native and Docker modes)
+   # These are exported for native mode and dumped to env script for Docker mode.
 
    # Download/cached retrieval of build sources
    # shellcheck disable=SC2317
@@ -536,6 +565,40 @@ build() {
       ln -s "$src" "$B_INSTALLDIR/$dst"
    }
    export -f B_LINKFILE
+
+   # --- Docker mode: run build inside container ---
+   if [[ "$BUILDMODE" == "docker" ]]; then
+      # Select Docker image based on target distro
+      local image
+      image=$(docker_image_select "$BUILDDISTRO")
+
+      # Write build command to a temp file
+      local buildfile
+      buildfile=$(mktemp -p "$TMPDIR" build-cmd-"${B_NAME}"-XXXXXX.sh)
+      printf '#!/usr/bin/env bash\n' > "$buildfile"
+      printf '%s\n' "$CMD" >> "$buildfile"
+      chmod +x "$buildfile"
+
+      # Write build environment to a temp file
+      local envfile
+      envfile=$(mktemp -p "$TMPDIR" build-env-"${B_NAME}"-XXXXXX.sh)
+      docker_prepare_env "$envfile" || { rm -f "$envfile" "$buildfile"; return 1; }
+
+      # Run build inside Docker container
+      docker_run_build "$image" "$envfile" "$buildfile"
+      local result=$?
+
+      # Clean up temp files
+      rm -f "$envfile" "$buildfile"
+
+      if (( result != 0 )); then
+         rm -rf "$B_INSTALLDIR"
+         return 1
+      fi
+      return 0
+   fi
+
+   # --- Native mode: run build directly on host ---
 
    # Setting to set temporary files to the build folder
    export XDG_CACHE_HOME="$TMP/.cache"
@@ -986,6 +1049,168 @@ check_version_built() {
    return "$RET"
 }
 
+# --- Docker domain functions ---
+
+# Select the Docker image for a given distro name.
+# Checks for custom image config, image prefix, then default mapping.
+# Parameters: distro_name
+# Returns the image name via printf.
+docker_image_select() {
+   local distro="$1"
+   local image
+
+   # Check for custom image config (e.g., DOCKER_IMAGE_TRIXIE)
+   local config_var
+   config_var="DOCKER_IMAGE_$(printf '%s' "$distro" | tr '[:lower:]' '[:upper:]')"
+   if [[ -n "${!config_var:-}" ]]; then
+      image="${!config_var}"
+   elif [[ -n "$DOCKER_IMAGE_PREFIX" ]]; then
+      image="${DOCKER_IMAGE_PREFIX}${distro}"
+   else
+      # Default mapping
+      case "$distro" in
+         trixie)    image="debian:trixie" ;;
+         bookworm)  image="debian:bookworm" ;;
+         sid)       image="debian:sid" ;;
+         *)         image="debian:$distro" ;;
+      esac
+   fi
+   printf '%s' "$image"
+}
+
+# Prepare the build environment script for use inside a Docker container.
+# Writes all exported variables and function definitions to a script file
+# that will be sourced inside the container.
+# Parameters: envfile_path
+# Returns 0 on success.
+docker_prepare_env() {
+   local envfile="$1"
+
+   {
+      printf '#!/usr/bin/env bash\n'
+      printf '# Build environment for %s\n\n' "${B_NAME}"
+
+      # Export all B_* variables
+      printf 'export B_VERSION="%s"\n' "$B_VERSION"
+      printf 'export B_INSTALLDIR="%s"\n' "$B_INSTALLDIR"
+      printf 'export B_ARCH="%s"\n' "$B_ARCH"
+      printf 'export B_NAME="%s"\n' "$B_NAME"
+      printf 'export B_BUILDNR="%s"\n' "$B_BUILDNR"
+      printf 'export B_CACHEDIR="%s"\n' "$B_CACHEDIR"
+      printf 'export B_FILES="%s"\n' "${B_FILES:-}"
+      printf 'export B_FORCE="%s"\n' "$B_FORCE"
+      printf 'export B_INSTANCE="%s"\n' "${B_INSTANCE:-}"
+      printf 'export BUILDMODE=docker\n'
+      printf 'export TMPDIR=/tmp\n'
+      printf 'export HOME="%s"\n' "$HOME"
+      printf 'export PKGLIST="%s"\n' "$PKGLIST"
+      printf 'export DESTDIR="%s"\n' "$DESTDIR"
+      printf 'export DESTSPLIT="%s"\n' "${DESTSPLIT:-}"
+      printf 'export RECIPEDIR="%s"\n' "$RECIPEDIR"
+      printf 'export LOGDIR="%s"\n' "$LOGDIR"
+      printf 'export XDG_CACHE_HOME="/tmp/.cache"\n'
+      printf 'export YARN_CACHE_FOLDER="/tmp/.cache/yarn"\n'
+
+      # Function definitions (exported from build() function scope)
+      declare -f B_GET B_LINKFILES B_LINKFILE B_UPDATEPKGBLD
+
+   } > "$envfile"
+
+   return 0
+}
+
+# Run the build phase inside a Docker container.
+# Parameters: image envfile buildfile
+# Returns the exit status of the docker run command.
+docker_run_build() {
+   local image="$1"
+   local envfile="$2"
+   local buildfile="$3"
+   local container_id
+   local result
+
+   local -a docker_args=()
+
+   # Remove container after run (unless debugging)
+   [[ "$DEBUGSHELL" != "1" ]] && docker_args+=("--rm")
+
+   # Hostname for identification
+   docker_args+=("--hostname" "build-${B_NAME}")
+
+   # Mount volumes (same paths inside and outside container)
+   docker_args+=(
+      "-v" "${RECIPEDIR}:${RECIPEDIR}"
+      "-v" "${CACHEDIR}:${CACHEDIR}"
+      "-v" "${DESTDIR}:${DESTDIR}"
+      "-v" "${LOGDIR}:${LOGDIR}"
+      "-v" "${HOME}/.buildrc:${HOME}/.buildrc:ro"
+      "-v" "${envfile}:/tmp/build-env.sh:ro"
+      "-v" "${buildfile}:/tmp/build-cmd.sh:ro"
+   )
+
+   # Mount PKGDIR if it exists
+   if [[ -d "$PKGDIR" ]]; then
+      docker_args+=("-v" "${PKGDIR}:${PKGDIR}")
+   fi
+
+   # Pass environment variables
+   docker_args+=(
+      "-e" "B_VERSION=${B_VERSION}"
+      "-e" "B_INSTALLDIR=${B_INSTALLDIR}"
+      "-e" "B_ARCH=${B_ARCH}"
+      "-e" "B_NAME=${B_NAME}"
+      "-e" "B_BUILDNR=${B_BUILDNR}"
+      "-e" "B_CACHEDIR=${CACHEDIR}"
+      "-e" "B_FILES=${B_FILES:-}"
+      "-e" "B_FORCE=${B_FORCE}"
+      "-e" "B_INSTANCE=${B_INSTANCE:-}"
+      "-e" "HOME=${HOME}"
+      "-e" "BUILDMODE=docker"
+      "-e" "HOST_UID=$(id -u)"
+      "-e" "HOST_GID=$(id -g)"
+      "-e" "BUILD_DEPS=${BUILD_DEPS:-}"
+      "-e" "TMPDIR=/tmp"
+      "-e" "DESTDIR=${DESTDIR}"
+      "-e" "DESTSPLIT=${DESTSPLIT:-}"
+      "-e" "RECIPEDIR=${RECIPEDIR}"
+      "-e" "LOGDIR=${LOGDIR}"
+      "-e" "PKGLIST=${PKGLIST}"
+   )
+
+   # Proxy settings
+   [[ -n "$PROXY" ]] && docker_args+=("-e" "http_proxy=${PROXY}" "-e" "https_proxy=${PROXY}")
+
+   output "Starting Docker build for ${B_NAME} (${image})..."
+
+   # Run container
+   if [[ "$DEBUGSHELL" == "1" ]]; then
+      # Keep container on failure for debugging
+      container_id=$(docker run -d "${docker_args[@]}" "$image")
+      docker logs -f "$container_id"
+      result=$?
+      # Check actual container exit code
+      local exit_code
+      exit_code=$(docker inspect --format='{{.State.ExitCode}}' "$container_id" 2>/dev/null || echo "1")
+      result="$exit_code"
+
+      if (( result != 0 )); then
+         printf '\n'
+         printf '%s\n' "## Build failed. Container $container_id is still running."
+         printf '%s\n' "## Attach with: docker exec -it $container_id bash"
+         printf '%s\n' "## Remove with: docker rm -f $container_id"
+         printf '%s\n' "## Type exit to return."
+         docker exec -it "$container_id" bash
+      else
+         docker rm "$container_id" > /dev/null 2>&1
+      fi
+   else
+      docker run "${docker_args[@]}" "$image"
+      result=$?
+   fi
+
+   return "$result"
+}
+
 # Parse command-line options and populate work arrays.
 # Parameters: script arguments
 parse_options() {
@@ -1001,7 +1226,7 @@ parse_options() {
    B_NOPKGRM=0
    local all=0
 
-   while getopts :csbprai:Rxqfhv: opt; do
+   while getopts :csbprad:i:Rxqfhv: opt; do
       case $opt in
       c)
          DO_CHECK=1
@@ -1021,6 +1246,9 @@ parse_options() {
          ;;
       a)
          all=1
+         ;;
+      d)
+         BUILDDISTRO="$OPTARG"
          ;;
       i)
          B_INSTANCE="$OPTARG"
@@ -1120,8 +1348,16 @@ main() {
 
    sanity_check || return 1
 
-   distr=$(lsb_release -i -s | tr '[:lower:]' '[:upper:]')
-   rel=$(lsb_release -c -s | tr '[:lower:]' '[:upper:]')
+   # Determine distribution and release
+   # In Docker mode, use the specified distro; otherwise, detect from host
+   if [[ -n "$BUILDDISTRO" ]]; then
+      IFS='-' read -r distr rel <<< "$BUILDDISTRO"
+      distr=$(printf '%s' "$distr" | tr '[:lower:]' '[:upper:]')
+      rel=$(printf '%s' "${rel:-}" | tr '[:lower:]' '[:upper:]')
+   else
+      distr=$(lsb_release -i -s | tr '[:lower:]' '[:upper:]')
+      rel=$(lsb_release -c -s | tr '[:lower:]' '[:upper:]')
+   fi
 
    [[ -n "$PROXY" ]] && { export http_proxy="$PROXY"; export https_proxy="$PROXY"; }
 
