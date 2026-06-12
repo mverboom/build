@@ -13,8 +13,9 @@
 #   HOME        - Home directory path (matching host)
 #
 # Mounted files:
-#   /tmp/build-env.sh - Build environment (variables + functions)
-#   /tmp/build-cmd.sh - Build command script (recipe BUILD section)
+#   /tmp/build-env.sh   - Build environment (variables + functions)
+#   /tmp/build-cmd.sh   - Build command script (recipe BUILD section)
+#   /tmp/package-cmd.sh - Package command script (optional, for Phase 2)
 
 set -u
 
@@ -64,21 +65,27 @@ else
    :
 fi
 
-# --- Execute build command ---
+# --- Execute build and/or package commands ---
+
+log_dir="${LOGDIR:-/tmp}"
+log_file="${log_dir}/${B_NAME:-build}-${B_ARCH:-all}.log"
 
 if [[ -f "/tmp/build-cmd.sh" ]]; then
-   log_dir="${LOGDIR:-/tmp}"
-   log_file="${log_dir}/${B_NAME:-build}-${B_ARCH:-all}.log"
+   # Build phase: run build command, optionally followed by package command
+   # Write a wrapper script that sources the env and runs the commands.
+   cat > /tmp/run-build.sh <<- 'WRAPPER'
+	#!/usr/bin/env bash
+	set -e
+	source /tmp/build-env.sh
+	cd /tmp || exit 1
+	source /tmp/build-cmd.sh
+	WRAPPER
 
-   # Write a wrapper script that sources the env and runs the build.
-   # The wrapper uses tee to write output to both the log file and stdout.
-   cat > /tmp/run-build.sh << WRAPPER
-#!/usr/bin/env bash
-set -e
-source /tmp/build-env.sh
-cd /tmp || exit 1
-source /tmp/build-cmd.sh
-WRAPPER
+   # If package command exists, append it to the wrapper
+   if [[ -f "/tmp/package-cmd.sh" ]]; then
+      printf '\nsource /tmp/package-cmd.sh\n' >> /tmp/run-build.sh
+   fi
+
    chmod +x /tmp/run-build.sh
 
    if [[ -n "${HOST_UID:-}" ]]; then
@@ -91,8 +98,25 @@ WRAPPER
    else
       /tmp/run-build.sh 2>&1 | tee "${log_file}"
    fi
+elif [[ -f "/tmp/package-cmd.sh" ]]; then
+   # Package-only phase (no build command, just package)
+   cat > /tmp/run-build.sh <<- 'WRAPPER'
+	#!/usr/bin/env bash
+	set -e
+	source /tmp/build-env.sh
+	source /tmp/package-cmd.sh
+	WRAPPER
+   chmod +x /tmp/run-build.sh
+
+   if [[ -n "${HOST_UID:-}" ]]; then
+      su builduser -s /bin/bash /tmp/run-build.sh > "${log_file}" 2>&1
+      chown builduser:builduser "${log_file}" 2>/dev/null || true
+      cat "${log_file}"
+   else
+      /tmp/run-build.sh 2>&1 | tee "${log_file}"
+   fi
 else
-   # No build command provided, drop to interactive shell
+   # No build or package command provided, drop to interactive shell
    if [[ -n "${HOST_UID:-}" ]]; then
       exec su builduser -s /bin/bash
    else

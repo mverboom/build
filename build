@@ -577,12 +577,19 @@ build() {
       envfile=$(mktemp -p "$TMPDIR" build-env-"${B_NAME}"-XXXXXX.sh)
       docker_prepare_env "$envfile" || { rm -f "$envfile" "$buildfile"; return 1; }
 
-      # Run build inside Docker container
-      docker_run_build "$image" "$envfile" "$buildfile"
+      # If packaging is also requested, prepare package command
+      local pkgcmdfile=""
+      if (( DO_PACKAGE != 0 )); then
+         pkgcmdfile=$(mktemp -p "$TMPDIR" pkg-cmd-"${B_NAME}"-XXXXXX.sh)
+         docker_prepare_package_cmd "$pkgcmdfile" "$B_NAME" "$B_VERSION" || { rm -f "$envfile" "$buildfile" "$pkgcmdfile"; return 1; }
+      fi
+
+      # Run build (and optionally package) inside Docker container
+      docker_run_build "$image" "$envfile" "$buildfile" "$pkgcmdfile"
       local result=$?
 
       # Clean up temp files
-      rm -f "$envfile" "$buildfile"
+      rm -f "$envfile" "$buildfile" "$pkgcmdfile"
 
       if (( result != 0 )); then
          rm -rf "$B_INSTALLDIR"
@@ -744,7 +751,7 @@ package_rpm() {
    local version="$2"
 
    local pkgready
-   pkgready=$(recipe_item_get "$pkg" PKG pkgready)
+   pkgready=$(recipe_item_get "$pkg" PKG pkgready) || true
    local P_PKGDIR="${pkg}-${ID}"
 
    if [[ -z "$pkgready" ]]; then
@@ -776,7 +783,7 @@ package_deb() {
    local version="$2"
 
    local pkgready
-   pkgready=$(recipe_item_get "$pkg" PKG pkgready)
+   pkgready=$(recipe_item_get "$pkg" PKG pkgready) || true
    local P_PKGDIR="${pkg}-${ID}"
 
    local pkgdir
@@ -828,7 +835,7 @@ package_deb() {
       # Mark config files
       find . -path "*/etc/*" -type f | sed "s/^\.//" > DEBIAN/conffiles
       local configfiles
-      configfiles=$(recipe_item_get "$pkg" PKG configfiles)
+      configfiles=$(recipe_item_get "$pkg" PKG configfiles) || true
       [[ -n "$configfiles" ]] && { printf '%s\n' "$configfiles" | tr ' ' '\n' >> DEBIAN/conffiles; }
 
       printf '%s\n' "$INFO" | sed "s/B_VERSION/$pkgversion/" | sed "s/B_ARCH/$B_ARCH/" > "$TMP/build/DEBIAN/control"
@@ -1104,21 +1111,113 @@ docker_prepare_env() {
       printf 'export XDG_CACHE_HOME="/tmp/.cache"\n'
       printf 'export YARN_CACHE_FOLDER="/tmp/.cache/yarn"\n'
 
+      # Packaging variables
+      printf 'export PKGDIR="%s"\n' "$PKGDIR"
+      printf 'export PKGPOSTFIX="%s"\n' "${PKGPOSTFIX:-}"
+      printf 'export PKGMAIL="%s"\n' "${PKGMAIL:-}"
+      printf 'export PKGORG="%s"\n' "${PKGORG:-}"
+      printf 'export QUIET=%s\n' "$QUIET"
+
+      # Distribution variables (used by package_deb for section selection)
+      printf 'distr="%s"\n' "${distr:-}"
+      printf 'rel="%s"\n' "${rel:-}"
+
       # Function definitions (exported from build() function scope)
       declare -f B_GET B_LINKFILES B_LINKFILE B_UPDATEPKGBLD
+
+      # Utility functions needed by packaging
+      declare -f output
+
+      # Recipe functions needed by packaging
+      declare -f recipe_section_get recipe_item_get
+
+      # Package functions
+      declare -f package_buildnr_get package_deb package_rpm
 
    } > "$envfile"
 
    return 0
 }
 
-# Run the build phase inside a Docker container.
-# Parameters: image envfile buildfile
+# Prepare the package command script for use inside a Docker container.
+# Writes a script that sets up packaging variables and calls the appropriate
+# packaging function (package_deb or package_rpm).
+# Parameters: envfile_path recipe_name version
+# Returns the path to the package command script.
+docker_prepare_package_cmd() {
+   local pkgfile="$1"
+   local pkg="$2"
+   local version="$3"
+   local id_val
+
+   # Compute ID (same logic as package() function)
+   if [[ -n "${B_INSTANCE:-}" ]]; then
+      id_val="${version}-${B_INSTANCE}"
+   else
+      id_val="${version}"
+   fi
+
+   cat > "$pkgfile" << PKGSCRIPT
+#!/usr/bin/env bash
+# Package command for ${pkg} version ${version}
+
+pkg="${pkg}"
+version="${version}"
+ID="${id_val}"
+
+if [[ -n "\$DESTSPLIT" ]]; then
+   pkgdir="\$DESTDIR/\$B_ARCH/\$pkg/\$version"
+else
+   pkgdir="\$DESTDIR/\$B_ARCH/\$pkg-\$version"
+fi
+if [[ ! -d "\$pkgdir" ]]; then
+   ERR=1 output "Version \$version of \$pkg is not available for packaging."
+   exit 1
+fi
+
+pkg_type=\$(recipe_item_get "\$pkg" PKG type) || true
+for pkgtype in \${pkg_type/,/ }; do
+   case "\$pkgtype" in
+      "deb")
+         pkgfile=\$(package_deb "\$pkg" "\$version") || exit 1
+         if [[ -n "\$pkgfile" ]]; then
+            printf '%s' "\$pkgfile" > "\${LOGDIR}/.package-result-\${pkg}.txt"
+         else
+            printf 'package_deb returned empty result\n' >&2
+            exit 1
+         fi
+         ;;
+      "rpm")
+         pkgfile=\$(package_rpm "\$pkg" "\$version") || exit 1
+         if [[ -n "\$pkgfile" ]]; then
+            printf '%s' "\$pkgfile" > "\${LOGDIR}/.package-result-\${pkg}.txt"
+         else
+            printf 'package_rpm returned empty result\n' >&2
+            exit 1
+         fi
+         ;;
+      *)
+         ERR=1 output "Unknown package type (\$pkgtype)."
+         exit 1
+         ;;
+   esac
+done
+PKGSCRIPT
+
+   chmod +x "$pkgfile"
+   return 0
+}
+
+# Run the build phase (and optionally package phase) inside a Docker container.
+# Parameters: image envfile buildfile [pkgcmdfile]
+#   pkgcmdfile - optional path to package command script; if provided,
+#               the container will also run the packaging phase after build.
 # Returns the exit status of the docker run command.
 docker_run_build() {
    local image="$1"
    local envfile="$2"
    local buildfile="$3"
+   local pkgcmdfile="${4:-}"
    local container_id
    local result
 
@@ -1144,6 +1243,11 @@ docker_run_build() {
       "-v" "${envfile}:/tmp/build-env.sh:ro"
       "-v" "${buildfile}:/tmp/build-cmd.sh:ro"
    )
+
+   # Mount package command script if provided (Phase 2: Docker packaging)
+   if [[ -n "$pkgcmdfile" ]]; then
+      docker_args+=("-v" "${pkgcmdfile}:/tmp/package-cmd.sh:ro")
+   fi
 
    # Also mount symlink target paths if they differ from the mounted directories
    # This handles cases like /home/builduser/recipes -> /home/builduser.orig/recipes
@@ -1186,15 +1290,22 @@ docker_run_build() {
       "-e" "RECIPEDIR=${RECIPEDIR}"
       "-e" "LOGDIR=${LOGDIR}"
       "-e" "PKGLIST=${PKGLIST}"
+      "-e" "PKGDIR=${PKGDIR}"
+      "-e" "PKGPOSTFIX=${PKGPOSTFIX:-}"
+      "-e" "PKGMAIL=${PKGMAIL:-}"
+      "-e" "PKGORG=${PKGORG:-}"
+      "-e" "distr=${distr:-}"
+      "-e" "rel=${rel:-}"
    )
 
    # Proxy settings
    [[ -n "$PROXY" ]] && docker_args+=("-e" "http_proxy=${PROXY}" "-e" "https_proxy=${PROXY}")
 
-   output "Starting Docker build for ${B_NAME} (${image})..."
-
-   # Run container and capture output to log file
-   local log_file="$LOGDIR/${B_NAME}-${B_ARCH}.log"
+   if [[ -n "$pkgcmdfile" ]]; then
+      output "Starting Docker build+package for ${B_NAME} (${image})..."
+   else
+      output "Starting Docker build for ${B_NAME} (${image})..."
+   fi
 
    # Run container (always detached so we can reliably capture output)
    # The entrypoint writes build output to the log file on the mounted volume
@@ -1221,6 +1332,92 @@ docker_run_build() {
    if [[ "$DEBUGSHELL" != "1" ]] || (( result == 0 )); then
       docker rm "$container_id" > /dev/null 2>&1
    fi
+
+   return "$result"
+}
+
+# Run only the packaging phase inside a Docker container.
+# Used when BUILDMODE=docker and -p is specified without -b, so the host
+# doesn't need dpkg/fakeroot installed.
+# Parameters: image envfile pkgcmdfile
+# Returns the exit status of the docker run command.
+# After the container exits, reads the package result file to get the filename.
+docker_run_package() {
+   local image="$1"
+   local envfile="$2"
+   local pkgcmdfile="$3"
+   local container_id
+   local result
+
+   local -a docker_args=()
+
+   # Hostname for identification
+   docker_args+=("--hostname" "package-${B_NAME}")
+
+   # Mount volumes
+   local recipes_real home_real
+   recipes_real=$(readlink -f "$RECIPEDIR")
+   home_real=$(readlink -f "$HOME")
+   docker_args+=(
+      "-v" "${home_real}:${HOME}"
+      "-v" "${recipes_real}:${RECIPEDIR}"
+      "-v" "$(readlink -f "$DESTDIR"):${DESTDIR}"
+      "-v" "$(readlink -f "$LOGDIR"):${LOGDIR}"
+      "-v" "${envfile}:/tmp/build-env.sh:ro"
+      "-v" "${pkgcmdfile}:/tmp/package-cmd.sh:ro"
+   )
+
+   # Mount PKGDIR if it exists
+   if [[ -d "$PKGDIR" ]]; then
+      docker_args+=("-v" "${PKGDIR}:${PKGDIR}")
+   fi
+
+   # Pass environment variables
+   docker_args+=(
+      "-e" "B_VERSION=${B_VERSION}"
+      "-e" "B_INSTALLDIR=${B_INSTALLDIR:-}"
+      "-e" "B_ARCH=${B_ARCH}"
+      "-e" "B_NAME=${B_NAME}"
+      "-e" "B_BUILDNR=${B_BUILDNR:-1}"
+      "-e" "B_CACHEDIR=${CACHEDIR:-}"
+      "-e" "B_INSTANCE=${B_INSTANCE:-}"
+      "-e" "HOME=${HOME}"
+      "-e" "BUILDMODE=docker"
+      "-e" "HOST_UID=$(id -u)"
+      "-e" "HOST_GID=$(id -g)"
+      "-e" "TMPDIR=/tmp"
+      "-e" "DESTDIR=${DESTDIR}"
+      "-e" "DESTSPLIT=${DESTSPLIT:-}"
+      "-e" "RECIPEDIR=${RECIPEDIR}"
+      "-e" "LOGDIR=${LOGDIR}"
+      "-e" "PKGLIST=${PKGLIST}"
+      "-e" "PKGDIR=${PKGDIR}"
+      "-e" "PKGPOSTFIX=${PKGPOSTFIX:-}"
+      "-e" "PKGMAIL=${PKGMAIL:-}"
+      "-e" "PKGORG=${PKGORG:-}"
+      "-e" "distr=${distr:-}"
+      "-e" "rel=${rel:-}"
+   )
+
+   # Proxy settings
+   [[ -n "$PROXY" ]] && docker_args+=("-e" "http_proxy=${PROXY}" "-e" "https_proxy=${PROXY}")
+
+   output "Starting Docker package for ${B_NAME} (${image})..."
+
+   # Run container in detached mode
+   # The entrypoint will detect no build-cmd.sh and just run the package command
+   container_id=$(docker run -d "${docker_args[@]}" "$image")
+
+   # Follow container logs for real-time output
+   docker logs -f "$container_id" 2>&1
+
+   # Get the container's exit code
+   local exit_code
+   exit_code=$(docker inspect --format='{{.State.ExitCode}}' "$container_id" 2>/dev/null || echo "1")
+   result="$exit_code"
+
+   # Clean up container
+   docker rm "$container_id" > /dev/null 2>&1
 
    return "$result"
 }
@@ -1362,21 +1559,22 @@ main() {
 
    sanity_check || return 1
 
+   B_SARCH=$(arch_get)
+   parse_options "$@" || return 1
+
    # Determine distribution and release
    # In Docker mode, use the specified distro; otherwise, detect from host
+   # Must be after parse_options() so BUILDDISTRO is set from -d flag
    if [[ -n "$BUILDDISTRO" ]]; then
       IFS='-' read -r distr rel <<< "$BUILDDISTRO"
       distr=$(printf '%s' "$distr" | tr '[:lower:]' '[:upper:]')
-      rel=$(printf '%s' "${rel:-}" | tr '[:lower:]' '[:upper:]')
+      rel=$(printf '%s' "${rel:-$distr}" | tr '[:lower:]' '[:upper:]')
    else
       distr=$(lsb_release -i -s | tr '[:lower:]' '[:upper:]')
       rel=$(lsb_release -c -s | tr '[:lower:]' '[:upper:]')
    fi
 
    [[ -n "$PROXY" ]] && { export http_proxy="$PROXY"; export https_proxy="$PROXY"; }
-
-   B_SARCH=$(arch_get)
-   parse_options "$@" || return 1
 
    # Docker-specific sanity checks (must be after parse_options for BUILDDISTRO)
    if [[ "$BUILDMODE" == "docker" ]]; then
@@ -1414,6 +1612,17 @@ main() {
             else
                work_build[i]=1
                output -f "${work_recipes[$i]} ${work_version[$i]} (build succeeded)"
+
+               # In Docker mode, build+package was combined. Read result file.
+               if [[ "$BUILDMODE" == "docker" ]] && (( DO_PACKAGE != 0 )); then
+                  local result_file="$LOGDIR/.package-result-${work_recipes[$i]}.txt"
+                  if [[ -f "$result_file" ]]; then
+                     work_package[i]=$(cat "$result_file")
+                     work_packaged[i]=0
+                     rm -f "$result_file"
+                     output "${work_recipes[$i]} ${work_version[$i]} (package created)"
+                  fi
+               fi
             fi
          fi
       done
@@ -1424,17 +1633,79 @@ main() {
       # if no build action and version built, package. if build action successful, build.
       for i in "${!work_recipes[@]}"; do
          B_ARCH="${work_arch[${work_recipes[$i]}]}"
+
+         # Skip if already packaged (e.g., in Docker combined build+package)
+         [[ "${work_packaged[$i]:-1}" == "0" ]] && continue
+
          local b=0
          (( DO_BUILD == 0 && work_built[i] == 1 )) && b=1
          [[ "${work_build[$i]:-0}" == "1" ]] && b=1
          if (( b == 1 )); then
-            work_package[i]=$(package "${work_recipes[$i]}" "${work_version[$i]}")
-            work_packaged[i]=$?
-            if (( work_packaged[i] == 0 )); then
-               output "${work_recipes[$i]} ${work_version[$i]} (package created)"
+            if [[ "$BUILDMODE" == "docker" ]]; then
+               # Package inside Docker container (package-only mode)
+               B_NAME="${work_recipes[$i]}"
+               B_VERSION="${work_version[$i]}"
+               if [[ -n "${B_INSTANCE:-}" ]]; then
+                  ID="${B_NAME}_${B_VERSION}-${B_INSTANCE}_${B_ARCH}"
+               else
+                  ID="${B_NAME}_${B_VERSION}_${B_ARCH}"
+               fi
+               B_BUILDNR=$(package_buildnr_get "$ID")
+
+               # Compute B_INSTALLDIR (normally set in build(), but we skipped it)
+               if [[ -n "$DESTSPLIT" ]]; then
+                  B_INSTALLDIR="$DESTDIR/$B_ARCH/$B_NAME/$B_VERSION"
+               else
+                  B_INSTALLDIR="$DESTDIR/$B_ARCH/$B_NAME-$B_VERSION"
+               fi
+               B_CACHEDIR="$CACHEDIR"
+               B_FILES=""
+               B_FORCE=0
+               B_INSTANCE="${B_INSTANCE:-}"
+
+               local image
+               image=$(docker_image_select "$BUILDDISTRO")
+
+               local envfile
+               envfile=$(mktemp -p "$TMPDIR" build-env-"${B_NAME}"-XXXXXX.sh)
+               docker_prepare_env "$envfile"
+
+               local pkgcmdfile
+               pkgcmdfile=$(mktemp -p "$TMPDIR" pkg-cmd-"${B_NAME}"-XXXXXX.sh)
+               docker_prepare_package_cmd "$pkgcmdfile" "$B_NAME" "$B_VERSION"
+
+               docker_run_package "$image" "$envfile" "$pkgcmdfile"
+               local pkg_result=$?
+
+               rm -f "$envfile" "$pkgcmdfile"
+
+               if (( pkg_result == 0 )); then
+                  local result_file="$LOGDIR/.package-result-${work_recipes[$i]}.txt"
+                  if [[ -f "$result_file" ]]; then
+                     work_package[i]=$(cat "$result_file")
+                     work_packaged[i]=0
+                     rm -f "$result_file"
+                     output "${work_recipes[$i]} ${work_version[$i]} (package created)"
+                  else
+                     # Container exited 0 but no result file — packaging may have failed silently
+                     work_packaged[i]=1
+                     output -f "${work_recipes[$i]} ${work_version[$i]} (package create failed)"
+                     retval=1
+                  fi
+               else
+                  work_packaged[i]=1
+                  output -f "${work_recipes[$i]} ${work_version[$i]} (package create failed)"
+                  retval=1
+               fi
             else
-               output -f "${work_recipes[$i]} ${work_version[$i]} (package create failed)"
-               retval=1
+               work_package[i]=$(package "${work_recipes[$i]}" "${work_version[$i]}")
+               work_packaged[i]=$?
+               if (( work_packaged[i] == 0 )); then
+                  output "${work_recipes[$i]} ${work_version[$i]} (package created)"
+               else
+                  output -f "${work_recipes[$i]} ${work_version[$i]} (package create failed)"
+                  retval=1
+               fi
             fi
          else
             work_package[i]=1
