@@ -1136,7 +1136,7 @@ docker_run_build() {
       "-v" "${CACHEDIR}:${CACHEDIR}"
       "-v" "${DESTDIR}:${DESTDIR}"
       "-v" "${LOGDIR}:${LOGDIR}"
-      "-v" "${HOME}/.buildrc:${HOME}/.buildrc:ro"
+      "-v" "${HOME}:${HOME}"
       "-v" "${envfile}:/tmp/build-env.sh:ro"
       "-v" "${buildfile}:/tmp/build-cmd.sh:ro"
    )
