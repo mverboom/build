@@ -1196,11 +1196,12 @@ docker_run_build() {
    # Run container and capture output to log file
    local log_file="$LOGDIR/${B_NAME}-${B_ARCH}.log"
 
-   # Run container (always in detached mode to reliably capture output)
+   # Run container (always detached so we can reliably capture output)
+   # The entrypoint writes build output to the log file on the mounted volume
    container_id=$(docker run -d "${docker_args[@]}" "$image")
 
-   # Follow container logs and capture to log file
-   docker logs -f "$container_id" 2>&1 | tee "$log_file"
+   # Follow container logs for real-time output
+   docker logs -f "$container_id" 2>&1
 
    # Get the container's exit code
    local exit_code
