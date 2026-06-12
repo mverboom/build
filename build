@@ -582,7 +582,7 @@ build() {
       local result=$?
 
       # Clean up temp files
-      # rm -f "$envfile" "$buildfile"  # Disabled for debugging
+      rm -f "$envfile" "$buildfile"
 
       if (( result != 0 )); then
          rm -rf "$B_INSTALLDIR"
