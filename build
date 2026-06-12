@@ -1145,14 +1145,19 @@ docker_run_build() {
       "-v" "${buildfile}:/tmp/build-cmd.sh:ro"
    )
 
-   # Also mount the symlink target path if it differs from the home directory
-   # (handles cases like /home/builduser/recipes -> /home/builduser.orig/recipes)
-   if [[ "$home_real" != "$HOME" ]]; then
-      docker_args+=("-v" "${home_real}:${home_real}")
-   fi
-   if [[ "$recipes_real" != "$RECIPEDIR" ]]; then
-      docker_args+=("-v" "${recipes_real}:${recipes_real}")
-   fi
+   # Also mount symlink target paths if they differ from the mounted directories
+   # This handles cases like /home/builduser/recipes -> /home/builduser.orig/recipes
+   # where the symlink target needs to be accessible at its real path
+   local mount_real
+   for mount_real in "$home_real" "$recipes_real" "$(readlink -f "$CACHEDIR")" "$(readlink -f "$DESTDIR")" "$(readlink -f "$LOGDIR")"; do
+      # Extract the base directory from the real path and mount it
+      # This ensures symlink chains can be followed inside the container
+      local base_real
+      base_real=$(dirname "$mount_real")
+      if [[ "$base_real" != "$HOME" && "$base_real" != "$RECIPEDIR" && "$base_real" != "$CACHEDIR" && "$base_real" != "$DESTDIR" && "$base_real" != "$LOGDIR" ]]; then
+         docker_args+=("-v" "${base_real}:${base_real}")
+      fi
+   done
 
    # Mount PKGDIR if it exists
    if [[ -d "$PKGDIR" ]]; then
