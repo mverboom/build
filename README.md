@@ -25,7 +25,7 @@ Everthing is based around bash shell code.
 ### debclean
 
 In order to build software, a system is usually required which is as clean as possible.
-This helps in determining the exact dependancies for building and running software.
+This helps in determining the exact dependencies for building and running software.
 This script assist in cleaning a debian system. With a minimally installed system it
 creates a list of installed packages and reverts that system to that state when requested.
 

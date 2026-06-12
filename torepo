@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Add package file to repository
 #
@@ -19,27 +19,40 @@
 #     You should have received a copy of the GNU General Public License
 #     along with Build.  If not, see <http://www.gnu.org/licenses/>.
 
+set -u
+
+# Source configuration
+# shellcheck source=~/.toreporc
+[[ -f ~/.toreporc ]] && source ~/.toreporc
+
 usage() {
-   echo "Usage: torepo <filename>"
-   exit 1
+   printf '%s\n' "Usage: torepo <filename>"
+   return 1
 }
 
-set -e
-test -f ~/.toreporc && . ~/.toreporc
-test "$1" = "-q" && { flags="-q" ; shift; }
-test $# -lt 1 && { echo "Invalid arguments."; usage; }
-test "$REPONAME" = "" &&  { echo "REPONAME not configured."; usage; }
-ret=0
-for pkg in $*
-do
-   test -f $pkg || { echo "No such file $pkg."; exit 1; }
-   filename=$( basename $pkg )
-   scp -q $pkg $SERVER:/tmp
-   # Use repo-add on the destination system to wrap whatever you are using.
-   ssh $SERVER "repo-add $flags $REPONAME /tmp/$filename"
-   test $? -ne 0 && ret=1
-   rm $pkg
-done
-test $ret -ne 0 && exit 1
-test "$POST" != "" && ssh $SERVER "$POST"
-exit 0
+main() {
+   local flags=""
+   local ret=0
+   local pkg
+   local filename
+
+   (( $# < 1 )) && { printf '%s\n' "Invalid arguments."; usage; return 1; }
+   [[ "${1:-}" == "-q" ]] && { flags="-q"; shift; }
+   (( $# < 1 )) && { printf '%s\n' "Invalid arguments."; usage; return 1; }
+   [[ -z "${REPONAME:-}" ]] && { printf '%s\n' "REPONAME not configured."; usage; return 1; }
+
+   for pkg in "$@"; do
+      [[ -f "$pkg" ]] || { printf '%s\n' "No such file $pkg."; return 1; }
+      filename=$(basename "$pkg")
+      scp -q "$pkg" "${SERVER}:/tmp"
+      # Use repo-add on the destination system to wrap whatever you are using.
+      ssh "$SERVER" "repo-add $flags $REPONAME /tmp/$filename" || ret=1
+      rm "$pkg"
+   done
+
+   (( ret != 0 )) && return 1
+   [[ -n "${POST:-}" ]] && ssh "$SERVER" "$POST"
+   return 0
+}
+
+main "$@"

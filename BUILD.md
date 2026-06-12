@@ -25,10 +25,10 @@ Check version, runs the version check section of the specified recipe(s).
 Build, runs the build version of the specified recipe(s).
 
 `-p`
-Package, runs the package secition of the specified recipe(s).
+Package, runs the package section of the specified recipe(s).
 
 `-r`
-To repository, creates packages and copies to repository for specfified recipe(s).
+To repository, creates packages and copies to repository for specified recipe(s).
 
 **Operation modifiers:**
 
@@ -132,11 +132,11 @@ identify package build by the script in a repository or system.
 
 `PKGORG`
 This optional parameter defines an organisation name. The value of this
-parameter will be sustituted when B_ORG is used in the [DEB] section of the recipe.
+parameter will be substituted when B_ORG is used in the [DEB] section of the recipe.
 
 `PKGMAIL`
 This optional parameter defines an email adress. The value of this
-parameter will be sustituted when B_MAIL is used in the [DEB] section of the recipe.
+parameter will be substituted when B_MAIL is used in the [DEB] section of the recipe.
 
 `POSTBUILD`
 This can point to an optional script to be run after the build process is
@@ -162,7 +162,7 @@ modes.
 
 ## GENERIC
 
-A recipe is build up in .ini file style format. Each section has a specific name
+A recipe is built up in .ini file style format. Each section has a specific name
 and contains the information required for its function. Not every section is
 mandatory.
 
@@ -176,8 +176,8 @@ arch
 
 This is a comma seperated list of architectures this recipe should be run for.
 If this is absent, the recipe will be run on any architecture.
-A recipe that creates a build that can be build and ran on any architecture can
-be identiefied with `all`.
+A recipe that creates a build that can be built and ran on any architecture can
+be identified with `all`.
 
 excludefromall
 
@@ -208,7 +208,7 @@ This variable contains the name of the recipe being run.
 
 **Functions**
 
-`B_GITVER [option] <git repostiory>`
+`B_GITVER [option] <git repository>`
 
 This function attempts to remotely find the newest tag for a git repository. It filters out some commonly used tags that indicate non-release tags. The processing
 of the output goes through the following stages:
@@ -383,11 +383,11 @@ used to store files used during the build process.
 The B_GET function assists in caching and downloading of content. It supports
 different download methods and caches content in the cache directory.
 
-The url should refrence the content that needs to be downloaded.
+The url should reference the content that needs to be downloaded.
 
 The name references the name of the cache object that needs to be created. For
 all methods that support version information, this is also the name of the 
-folder that will have been created if the `B_GET` function succesfully completes 
+folder that will have been created if the `B_GET` function successfully completes 
 operation.
 
 The following methods are supported:
@@ -396,7 +396,7 @@ The following methods are supported:
 
 This is used for download http or https content. As this method does not  provide
 any version information, the cache directory will be populated with a directory
-per version. If `B_GET` completes succesfully a file called `name` will be
+per version. If `B_GET` completes successfully a file called `name` will be
 available. Any unpacking or processing on the downloaded content needs to be
 performed by the code in the recipe.
 
@@ -404,9 +404,9 @@ performed by the code in the recipe.
 
 This is used to clone git repositories. This method provides version information.
 Only one directory will be created in the cache directory. When a newer version
-of the software is detected an update will be done on the perviously cached cloned
+of the software is detected an update will be done on the previously cached cloned
 git repository. The update will be stored back in the cache.
-If `B_GET` completes succesfully, a folder called `name` will be available with
+If `B_GET` completes successfully, a folder called `name` will be available with
 the repository content.
 
 This method has the following extra options:
@@ -417,17 +417,17 @@ This method has the following extra options:
 
 This is used to check out subversion repositories. This method is beta and not
 completely implemented.
-If `B_GET` completes succesfully, a folder called `name` will be available with
+If `B_GET` completes successfully, a folder called `name` will be available with
 the repository content.
 
 * hg (mercurial, status beta)
 
 This is used to clone mercurial repositories. This method is beta and not
 completely implemented.
-If `B_GET` completes succesfully, a folder called `name` will be available with
+If `B_GET` completes successfully, a folder called `name` will be available with
 the repository content.
 
-* sf (sourceforge, status besta)
+* sf (sourceforge, status beta)
 
 This is used to download the version of the software from sourceforge.
 
@@ -438,10 +438,10 @@ argument, as all go software is downloaded to the `src` directory. Keep in mind
 that the url for a go package does not specify the protocol, so no prefix of
 http or https for example.
 When a newer version of the software is detected an update will be done on the 
-perviously cached go repository. The update will be stored back in the cache.
-If `B_GET` completes succesfully, a folder called `src` will be available with
+previously cached go repository. The update will be stored back in the cache.
+If `B_GET` completes successfully, a folder called `src` will be available with
 the repository content.
-This download method also initialises the following environemnt variables:
+This download method also initialises the following environment variables:
 GOROOT GOPATH
 
 `B_UPDATEPKGBLD`
@@ -453,7 +453,7 @@ and rewrite it using the `B_BUILDNR` variable information.
 
 This function will create symlinks for all files in the source directory to the
 destination directory. The destination directory needs to be relative to the
-`B_INSTALLDIR`. If the destination directory doens't exist yet, it is created
+`B_INSTALLDIR`. If the destination directory doesn't exist yet, it is created
 automatically.
 
 Any file in the source directory that exists and ends in `.real` will not be
@@ -463,7 +463,7 @@ linked.
 
 This function will create a symlink for the source file to the
 destination directory. The destination directory needs to be relative to the
-`B_INSTALLDIR`. If the destination directory doens't exist yet, it is created
+`B_INSTALLDIR`. If the destination directory doesn't exist yet, it is created
 automatically.
 
 ## PACKAGE
@@ -471,7 +471,7 @@ automatically.
 Once a package has been created, it will be stored in the `PKGDIR` as specified
 in `~/.buildrc`.
 
-For creating a pacakge the following sections are used:
+For creating a package the following sections are used:
 
 `[PKG]` (mandatory)
 
@@ -479,7 +479,7 @@ This section contains some meta information on the type of package that needs
 to be build from the result of the `[BUILD]` section of the recipe. The following
 options can be specified:
 
-`type=<pacakge type>` (mandatory)
+`type=<package type>` (mandatory)
 
 This specifies the type of package that should be build. Currently supported
 types are:
@@ -515,10 +515,10 @@ Release is determined by checking the system the script is run on.
 
 If the recipe directory contains a files directory for the recipe, all files
 that are available in the `B_DEBIAN` folder will automatically be included
-in the package. One specifiec directory `B_DEBIAN/DEBIAN` can contain files
+in the package. One specific directory `B_DEBIAN/DEBIAN` can contain files
 used to create the package, like for example post installation commands. For
 more information on this, check the Debian packaging documentation. Any `control`
-file in the `B_DEBIAN/DEBIAN` directory will be overwritten by the inforation
+file in the `B_DEBIAN/DEBIAN` directory will be overwritten by the information
 in this section.
 
 A number of substitutions will be made if specific keywords are used in this
@@ -546,7 +546,7 @@ configuration.
 * `B_DEPENDS`
 
 This is a special keyword and requires the recipe to contain a section [DEB_DEPENDS].
-This section is supposed to generate any dynamic package dependancies. This can be
+This section is supposed to generate any dynamic package dependencies. This can be
 useful when making meta packages which required specific versions of package build
 by other recipes.
 
@@ -554,13 +554,13 @@ by other recipes.
 
 This section contains shell code that will be run when a `[DEB]` section contains
 the macro `[DEB_DEPENDS]`. The output of the code should be compatible with the
-debian package dependancy specification.
+debian package dependency specification.
 
 ## TO REPOSITORY
 
 For pushing a package to a repository, there is no specific section.
 
-Depending on the package that is build, the corresponding entry from the `.buildrc`
+Depending on the package that is built, the corresponding entry from the `.buildrc`
 is used to determine the script that needs to be run to push the package to the
 repository.
 
@@ -582,7 +582,7 @@ Written by Mark Verboom
 
 # REPORTING BUGS
 
-Prefferably by opening an issue on the github page.
+Preferably by opening an issue on the github page.
 
 # COPYRIGHT
 

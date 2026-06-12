@@ -11,7 +11,7 @@ This file documents the issue's that need to be fixed.
 
 ## Global assumptions
 
-It seems useful to implement builds for different package envirements into
+It seems useful to implement builds for different package environments into
 1 recipe and not create multiple recipes for the same type of software.
 
 This assumes that it is possible to run the same set of build commands and
@@ -29,7 +29,7 @@ is running on.
 #### Progress
 
 * [x] Add OS detection
-* [x] Create OS dependant required software function
+* [x] Create OS dependent required software function
 * [x] Push changes upstream
 
 ## Created binary storage
@@ -70,7 +70,7 @@ Useful options here would be:
 
 * dist: append distribution name (-redhat)
 * dist-major: append distribution name and major version numbers (-redhat-6)
-* dist-minor: append distribution name and major and minor versio numbers (-redhat-6-5)
+* dist-minor: append distribution name and major and minor version numbers (-redhat-6-5)
 
 The list of conversions to use for each distribution:
 

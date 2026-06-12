@@ -35,7 +35,7 @@ and those who have been removed.
 
 A configuration file is not required, but it allows to overwrite the location where
 administrative files are being stored. If no configuration file is specified,
-the location where the script is run will also be used the store the administation
+the location where the script is run will also be used the store the administration
 files.
 
 The following variable can be used:
@@ -51,7 +51,7 @@ files can be stored
 
 Configuration file
 
-`$LOCATION/cliean.baselist-$HOSTNAME`
+`$LOCATION/clean.baselist-$HOSTNAME`
 
 Baselist for a specific system
 
@@ -67,7 +67,7 @@ Written by Mark Verboom
 
 # REPORTING BUGS
 
-Prefferably by opening an issue on the github page.
+Preferably by opening an issue on the github page.
 
 # COPYRIGHT
 

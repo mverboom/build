@@ -26,7 +26,7 @@ Written by Mark Verboom
 
 # REPORTING BUGS
 
-Prefferably by opening an issue on the github page.
+Preferably by opening an issue on the github page.
 
 # COPYRIGHT
 
