@@ -48,12 +48,12 @@ PKGORG=""
 POSTBUILD=""
 PROXY=""
 
-# Docker build configuration (overridden by ~/.buildrc)
-BUILDMODE="native"
-BUILDDISTRO=""
-DOCKER_DIR=""
-DOCKER_IMAGE_PREFIX=""
-BUILD_DEPS=""
+# Docker build configuration (overridden by ~/.buildrc or environment)
+: "${BUILDMODE:=native}"
+BUILDDISTRO="${BUILDDISTRO:-}"
+DOCKER_DIR="${DOCKER_DIR:-}"
+DOCKER_IMAGE_PREFIX="${DOCKER_IMAGE_PREFIX:-}"
+BUILD_DEPS="${BUILD_DEPS:-}"
 
 # Initialize option variables (set by parse_options)
 B_FORCE=0
