@@ -72,7 +72,7 @@ if [[ -f "/tmp/build-cmd.sh" ]]; then
 set -e
 source /tmp/build-env.sh
 cd /tmp || exit 1
-bash -e /tmp/build-cmd.sh
+source /tmp/build-cmd.sh
 WRAPPER
    chmod +x /tmp/run-build.sh
 
