@@ -30,7 +30,7 @@ if [[ -n "${BUILD_DEPS:-}" ]]; then
       }
    elif command -v dnf > /dev/null 2>&1; then
       # shellcheck disable=SC2086
-      dnf install -y ${BUILD_DEPS} > /dev/null 2>&1 || {
+      dnf install -y ${BUILD_DEPS} > /dev/null 2>&2 || {
          printf '%s\n' "Warning: Some build dependencies may not have installed correctly." >&2
       }
    else
@@ -70,8 +70,8 @@ if [[ -f "/tmp/build-cmd.sh" ]]; then
    log_dir="${LOGDIR:-/tmp}"
    log_file="${log_dir}/${B_NAME:-build}-${B_ARCH:-all}.log"
 
-   # Write a wrapper script that sources the env and runs the build,
-   # capturing output to the log file via tee
+   # Write a wrapper script that sources the env and runs the build.
+   # The wrapper uses tee to write output to both the log file and stdout.
    cat > /tmp/run-build.sh << WRAPPER
 #!/usr/bin/env bash
 set -e
@@ -82,9 +82,10 @@ WRAPPER
    chmod +x /tmp/run-build.sh
 
    if [[ -n "${HOST_UID:-}" ]]; then
-      # Run as builduser
-      # The wrapper script itself handles tee to the log file
-      su builduser -s /bin/bash -c "/tmp/run-build.sh 2>&1 | tee '${log_file}'"
+      # Run as builduser, capture output to log file and stdout
+      su builduser -s /bin/bash /tmp/run-build.sh > "${log_file}" 2>&1
+      # Output the log file to stdout so docker logs can capture it
+      cat "${log_file}"
    else
       /tmp/run-build.sh 2>&1 | tee "${log_file}"
    fi
