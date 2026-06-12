@@ -141,26 +141,19 @@ sanity_check() {
    local missing=""
    local name
 
-   for name in $(require_software); do
-      if ! command -v "$name" > /dev/null 2>&1; then
-         missing="$missing $name"
-      fi
-   done
-   # In Docker mode, missing host tools are OK — they'll be in the container
+   # In Docker mode, skip host-side tool checks (tools are in the container)
    if [[ "$BUILDMODE" != "docker" ]]; then
+      for name in $(require_software); do
+         if ! command -v "$name" > /dev/null 2>&1; then
+            missing="$missing $name"
+         fi
+      done
       [[ -n "$missing" ]] && { output "Missing required software to run script:$missing"; return 1; }
    fi
    [[ -z "$PKGDIR" ]] && { ERR=1 output "PKGDIR not defined"; return 1; }
    [[ -d "$PKGDIR" ]] || { ERR=1 output "PKGDIR $PKGDIR does not exist, creating."; mkdir -p "$PKGDIR"; }
    [[ -d "$LOGDIR" ]] || { ERR=1 output "LOGDIR $LOGDIR does not exist, creating."; mkdir -p "$LOGDIR"; }
    [[ -d "$TMPDIR" ]] || { ERR=1 output "TMPDIR $TMPDIR does not exist, creating."; mkdir -p "$TMPDIR"; }
-
-   # Docker-specific sanity checks
-   if [[ "$BUILDMODE" == "docker" ]]; then
-      command -v docker > /dev/null 2>&1 || { ERR=1 output "Docker not found but BUILDMODE=docker."; return 1; }
-      docker info > /dev/null 2>&1 || { ERR=1 output "Docker daemon not running or not accessible."; return 1; }
-      [[ -n "$BUILDDISTRO" ]] || { ERR=1 output "BUILDMODE=docker requires --distro (-d) to be specified."; return 1; }
-   fi
 }
 
 # Determine architecture string for the current system.
@@ -1363,6 +1356,13 @@ main() {
 
    B_SARCH=$(arch_get)
    parse_options "$@" || return 1
+
+   # Docker-specific sanity checks (must be after parse_options for BUILDDISTRO)
+   if [[ "$BUILDMODE" == "docker" ]]; then
+      command -v docker > /dev/null 2>&1 || { ERR=1 output "Docker not found but BUILDMODE=docker."; return 1; }
+      docker info > /dev/null 2>&1 || { ERR=1 output "Docker daemon not running or not accessible."; return 1; }
+      [[ -n "$BUILDDISTRO" ]] || { ERR=1 output "BUILDMODE=docker requires --distro (-d) to be specified."; return 1; }
+   fi
 
    if (( DO_CHECK != 0 )); then
       # Get current version and check if already built
