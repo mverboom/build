@@ -30,7 +30,7 @@ if [[ -n "${BUILD_DEPS:-}" ]]; then
       }
    elif command -v dnf > /dev/null 2>&1; then
       # shellcheck disable=SC2086
-      dnf install -y ${BUILD_DEPS} > /dev/null 2>&2 || {
+      dnf install -y ${BUILD_DEPS} > /dev/null 2>&1 || {
          printf '%s\n' "Warning: Some build dependencies may not have installed correctly." >&2
       }
    else
@@ -84,6 +84,8 @@ WRAPPER
    if [[ -n "${HOST_UID:-}" ]]; then
       # Run as builduser, capture output to log file and stdout
       su builduser -s /bin/bash /tmp/run-build.sh > "${log_file}" 2>&1
+      # Fix ownership of log file (created by root, should be builduser)
+      chown builduser:builduser "${log_file}" 2>/dev/null || true
       # Output the log file to stdout so docker logs can capture it
       cat "${log_file}"
    else
