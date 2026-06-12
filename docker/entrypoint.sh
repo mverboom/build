@@ -118,6 +118,16 @@ elif [[ -f "/tmp/package-cmd.sh" ]]; then
 else
    # No build or package command provided, drop to interactive shell
    if [[ -n "${HOST_UID:-}" ]]; then
+      # Install sudo for interactive use
+      if command -v apt-get > /dev/null 2>&1; then
+         apt-get update > /dev/null 2>&1
+         apt-get -y install sudo > /dev/null 2>&1 || true
+      elif command -v dnf > /dev/null 2>&1; then
+         dnf install -y sudo > /dev/null 2>&1 || true
+      fi
+      # Configure passwordless sudo for builduser
+      printf 'builduser ALL=(ALL) NOPASSWD:ALL\n' > /etc/sudoers.d/builduser
+      chmod 440 /etc/sudoers.d/builduser
       exec su builduser -s /bin/bash
    else
       exec /bin/bash

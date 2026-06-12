@@ -54,6 +54,8 @@ BUILDDISTRO="${BUILDDISTRO:-}"
 DOCKER_DIR="${DOCKER_DIR:-}"
 DOCKER_IMAGE_PREFIX="${DOCKER_IMAGE_PREFIX:-}"
 BUILD_DEPS="${BUILD_DEPS:-}"
+SHELL_MODE=0
+ATTACH_CONTAINER=""
 
 # Initialize option variables (set by parse_options)
 B_FORCE=0
@@ -117,6 +119,11 @@ usage() {
    printf '%s\n' "   -i  Specify an instance for a recipe"
    printf '%s\n' "   -R  Don't remove required packages after building and skip any post build script."
    printf '%s\n' "   -h  This help message"
+   printf '%s\n' ""
+   printf '%s\n' "Docker interactive commands:"
+   printf '%s\n' "   -S  Shell, start interactive development shell in a Docker container for the"
+   printf '%s\n' "       specified distro (e.g., -S bookworm, -S trixie)."
+   printf '%s\n' "   -A  Attach, re-attach to a running Docker container by container ID."
    printf '%s\n' ""
    return 1
 }
@@ -1422,6 +1429,131 @@ docker_run_package() {
    return "$result"
 }
 
+# Start interactive development shell in a Docker container.
+# Mounts all build directories and provides the build environment so the user
+# can run builds, inspect files, and develop recipes interactively.
+# Parameters: distro_name
+# Returns exit code of the docker run command.
+docker_shell() {
+   local distro="$1"
+   local image
+   image=$(docker_image_select "$distro")
+
+   # Check that the Docker image exists
+   if ! docker image inspect "$image" > /dev/null 2>&1; then
+      ERR=1 output "Docker image '$image' not found. Build it first with:"
+      local dockerfile="${DOCKER_DIR:-${0%/*}/docker}/Dockerfile.${distro}"
+      if [[ -f "$dockerfile" ]]; then
+         ERR=1 output "  docker build -t $image -f $dockerfile ${dockerfile%/*}"
+      else
+         ERR=1 output "  docker pull $image"
+      fi
+      return 1
+   fi
+
+   local -a docker_args=(
+      "-it"
+      "--hostname" "build-dev-${distro}"
+   )
+
+   # Mount volumes (resolve symlinks for directories that may be symlinked on the host)
+   local recipes_real home_real
+   recipes_real=$(readlink -f "$RECIPEDIR")
+   home_real=$(readlink -f "$HOME")
+   docker_args+=(
+      "-v" "${home_real}:${HOME}"
+      "-v" "${recipes_real}:${RECIPEDIR}"
+      "-v" "$(readlink -f "$CACHEDIR"):${CACHEDIR}"
+      "-v" "$(readlink -f "$DESTDIR"):${DESTDIR}"
+      "-v" "$(readlink -f "$LOGDIR"):${LOGDIR}"
+   )
+
+   # Mount PKGDIR if it exists
+   if [[ -d "$PKGDIR" ]]; then
+      docker_args+=("-v" "${PKGDIR}:${PKGDIR}")
+   fi
+
+   # Mount the build script into the container so 'build' command works inside
+   local build_script_path
+   build_script_path=$(command -v build 2>/dev/null || true)
+   # Fallback: use the running script's own path
+   if [[ -z "$build_script_path" ]]; then
+      build_script_path="${0}"
+   fi
+   if [[ -n "$build_script_path" && -f "$build_script_path" ]]; then
+      docker_args+=("-v" "${build_script_path}:${HOME}/bin/build:ro")
+   fi
+
+   # Also mount the torepo script if available
+   local torepo_path
+   torepo_path=$(command -v torepo 2>/dev/null || true)
+   if [[ -n "$torepo_path" && -f "$torepo_path" ]]; then
+      docker_args+=("-v" "${torepo_path}:${HOME}/bin/torepo:ro")
+   fi
+
+   # Environment variables
+   # Set BUILDMODE=native so that builds inside the container run natively
+   # (Docker is not available inside the container)
+   docker_args+=(
+      "-e" "HOME=${HOME}"
+      "-e" "B_ARCH=${B_SARCH}"
+      "-e" "BUILDMODE=native"
+      "-e" "HOST_UID=$(id -u)"
+      "-e" "HOST_GID=$(id -g)"
+      "-e" "RECIPEDIR=${RECIPEDIR}"
+      "-e" "DESTDIR=${DESTDIR}"
+      "-e" "CACHEDIR=${CACHEDIR}"
+      "-e" "PKGDIR=${PKGDIR}"
+      "-e" "LOGDIR=${LOGDIR}"
+      "-e" "PKGLIST=${PKGLIST}"
+      "-e" "DESTSPLIT=${DESTSPLIT:-}"
+   )
+
+   # Pass instance if specified
+   [[ -n "${B_INSTANCE:-}" ]] && docker_args+=("-e" "B_INSTANCE=${B_INSTANCE}")
+
+   # Proxy settings
+   [[ -n "$PROXY" ]] && docker_args+=("-e" "http_proxy=${PROXY}" "-e" "https_proxy=${PROXY}")
+
+   printf '## Build development shell for %s\n' "$distro"
+   printf '## Image: %s\n' "$image"
+   printf '## Type exit to leave.\n'
+   printf '## Use sudo apt-get install <pkg> to install packages.\n'
+   printf '\n'
+
+   docker run "${docker_args[@]}" "$image"
+   return $?
+}
+
+# Attach to a running Docker container for interactive debugging.
+# Convenience wrapper around docker exec for re-attaching to containers
+# left running after a failed build with -s flag.
+# Parameters: container_id
+# Returns exit code of the docker exec command.
+docker_attach() {
+   local container_id="$1"
+
+   # Verify the container exists and is running
+   if ! docker inspect --format='{{.State.Status}}' "$container_id" > /dev/null 2>&1; then
+      ERR=1 output "Container '$container_id' not found."
+      return 1
+   fi
+
+   local status
+   status=$(docker inspect --format='{{.State.Status}}' "$container_id" 2>/dev/null)
+   if [[ "$status" != "running" ]]; then
+      ERR=1 output "Container '$container_id' is not running (status: $status)."
+      return 1
+   fi
+
+   printf '## Attaching to container %s\n' "$container_id"
+   printf '## Type exit to detach.\n'
+   printf '\n'
+
+   docker exec -it "$container_id" bash
+   return $?
+}
+
 # Parse command-line options and populate work arrays.
 # Parameters: script arguments
 parse_options() {
@@ -1437,7 +1569,7 @@ parse_options() {
    B_NOPKGRM=0
    local all=0
 
-   while getopts :csbprad:i:Rxqfhv: opt; do
+   while getopts :csbprad:i:RS:A:xqfhv: opt; do
       case $opt in
       c)
          DO_CHECK=1
@@ -1466,6 +1598,13 @@ parse_options() {
          ;;
       R)
          B_NOPKGRM=1
+         ;;
+      S)
+         SHELL_MODE=1
+         BUILDDISTRO="$OPTARG"
+         ;;
+      A)
+         ATTACH_CONTAINER="$OPTARG"
          ;;
       x)
          DEBUG=1
@@ -1500,7 +1639,7 @@ parse_options() {
    done
    shift $((OPTIND - 1))
 
-   if (( DO_CHECK == 0 && DO_BUILD == 0 && DO_PACKAGE == 0 && DO_REPO == 0 )); then
+   if (( DO_CHECK == 0 && DO_BUILD == 0 && DO_PACKAGE == 0 && DO_REPO == 0 )) && (( SHELL_MODE == 0 )) && [[ -z "$ATTACH_CONTAINER" ]]; then
       output "No action specified."
       return 1
    fi
@@ -1538,7 +1677,7 @@ parse_options() {
       done
    fi
 
-   if (( ${#work_recipes[@]} == 0 )); then
+   if (( ${#work_recipes[@]} == 0 )) && (( SHELL_MODE == 0 )) && [[ -z "$ATTACH_CONTAINER" ]]; then
       output "No recipe(s) specified."
       return 1
    fi
@@ -1578,9 +1717,34 @@ main() {
 
    # Docker-specific sanity checks (must be after parse_options for BUILDDISTRO)
    if [[ "$BUILDMODE" == "docker" ]]; then
-      command -v docker > /dev/null 2>&1 || { ERR=1 output "Docker not found but BUILDMODE=docker."; return 1; }
-      docker info > /dev/null 2>&1 || { ERR=1 output "Docker daemon not running or not accessible."; return 1; }
+      if ! command -v docker > /dev/null 2>&1 || ! docker info > /dev/null 2>&1; then
+         # If running inside a Docker container, silently fall back to native mode
+         # This allows the build script to work when invoked from inside a dev shell
+         if [[ -f /.dockerenv ]]; then
+            output "Running inside container, falling back to native build mode."
+            BUILDMODE=native
+         else
+            ERR=1 output "Docker not found but BUILDMODE=docker."
+            return 1
+         fi
+      fi
       [[ -n "$BUILDDISTRO" ]] || { ERR=1 output "BUILDMODE=docker requires --distro (-d) to be specified."; return 1; }
+   fi
+
+   # Handle --attach mode: re-attach to a running Docker container
+   if [[ -n "$ATTACH_CONTAINER" ]]; then
+      command -v docker > /dev/null 2>&1 || { ERR=1 output "Docker not found."; return 1; }
+      docker_attach "$ATTACH_CONTAINER"
+      return $?
+   fi
+
+   # Handle --shell mode: start interactive development shell in a Docker container
+   if (( SHELL_MODE == 1 )); then
+      command -v docker > /dev/null 2>&1 || { ERR=1 output "Docker not found."; return 1; }
+      docker info > /dev/null 2>&1 || { ERR=1 output "Docker daemon not running or not accessible."; return 1; }
+      [[ -n "$BUILDDISTRO" ]] || { ERR=1 output "--shell requires a distro name (e.g., -S bookworm)."; return 1; }
+      docker_shell "$BUILDDISTRO"
+      return $?
    fi
 
    if (( DO_CHECK != 0 )); then

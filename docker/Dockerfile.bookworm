@@ -1,0 +1,10 @@
+FROM debian:bookworm
+
+RUN apt-get update && apt-get -y install \
+    gawk grep git subversion wget fakeroot bzip2 mercurial lsb-release jq xml2 dpkg-dev sudo \
+    && apt-get clean
+
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
