@@ -68,7 +68,6 @@ fi
 
 if [[ -f "/tmp/build-cmd.sh" ]]; then
    # Write a wrapper script that sources the env and runs the build
-   # Output is teed to the log file on the mounted volume
    log_dir="${LOGDIR:-/tmp}"
    log_file="${log_dir}/${B_NAME:-build}-${B_ARCH:-all}.log"
    cat > /tmp/run-build.sh << WRAPPER
@@ -81,9 +80,14 @@ WRAPPER
    chmod +x /tmp/run-build.sh
 
    if [[ -n "${HOST_UID:-}" ]]; then
-      exec su builduser -s /bin/bash -c "/tmp/run-build.sh 2>&1 | tee '${log_file}'"
+      # Run as builduser, redirect output to log file and stdout
+      # Use su with -c and redirect both stdout and stderr
+      su builduser -s /bin/bash -c "/tmp/run-build.sh" > "${log_file}" 2>&1
+      exit_code=$?
+      cat "${log_file}"
+      exit ${exit_code}
    else
-      exec /tmp/run-build.sh 2>&1 | tee "${log_file}"
+      /tmp/run-build.sh 2>&1 | tee "${log_file}"
    fi
 else
    # No build command provided, drop to interactive shell
