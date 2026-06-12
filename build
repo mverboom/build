@@ -1124,8 +1124,8 @@ docker_run_build() {
 
    local -a docker_args=()
 
-   # Remove container after run (unless debugging)
-   [[ "$DEBUGSHELL" != "1" ]] && docker_args+=("--rm")
+   # Remove container after run is handled below after capturing logs
+   # (not using --rm since we need to inspect exit code)
 
    # Hostname for identification
    docker_args+=("--hostname" "build-${B_NAME}")
@@ -1196,30 +1196,29 @@ docker_run_build() {
    # Run container and capture output to log file
    local log_file="$LOGDIR/${B_NAME}-${B_ARCH}.log"
 
-   # Run container
-   if [[ "$DEBUGSHELL" == "1" ]]; then
-      # Keep container on failure for debugging
-      container_id=$(docker run -d "${docker_args[@]}" "$image")
-      docker logs -f "$container_id" 2>&1 | tee "$log_file"
-      result=$?
-      # Check actual container exit code
-      local exit_code
-      exit_code=$(docker inspect --format='{{.State.ExitCode}}' "$container_id" 2>/dev/null || echo "1")
-      result="$exit_code"
+   # Run container (always in detached mode to reliably capture output)
+   container_id=$(docker run -d "${docker_args[@]}" "$image")
 
-      if (( result != 0 )); then
-         printf '\n'
-         printf '%s\n' "## Build failed. Container $container_id is still running."
-         printf '%s\n' "## Attach with: docker exec -it $container_id bash"
-         printf '%s\n' "## Remove with: docker rm -f $container_id"
-         printf '%s\n' "## Type exit to return."
-         docker exec -it "$container_id" bash
-      else
-         docker rm "$container_id" > /dev/null 2>&1
-      fi
-   else
-      docker run "${docker_args[@]}" "$image" 2>&1 | tee "$log_file"
-      result=$?
+   # Follow container logs and capture to log file
+   docker logs -f "$container_id" 2>&1 | tee "$log_file"
+
+   # Get the container's exit code
+   local exit_code
+   exit_code=$(docker inspect --format='{{.State.ExitCode}}' "$container_id" 2>/dev/null || echo "1")
+   result="$exit_code"
+
+   if (( result != 0 )) && [[ "$DEBUGSHELL" == "1" ]]; then
+      printf '\n'
+      printf '%s\n' "## Build failed. Container $container_id is still running."
+      printf '%s\n' "## Attach with: docker exec -it $container_id bash"
+      printf '%s\n' "## Remove with: docker rm -f $container_id"
+      printf '%s\n' "## Type exit to return."
+      docker exec -it "$container_id" bash
+   fi
+
+   # Clean up container
+   if [[ "$DEBUGSHELL" != "1" ]] || (( result == 0 )); then
+      docker rm "$container_id" > /dev/null 2>&1
    fi
 
    return "$result"
