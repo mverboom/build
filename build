@@ -1060,11 +1060,11 @@ docker_image_select() {
    elif [[ -n "$DOCKER_IMAGE_PREFIX" ]]; then
       image="${DOCKER_IMAGE_PREFIX}${distro}"
    else
-      # Default mapping
+      # Default mapping (uses custom build images with entrypoint)
       case "$distro" in
-         trixie)    image="debian:trixie" ;;
-         bookworm)  image="debian:bookworm" ;;
-         sid)       image="debian:sid" ;;
+         trixie)    image="build-trixie:latest" ;;
+         bookworm)  image="build-bookworm:latest" ;;
+         sid)       image="build-sid:latest" ;;
          *)         image="debian:$distro" ;;
       esac
    fi
