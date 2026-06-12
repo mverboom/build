@@ -1131,15 +1131,28 @@ docker_run_build() {
    docker_args+=("--hostname" "build-${B_NAME}")
 
    # Mount volumes (same paths inside and outside container)
+   # Resolve symlinks for directories that may be symlinked on the host
+   local recipes_real home_real
+   recipes_real=$(readlink -f "$RECIPEDIR")
+   home_real=$(readlink -f "$HOME")
    docker_args+=(
-      "-v" "${RECIPEDIR}:${RECIPEDIR}"
-      "-v" "${CACHEDIR}:${CACHEDIR}"
-      "-v" "${DESTDIR}:${DESTDIR}"
-      "-v" "${LOGDIR}:${LOGDIR}"
-      "-v" "${HOME}:${HOME}"
+      "-v" "${home_real}:${HOME}"
+      "-v" "${recipes_real}:${RECIPEDIR}"
+      "-v" "$(readlink -f "$CACHEDIR"):${CACHEDIR}"
+      "-v" "$(readlink -f "$DESTDIR"):${DESTDIR}"
+      "-v" "$(readlink -f "$LOGDIR"):${LOGDIR}"
       "-v" "${envfile}:/tmp/build-env.sh:ro"
       "-v" "${buildfile}:/tmp/build-cmd.sh:ro"
    )
+
+   # Also mount the symlink target path if it differs from the home directory
+   # (handles cases like /home/builduser/recipes -> /home/builduser.orig/recipes)
+   if [[ "$home_real" != "$HOME" ]]; then
+      docker_args+=("-v" "${home_real}:${home_real}")
+   fi
+   if [[ "$recipes_real" != "$RECIPEDIR" ]]; then
+      docker_args+=("-v" "${recipes_real}:${recipes_real}")
+   fi
 
    # Mount PKGDIR if it exists
    if [[ -d "$PKGDIR" ]]; then
