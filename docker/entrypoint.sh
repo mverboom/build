@@ -48,8 +48,9 @@ if [[ -n "${HOST_UID:-}" ]]; then
    fi
 
    # Create user if it doesn't exist
+   # Use -M to skip home dir creation (it's mounted from the host)
    if ! id -u builduser > /dev/null 2>&1; then
-      useradd -u "${HOST_UID}" -g "${HOST_GID:-${HOST_UID}}" -m builduser
+      useradd -u "${HOST_UID}" -g "${HOST_GID:-${HOST_UID}}" -M builduser
    fi
 
    # Ensure mount directories are writable by builduser

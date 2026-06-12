@@ -1193,11 +1193,14 @@ docker_run_build() {
 
    output "Starting Docker build for ${B_NAME} (${image})..."
 
+   # Run container and capture output to log file
+   local log_file="$LOGDIR/${B_NAME}-${B_ARCH}.log"
+
    # Run container
    if [[ "$DEBUGSHELL" == "1" ]]; then
       # Keep container on failure for debugging
       container_id=$(docker run -d "${docker_args[@]}" "$image")
-      docker logs -f "$container_id"
+      docker logs -f "$container_id" 2>&1 | tee "$log_file"
       result=$?
       # Check actual container exit code
       local exit_code
@@ -1215,7 +1218,7 @@ docker_run_build() {
          docker rm "$container_id" > /dev/null 2>&1
       fi
    else
-      docker run "${docker_args[@]}" "$image"
+      docker run "${docker_args[@]}" "$image" 2>&1 | tee "$log_file"
       result=$?
    fi
 
