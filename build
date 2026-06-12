@@ -140,9 +140,9 @@ sanity_check() {
    done
    [[ -n "$missing" ]] && { output "Missing required software to run script:$missing"; return 1; }
    [[ -z "$PKGDIR" ]] && { ERR=1 output "PKGDIR not defined"; return 1; }
-   [[ ! -d "$PKGDIR" ]] && { ERR=1 output "PKGDIR $PKGDIR does not exist, creating."; mkdir -p "$PKGDIR"; }
-   [[ ! -d "$LOGDIR" ]] && { ERR=1 output "LOGDIR $LOGDIR does not exist, creating."; mkdir -p "$LOGDIR"; }
-   [[ ! -d "$TMPDIR" ]] && { ERR=1 output "TMPDIR $TMPDIR does not exist, creating."; mkdir -p "$TMPDIR"; }
+   [[ -d "$PKGDIR" ]] || { ERR=1 output "PKGDIR $PKGDIR does not exist, creating."; mkdir -p "$PKGDIR"; }
+   [[ -d "$LOGDIR" ]] || { ERR=1 output "LOGDIR $LOGDIR does not exist, creating."; mkdir -p "$LOGDIR"; }
+   [[ -d "$TMPDIR" ]] || { ERR=1 output "TMPDIR $TMPDIR does not exist, creating."; mkdir -p "$TMPDIR"; }
 }
 
 # Determine architecture string for the current system.
@@ -581,6 +581,7 @@ build() {
 # Parameters: package_id
 package_buildnr_get() {
    local ID="$1"
+   [[ -d "$(dirname "$PKGLIST")" ]] || mkdir -p "$(dirname "$PKGLIST")"
    [[ -f "$PKGLIST" ]] || touch "$PKGLIST"
    local BUILDNR
    BUILDNR=$(grep "^$ID" "$PKGLIST" | cut -d'	' -f 2)
@@ -599,14 +600,23 @@ package_torepo() {
 
    for pkg in $pkgs; do
       type="${pkg/*./}"
-      splittype[$type]="${splittype[$type]} $pkg"
+      if [[ -z "${splittype[$type]:-}" ]]; then
+         splittype["$type"]="$pkg"
+      else
+         splittype["$type"]="${splittype[$type]} $pkg"
+      fi
    done
 
    cd "$PKGDIR" || return 1
    for type in "${!splittype[@]}"; do
       case "$type" in
       "deb")
-         "$TODEBREPO" "${splittype[$type]}" || RET=1
+         if [[ -n "${TODEBREPO:-}" ]]; then
+            $TODEBREPO "${splittype[$type]}" || RET=1
+         else
+            ERR=1 output "TODEBREPO not configured"
+            RET=1
+         fi
          ;;
       *)
          ERR=1 output "Copy to repository not implemented for type $type"
@@ -726,7 +736,6 @@ package_deb() {
       P_BUILDNR=$(package_buildnr_get "${P_PKGNAME}")
 
       # Find recipe package section
-      local rel
       local INFO
       if ! INFO=$(recipe_section_get -q "$pkg" "DEB $rel"); then
          if ! INFO=$(recipe_section_get "$pkg" DEB); then
