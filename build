@@ -1106,18 +1106,14 @@ docker_add_apt_mounts() {
    # that reference scripts not present in the container
    if [[ -d /etc/apt/apt.conf.d ]]; then
       local apt_conf_file
-      for apt_conf_file in /etc/apt/apt.conf.d/*.conf; do
+      for apt_conf_file in /etc/apt/apt.conf.d/*; do
          if [[ -f "$apt_conf_file" ]]; then
             local basename
             basename=$(basename "$apt_conf_file")
-            args_ref+=("-v" "${apt_conf_file}:/etc/apt/apt.conf.d/${basename}:ro")
-         fi
-      done
-      # Also mount any proxy-specific files that don't end in .conf
-      for apt_conf_file in /etc/apt/apt.conf.d/0*proxy* /etc/apt/apt.conf.d/*proxy*; do
-         if [[ -f "$apt_conf_file" ]]; then
-            local basename
-            basename=$(basename "$apt_conf_file")
+            # Skip files that reference scripts not likely to exist in container
+            if [[ "$basename" == *"hook"* ]] || [[ "$basename" == *"invoke"* ]]; then
+               continue
+            fi
             args_ref+=("-v" "${apt_conf_file}:/etc/apt/apt.conf.d/${basename}:ro")
          fi
       done
