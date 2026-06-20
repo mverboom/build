@@ -1174,6 +1174,24 @@ docker_image_select() {
    printf '%s' "$image"
 }
 
+# Remove leftover build/package containers from previous runs.
+# Each build container is labelled build.system=build; any that are still
+# around (exited) when a new run starts are leftovers from an interrupted or
+# abandoned previous run and are removed so /var/lib/docker/overlay2 does not
+# accumulate. Only exited containers are removed here, so an active container
+# is never killed (concurrent builds are already prevented by the build lock).
+# Interactive -S shells use a separate label (build.system=shell) and are left
+# alone (and clean themselves up via --rm on exit).
+_docker_reap() {
+   local leftovers
+   leftovers=$(docker ps -aq --filter label=build.system=build --filter status=exited 2>/dev/null)
+   [[ -z "$leftovers" ]] && return 0
+   local -a ids=()
+   read -ra ids <<< "$leftovers"
+   output "Reaping ${#ids[@]} leftover build container(s) (${ids[*]})."
+   docker rm -f "${ids[@]}" > /dev/null 2>&1
+}
+
 # Prepare the build environment script for use inside a Docker container.
 # Writes all exported variables and function definitions to a script file
 # that will be sourced inside the container.
@@ -1406,31 +1424,68 @@ docker_run_build() {
       output "Starting Docker build for ${B_NAME} (${image})..."
    fi
 
-   # Run container (always detached so we can reliably capture output)
-   # The entrypoint writes build output to the log file on the mounted volume
+   # Reap leftover containers from previous (possibly interrupted) runs so
+   # overlay2 does not accumulate exited build containers.
+   _docker_reap
+
+   # Unique token ties the container's debug-wait sentinel to this run.
+   local debug_token="${B_NAME:-build}-$$-$RANDOM"
+   docker_args+=("--label" "build.system=build")
+   docker_args+=("-e" "DEBUGSHELL=${DEBUGSHELL:-0}")
+   docker_args+=("-e" "_BUILD_DEBUG_TOKEN=${debug_token}")
+
+   # Run container detached; the entrypoint writes build output to the mounted
+   # log file and cats it to stdout for `docker logs`.
    container_id=$(docker run -d "${docker_args[@]}" "$image")
+   if [[ -z "$container_id" ]]; then
+      ERR=1 output "Failed to start Docker container."
+      return 1
+   fi
 
-   # Follow container logs for real-time output
-   docker logs -f "$container_id" 2>&1
+   # Stream logs in the background while we wait for completion (or debug-wait).
+   docker logs -f "$container_id" 2>&1 &
+   local logpid=$!
 
-   # Get the container's exit code
+   # Best-effort cleanup if interrupted (Ctrl-C): remove the container so it
+   # does not leak. Leftovers are also reaped at the start of the next run.
+   trap 'kill "$logpid" 2>/dev/null; docker rm -f "$container_id" > /dev/null 2>&1; exit 130' INT TERM
+
+   local sentinel="$LOGDIR/.build-debug-${debug_token}"
+   local debug_ready=0
+   local st
+   while :; do
+      st=$(docker inspect -f '{{.State.Status}}' "$container_id" 2>/dev/null || echo exited)
+      [[ "$st" == "exited" ]] && break
+      if [[ -f "$sentinel" ]]; then
+         debug_ready=1
+         break
+      fi
+      sleep 1
+   done
+
+   kill "$logpid" 2>/dev/null
+   wait "$logpid" 2>/dev/null
+   trap - INT TERM
+
+   if [[ "$debug_ready" == "1" ]]; then
+      # Build failed with DEBUGSHELL: the entrypoint keeps the container alive so
+      # the user can inspect it interactively via docker exec.
+      printf '\n'
+      printf '%s\n' "## Build failed. Container $container_id kept alive for debugging."
+      printf '%s\n' "## Attach with: docker exec -it $container_id bash"
+      printf '%s\n' "## Type exit to return (the container is then removed automatically)."
+      printf '%s\n' ""
+      docker exec -it "$container_id" bash
+      rm -f "$sentinel"
+      docker rm -f "$container_id" > /dev/null 2>&1
+      return 1
+   fi
+
+   # Normal completion: capture the container's exit code and clean up.
    local exit_code
    exit_code=$(docker inspect --format='{{.State.ExitCode}}' "$container_id" 2>/dev/null || echo "1")
    result="$exit_code"
-
-   if (( result != 0 )) && [[ "$DEBUGSHELL" == "1" ]]; then
-      printf '\n'
-      printf '%s\n' "## Build failed. Container $container_id is still running."
-      printf '%s\n' "## Attach with: docker exec -it $container_id bash"
-      printf '%s\n' "## Remove with: docker rm -f $container_id"
-      printf '%s\n' "## Type exit to return."
-      docker exec -it "$container_id" bash
-   fi
-
-   # Clean up container
-   if [[ "$DEBUGSHELL" != "1" ]] || (( result == 0 )); then
-      docker rm "$container_id" > /dev/null 2>&1
-   fi
+   docker rm "$container_id" > /dev/null 2>&1
 
    return "$result"
 }
@@ -1506,12 +1561,35 @@ docker_run_package() {
 
    output "Starting Docker package for ${B_NAME} (${image})..."
 
+   # Reap leftover containers from previous (possibly interrupted) runs.
+   _docker_reap
+
+   docker_args+=("--label" "build.system=build")
+
    # Run container in detached mode
    # The entrypoint will detect no build-cmd.sh and just run the package command
    container_id=$(docker run -d "${docker_args[@]}" "$image")
+   if [[ -z "$container_id" ]]; then
+      ERR=1 output "Failed to start Docker container."
+      return 1
+   fi
 
-   # Follow container logs for real-time output
-   docker logs -f "$container_id" 2>&1
+   # Stream logs in the background while we wait for completion.
+   docker logs -f "$container_id" 2>&1 &
+   local logpid=$!
+   # Best-effort cleanup if interrupted (Ctrl-C); leftovers are reaped next run.
+   trap 'kill "$logpid" 2>/dev/null; docker rm -f "$container_id" > /dev/null 2>&1; exit 130' INT TERM
+
+   local st
+   while :; do
+      st=$(docker inspect -f '{{.State.Status}}' "$container_id" 2>/dev/null || echo exited)
+      [[ "$st" == "exited" ]] && break
+      sleep 1
+   done
+
+   kill "$logpid" 2>/dev/null
+   wait "$logpid" 2>/dev/null
+   trap - INT TERM
 
    # Get the container's exit code
    local exit_code
@@ -1546,8 +1624,13 @@ docker_shell() {
       return 1
    fi
 
+   # Reap leftover build containers from previous runs before starting a shell.
+   _docker_reap
+
    local -a docker_args=(
       "-it"
+      "--rm"
+      "--label" "build.system=shell"
       "--hostname" "build-dev-${distro}"
    )
 

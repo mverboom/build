@@ -90,16 +90,34 @@ if [[ -f "/tmp/build-cmd.sh" ]]; then
 
    chmod +x /tmp/run-build.sh
 
+   # Run the wrapper and capture its real exit code (previously the exit code
+   # of `cat`/`tee` was used, masking build failures).
+   build_rc=0
    if [[ -n "${HOST_UID:-}" ]]; then
       # Run as builduser, capture output to log file and stdout
       su builduser -s /bin/bash /tmp/run-build.sh > "${log_file}" 2>&1
+      build_rc=$?
       # Fix ownership of log file (created by root, should be builduser)
       chown builduser:builduser "${log_file}" 2>/dev/null || true
       # Output the log file to stdout so docker logs can capture it
       cat "${log_file}"
    else
-      /tmp/run-build.sh 2>&1 | tee "${log_file}"
+      /tmp/run-build.sh > "${log_file}" 2>&1
+      build_rc=$?
+      cat "${log_file}"
    fi
+
+   # On failure with DEBUGSHELL enabled, keep the container alive so the user
+   # can attach (docker exec -it) to inspect the build environment. A sentinel
+   # file written to LOGDIR lets the host detect this state and drive the
+   # interactive debug session. Otherwise exit with the build's exit code.
+   if (( build_rc != 0 )) && [[ "${DEBUGSHELL:-}" == "1" ]]; then
+      printf '%s\n' "## Build failed (exit ${build_rc}). DEBUGSHELL: keeping container alive for inspection."
+      : > "${log_dir}/.build-debug-${_BUILD_DEBUG_TOKEN:-nodebug}" 2>/dev/null || true
+      # Block PID 1 so the container stays running until the host removes it.
+      tail -f /dev/null
+   fi
+   exit "${build_rc}"
 elif [[ -f "/tmp/package-cmd.sh" ]]; then
    # Package-only phase (no build command, just package)
    cat > /tmp/run-build.sh <<- 'WRAPPER'
@@ -110,13 +128,18 @@ elif [[ -f "/tmp/package-cmd.sh" ]]; then
 	WRAPPER
    chmod +x /tmp/run-build.sh
 
+   pkg_rc=0
    if [[ -n "${HOST_UID:-}" ]]; then
       su builduser -s /bin/bash /tmp/run-build.sh > "${log_file}" 2>&1
+      pkg_rc=$?
       chown builduser:builduser "${log_file}" 2>/dev/null || true
       cat "${log_file}"
    else
-      /tmp/run-build.sh 2>&1 | tee "${log_file}"
+      /tmp/run-build.sh > "${log_file}" 2>&1
+      pkg_rc=$?
+      cat "${log_file}"
    fi
+   exit "${pkg_rc}"
 else
    # No build or package command provided, drop to interactive shell
    if [[ -n "${HOST_UID:-}" ]]; then
