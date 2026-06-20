@@ -1106,6 +1106,16 @@ docker_add_apt_mounts() {
    if [[ -d /etc/apt/apt.conf.d ]]; then
       args_ref+=("-v" "/etc/apt/apt.conf.d:/etc/apt/apt.conf.d:ro")
    fi
+
+   # Mount trusted.gpg.d for repository signing keys (read-only)
+   if [[ -d /etc/apt/trusted.gpg.d ]]; then
+      args_ref+=("-v" "/etc/apt/trusted.gpg.d:/etc/apt/trusted.gpg.d:ro")
+   fi
+
+   # Mount keyrings directory if it exists (read-only)
+   if [[ -d /etc/apt/keyrings ]]; then
+      args_ref+=("-v" "/etc/apt/keyrings:/etc/apt/keyrings:ro")
+   fi
 }
 
 # Select the Docker image for a given distro name.
