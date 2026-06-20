@@ -48,8 +48,11 @@ PKGORG=""
 POSTBUILD=""
 PROXY=""
 
-# Docker build configuration (overridden by ~/.buildrc or environment)
-: "${BUILDMODE:=native}"
+# Docker build configuration.
+# On the host, builds always run inside Docker. The native build path is
+# retained only for in-container use (the -S dev shell), where there is no
+# Docker-in-Docker available. main() forces BUILDMODE=docker on the host.
+: "${BUILDMODE:=docker}"
 BUILDDISTRO="${BUILDDISTRO:-}"
 DOCKER_DIR="${DOCKER_DIR:-}"
 DOCKER_IMAGE_PREFIX="${DOCKER_IMAGE_PREFIX:-}"
@@ -115,7 +118,7 @@ usage() {
    printf '%s\n' "   -x  Enable debugging output"
    printf '%s\n' "   -s  Drop to a shell when building process fails to inspect."
    printf '%s\n' "   -f  Force build for recipe, even if complete build is already available."
-   printf '%s\n' "   -d  Specify target distribution for Docker mode (e.g., trixie, bookworm)"
+   printf '%s\n' "   -d  Specify target distribution for Docker (required on the host, e.g., -d trixie, -d bookworm)"
    printf '%s\n' "   -i  Specify an instance for a recipe"
    printf '%s\n' "   -R  Don't remove required packages after building and skip any post build script."
    printf '%s\n' "   -h  This help message"
@@ -1896,20 +1899,35 @@ main() {
 
    [[ -n "$PROXY" ]] && { export http_proxy="$PROXY"; export https_proxy="$PROXY"; }
 
+   # The host always builds with Docker. The native build path is retained only
+   # for in-container use (the -S dev shell / /.dockerenv fallback), where no
+   # Docker-in-Docker is available. Silently override any BUILDMODE=native set
+   # in ~/.buildrc when running on the real host.
+   if [[ ! -f /.dockerenv ]]; then
+      BUILDMODE=docker
+   fi
+
    # Docker-specific sanity checks (must be after parse_options for BUILDDISTRO)
    if [[ "$BUILDMODE" == "docker" ]]; then
       if ! command -v docker > /dev/null 2>&1 || ! docker info > /dev/null 2>&1; then
-         # If running inside a Docker container, silently fall back to native mode
-         # This allows the build script to work when invoked from inside a dev shell
+         # Inside a container (e.g., the -S dev shell) there is no Docker-in-Docker,
+         # so fall back to the native build path on the container's system. This
+         # branch is unreachable on the host (host has /.dockerenv absent and
+         # BUILDMODE forced to docker above; missing docker there is an error).
          if [[ -f /.dockerenv ]]; then
             output "Running inside container, falling back to native build mode."
             BUILDMODE=native
          else
-            ERR=1 output "Docker not found but BUILDMODE=docker."
+            ERR=1 output "Docker not found or not running. The host requires Docker to build."
             return 1
          fi
       fi
-      [[ -n "$BUILDDISTRO" ]] || { ERR=1 output "BUILDMODE=docker requires --distro (-d) to be specified."; return 1; }
+      # Only require a distro if we are still building in Docker (the in-container
+      # fallback above may have switched us to native, which derives distro from
+      # the container's own lsb_release instead).
+      if [[ "$BUILDMODE" == "docker" ]]; then
+         [[ -n "$BUILDDISTRO" ]] || { ERR=1 output "Docker builds require --distro (-d) to be specified (e.g., -d bookworm)."; return 1; }
+      fi
    fi
 
    # Handle --attach mode: re-attach to a running Docker container

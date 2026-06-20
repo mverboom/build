@@ -4,31 +4,46 @@ The build script is intended to be able to work on different types of Linux dist
 Currently it is written mainly for Debian, but infrastructure is there to extend to other
 distributions.
 
-Required dependencies will vary with the distribution being used.
+# How builds run
+
+Builds always run inside Docker containers. The host system no longer executes
+recipes directly: it only orchestrates `docker run`. This means the host does not
+need build tools (gawk, fakeroot, subversion, etc.) installed, and no `sudo apt-get`
+is run on the host for installing or removing build dependencies — those happen
+inside the container, which is ephemeral.
+
+The native build path is retained only for in-container use by the `-S` dev shell,
+where there is no Docker-in-Docker available.
 
 # Dependencies
 
-## Debian
+## Host
 
-On a debian system, the following packages are required:
+The only host requirement is a working Docker installation:
 
 ```
-apt install gawk subversion fakeroot hgsubversion grep wget bzip2
+apt install docker.io
 ```
 
-It is usually best to keep the base installation of the system as clean as possible in order
-to make sure the recipes have the correct packages in them that are really required to build
-the recipe.
+(or your distribution's equivalent), and ensure the build user is in the `docker`
+group (or can otherwise access the Docker daemon).
+
+## Docker images
+
+The build script uses custom Debian-based images that contain the build tools
+and an entrypoint. Build them from the Dockerfiles in the `docker/` directory,
+e.g. for Debian bookworm:
+
+```
+docker build -t build-bookworm:latest -f docker/Dockerfile.bookworm docker
+```
+
+Repeat for any other distribution you want to build for (trixie, etc.).
 
 # Configuration example
 
 It is best to use a non-root user for running build (we will use user builduser in the example
 below).
-
-In order to be able to automatically install and remove packages required for running the
-recipes, give the build user sudo rights as root to run the relevant package commands.
-
-* Debian: apt-get
 
 In order to set things up, follow the steps below.
 
@@ -61,6 +76,8 @@ cp build.git/buildrc-example ~/.buildrc
 cp build.git/toreporc-example ~/.toreporc
 ```
 * Modify any settings you want changed in the example configuration files.
+  In particular, set `BUILDDISTRO` to the target distribution (required on the
+  host, e.g. `bookworm`).
 
 # Example build
 
@@ -77,9 +94,9 @@ mkdir ~/recipes
 ```
 cp ~/bin/build.git/example-recipes/build.recipe ~/recipes
 ```
-* Build the build recipe and create a package
+* Build the build recipe and create a package (specify the target distro with `-d`)
 
 ```
-build -b -p build
+build -b -p -d bookworm build
 ```
 * You should now have a packge in the packages directory.

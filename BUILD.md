@@ -54,6 +54,11 @@ examined.
 `-f`
 Force build for recipe, even if complete build is already available.
 
+`-d`
+Specify the target distribution for the Docker build (e.g., `trixie`, `bookworm`).
+Required on the host, since builds always run inside Docker. Inside the `-S` dev
+shell container it is optional and defaults to the container's distribution.
+
 `-i`
 Specify an instance for a recipe
 
@@ -62,6 +67,33 @@ Do not remove required packages after build and skip any post build script.
 
 `-h`
 This help message
+
+**Docker interactive commands:**
+
+`-S`
+Shell, start an interactive development shell in a Docker container for the
+specified distro (e.g., `-S bookworm`, `-S trixie`). Inside the shell, builds run
+natively on the container's system (there is no Docker-in-Docker).
+
+`-A`
+Attach, re-attach to a running Docker container by container ID (e.g., one kept
+alive after a failed build with `-s`).
+
+# BUILD MODE
+
+Builds always run inside Docker containers. The host only orchestrates
+`docker run`; it does not execute recipe BUILD sections directly and does not
+install or remove build dependencies on the host. Build dependencies are
+installed inside the container (which is ephemeral) by the container
+entrypoint, using the package list collected from the recipe's `[REQUIRED]`
+section.
+
+`INSTDEP` / `DEINSTDEP` therefore only take effect inside the `-S` dev shell
+container, where builds run natively.
+
+The target distribution is set with `-d` / `BUILDDISTRO` and is required on the
+host. Custom Docker images live in the `docker/` directory (build them with
+`docker build -t build-<distro>:latest -f docker/Dockerfile.<distro> docker`).
 
 # CONFIGURATION FILE
 
@@ -118,13 +150,15 @@ go.
 
 `INSTDEP` (defaults to yes)
 If set to yes will try to install the required packages specified in the
-recipe for the build. This requires the user running the script to have
-sudo rights to install packages.
+recipe for the build. On the host this happens inside the Docker container via
+the entrypoint; inside the `-S` dev shell it requires the user running the
+script to have sudo rights to install packages.
 
 `DEINSTDEP` (defaults to yes)
 if set to yes will try to remove the packages that were required for the
-build process. This requires the user running the script to have sudo
-rights to remove packages.
+build process. Only relevant inside the `-S` dev shell (host builds run in
+ephemeral containers, so nothing to remove); requires sudo rights to remove
+packages.
 
 `PKGPOSTFIX`
 This optional parameter defines an addition to the package name and can help

@@ -24,12 +24,13 @@ DEINSTDEP=yes
 PKGPOSTFIX=myorganisation
 # Script to run after a build
 POSTBUILD="clean -c"
-# Build mode: "native" (default) or "docker"
-# When set to "docker", builds run inside Docker containers
-BUILDMODE=native
-# Target distribution for Docker mode (e.g., trixie, bookworm)
-# Only used when BUILDMODE=docker
-#BUILDDISTRO=trixie
+# Build mode. On the host, builds ALWAYS run inside Docker containers;
+# native (host) builds are no longer supported. The native build path is
+# retained only for in-container use by the -S dev shell, so BUILDMODE=native
+# set here is ignored on the host (it only takes effect inside a container).
+BUILDMODE=docker
+# Target distribution for Docker builds (REQUIRED on the host, e.g., trixie, bookworm)
+BUILDDISTRO=bookworm
 # Docker image names per distro (optional, overrides default mapping)
 #DOCKER_IMAGE_TRIXIE=debian:trixie
 # Docker image prefix for custom images (optional)
