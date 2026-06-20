@@ -1078,7 +1078,7 @@ is_debian_distro() {
 # and proxy settings available inside the container.
 # Parameters: docker_args_array_name (reference to array)
 docker_add_apt_mounts() {
-   local -n docker_args="$1"
+   local -n args_ref="$1"
    local distro="${2:-}"
 
    # Only add apt mounts for Debian-based distros
@@ -1087,19 +1087,24 @@ docker_add_apt_mounts() {
    fi
 
    # Check for apt-get to confirm it's a Debian-based container
+   # Mount sources.list for custom repositories (read-only)
+   if [[ -f /etc/apt/sources.list ]]; then
+      args_ref+=("-v" "/etc/apt/sources.list:/etc/apt/sources.list:ro")
+   fi
+
    # Mount sources.list.d for custom repositories (read-only)
    if [[ -d /etc/apt/sources.list.d ]]; then
-      docker_args+=("-v" "/etc/apt/sources.list.d:/etc/apt/sources.list.d:ro")
+      args_ref+=("-v" "/etc/apt/sources.list.d:/etc/apt/sources.list.d:ro")
    fi
 
    # Mount apt.conf for proxy and other settings (read-only)
    if [[ -f /etc/apt/apt.conf ]]; then
-      docker_args+=("-v" "/etc/apt/apt.conf:/etc/apt/apt.conf:ro")
+      args_ref+=("-v" "/etc/apt/apt.conf:/etc/apt/apt.conf:ro")
    fi
 
    # Mount apt.conf.d for proxy and other configuration snippets (read-only)
    if [[ -d /etc/apt/apt.conf.d ]]; then
-      docker_args+=("-v" "/etc/apt/apt.conf.d:/etc/apt/apt.conf.d:ro")
+      args_ref+=("-v" "/etc/apt/apt.conf.d:/etc/apt/apt.conf.d:ro")
    fi
 }
 
