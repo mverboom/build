@@ -1140,6 +1140,11 @@ docker_add_apt_mounts() {
    if [[ -d /etc/apt/keyrings ]]; then
       args_ref+=("-v" "/etc/apt/keyrings:/etc/apt/keyrings:ro")
    fi
+
+   # Mount auth.conf.d for repository authentication credentials (read-only)
+   if [[ -d /etc/apt/auth.conf.d ]]; then
+      args_ref+=("-v" "/etc/apt/auth.conf.d:/etc/apt/auth.conf.d:ro")
+   fi
 }
 
 # Select the Docker image for a given distro name.
