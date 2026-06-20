@@ -24,6 +24,8 @@ set -u
 if [[ -n "${BUILD_DEPS:-}" ]]; then
    printf '%s\n' "Installing build dependencies: ${BUILD_DEPS}"
    if command -v apt-get > /dev/null 2>&1; then
+      # If apt config is mounted read-only from host, ensure we can still update
+      # by using the default container lists directory
       apt-get update > /dev/null 2>&1
       # shellcheck disable=SC2086
       apt-get -y install ${BUILD_DEPS} > /dev/null 2>&1 || {

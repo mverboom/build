@@ -1058,6 +1058,51 @@ check_version_built() {
 
 # --- Docker domain functions ---
 
+# Check if the given distro is a Debian-based distribution.
+# Parameters: distro_name
+# Returns 0 if Debian-based, 1 otherwise.
+is_debian_distro() {
+   local distro="$1"
+   case "$distro" in
+      trixie|bookworm|sid|bullseye|buster|stretch|jessie)
+         return 0
+         ;;
+      *)
+         return 1
+         ;;
+   esac
+}
+
+# Add apt configuration mounts for Debian-based builds.
+# Mounts host's apt configuration directories to make custom repositories
+# and proxy settings available inside the container.
+# Parameters: docker_args_array_name (reference to array)
+docker_add_apt_mounts() {
+   local -n docker_args="$1"
+   local distro="${2:-}"
+
+   # Only add apt mounts for Debian-based distros
+   if [[ -n "$distro" ]] && ! is_debian_distro "$distro"; then
+      return 0
+   fi
+
+   # Check for apt-get to confirm it's a Debian-based container
+   # Mount sources.list.d for custom repositories (read-only)
+   if [[ -d /etc/apt/sources.list.d ]]; then
+      docker_args+=("-v" "/etc/apt/sources.list.d:/etc/apt/sources.list.d:ro")
+   fi
+
+   # Mount apt.conf for proxy and other settings (read-only)
+   if [[ -f /etc/apt/apt.conf ]]; then
+      docker_args+=("-v" "/etc/apt/apt.conf:/etc/apt/apt.conf:ro")
+   fi
+
+   # Mount apt.conf.d for proxy and other configuration snippets (read-only)
+   if [[ -d /etc/apt/apt.conf.d ]]; then
+      docker_args+=("-v" "/etc/apt/apt.conf.d:/etc/apt/apt.conf.d:ro")
+   fi
+}
+
 # Select the Docker image for a given distro name.
 # Checks for custom image config, image prefix, then default mapping.
 # Parameters: distro_name
@@ -1275,6 +1320,9 @@ docker_run_build() {
       docker_args+=("-v" "${PKGDIR}:${PKGDIR}")
    fi
 
+   # Mount apt configuration for Debian-based builds (custom repos, proxy settings)
+   docker_add_apt_mounts docker_args "${BUILDDISTRO:-}"
+
    # Pass environment variables
    docker_args+=(
       "-e" "B_VERSION=${B_VERSION}"
@@ -1379,6 +1427,9 @@ docker_run_package() {
       docker_args+=("-v" "${PKGDIR}:${PKGDIR}")
    fi
 
+   # Mount apt configuration for Debian-based builds (custom repos, proxy settings)
+   docker_add_apt_mounts docker_args "${BUILDDISTRO:-}"
+
    # Pass environment variables
    docker_args+=(
       "-e" "B_VERSION=${B_VERSION}"
@@ -1472,6 +1523,9 @@ docker_shell() {
    if [[ -d "$PKGDIR" ]]; then
       docker_args+=("-v" "${PKGDIR}:${PKGDIR}")
    fi
+
+   # Mount apt configuration for Debian-based builds (custom repos, proxy settings)
+   docker_add_apt_mounts docker_args "$distro"
 
    # Mount the build script into the container so 'build' command works inside
    local build_script_path
