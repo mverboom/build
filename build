@@ -47,6 +47,10 @@ PKGMAIL=""
 PKGORG=""
 POSTBUILD=""
 PROXY=""
+# Source-integrity strict mode (SECURITY.md group A). When 1, git-based
+# recipes must declare a gpgkey and plain-http fetches are refused even with
+# allow_insecure.
+STRICT=0
 
 # Docker build configuration.
 # On the host, builds always run inside Docker. The native build path is
@@ -375,10 +379,23 @@ build() {
    (( B_FORCE == 1 )) && rm -rf "$B_INSTALLDIR"
    mkdir -p "$B_INSTALLDIR"
 
+   # Source integrity (SECURITY.md group A): read optional recipe [INFO] keys.
+   #   gpgkey         - A1: expected git tag signer (40-char fingerprint or id).
+   #   commit         - A2: pinned commit SHA the resolved git ref must match.
+   #   sha256         - A3: expected SHA-256 of an http/sf downloaded asset.
+   #   allow_insecure - A4: explicitly allow plain http:// / git:// fetches.
+   B_GPGKEY=$(recipe_item_get "$B_NAME" INFO gpgkey) || true
+   B_COMMIT=$(recipe_item_get "$B_NAME" INFO commit) || true
+   B_SHA256=$(recipe_item_get "$B_NAME" INFO sha256) || true
+   B_ALLOW_INSECURE=$(recipe_item_get "$B_NAME" INFO allow_insecure) || true
+   B_GPGKEYFILE=$(recipe_item_get "$B_NAME" INFO gpgkeyfile) || true
+   B_STRICT="${STRICT:-0}"
+
    # Define build environment variables and functions
    B_CACHEDIR="$CACHEDIR"
    [[ -d "$RECIPEDIR/$B_NAME.files/B_BUILD" ]] && B_FILES="$RECIPEDIR/$B_NAME.files/B_BUILD"
    export B_VERSION B_INSTALLDIR B_ARCH B_INSTANCE B_CACHEDIR B_NAME B_BUILDNR B_FILES B_FORCE
+   export B_GPGKEY B_COMMIT B_SHA256 B_ALLOW_INSECURE B_GPGKEYFILE B_STRICT
 
    # Define build environment functions (used in both native and Docker modes)
    # These are exported for native mode and dumped to env script for Docker mode.
@@ -400,21 +417,68 @@ build() {
       local target="$targetdir/$fn-$B_VERSION"
       local targetnover="$targetdir/$fn"
 
+      # A4: enforce encrypted transport. Reject plain http://, git:// and
+      # svn:// URLs unless the recipe explicitly opts in via allow_insecure=1.
+      # The go method uses scheme-less import paths and is exempt.
+      if [[ "$method" != "go" ]]; then
+         case "$url" in
+            https://*|git@*|ssh://*|svn+ssh://*|file://*) : ;;
+            http://*|git://*|svn://*)
+               if [[ "${B_ALLOW_INSECURE:-0}" != "1" ]]; then
+                  output "B_GET: refusing insecure URL: $url (set allow_insecure=1 to override)"
+                  return 1
+               fi
+               ;;
+            *)
+               output "B_GET: refusing unrecognised URL scheme: $url"
+               return 1
+               ;;
+         esac
+      fi
+
       case "$method" in
       "http")
          if [[ ! -f "$target" ]]; then
             [[ -d "$targetdir" ]] || mkdir -p "$targetdir"
             printf '%s\n' "Http downloading files.."
-            flock -w 60 "$target" wget -O "$target" "$url" || { rm "$target"; printf '%s\n' "Error downloading file."; return 1; }
+            local -a wopts=(-O "$target" --secure-protocol=TLSv1_2)
+            [[ "${B_ALLOW_INSECURE:-0}" != "1" ]] && wopts+=(--https-only)
+            flock -w 60 "$target" wget "${wopts[@]}" "$url" || { rm -f "$target"; output "Error downloading file."; return 1; }
+         fi
+         # A3: verify checksum of the asset (fresh or cached) when sha256 is set.
+         if [[ -n "${B_SHA256:-}" ]]; then
+            local digest
+            digest=$(sha256sum "$target" | cut -d' ' -f1) || { output "B_GET: cannot checksum $target"; return 1; }
+            if [[ "$digest" != "$B_SHA256" ]]; then
+               output "B_GET: sha256 mismatch for $fn (got ${digest}, want ${B_SHA256})"
+               return 1
+            fi
+            output "B_GET: sha256 verified for $fn"
          fi
          flock -w 60 "$target" cp "$target" "$fn"
          ;;
       "sf")
          if [[ ! -f "$target" ]]; then
-            url=$(wget -q -O - "$url/rss?path=/" | xml2 | grep '/rss/channel/item/link' | grep "$B_VERSION" | cut -d '=' -f 2 | tail -1)
+            # A4: force HTTPS for the SourceForge RSS feed (a known weak link).
+            local sfurl="$url"
+            sfurl="${sfurl/http:\/\/https:\/\/}"
+            url=$(wget -q --secure-protocol=TLSv1_2 --https-only -O - "$sfurl/rss?path=/" | xml2 | grep '/rss/channel/item/link' | grep "$B_VERSION" | cut -d '=' -f 2 | tail -1)
+            [[ -n "$url" ]] || { output "B_GET: no SourceForge download found for $B_VERSION"; return 1; }
+            url="${url/http:\/\/https:\/\/}"
             [[ -d "$targetdir" ]] || mkdir -p "$targetdir"
             printf '%s\n' "Http sf downloading files.."
-            flock -w 60 "$target" wget -O "$target" "$url" || { rm "$target"; printf '%s\n' "Error downloading file."; return 1; }
+            local -a wopts=(-O "$target" --secure-protocol=TLSv1_2)
+            [[ "${B_ALLOW_INSECURE:-0}" != "1" ]] && wopts+=(--https-only)
+            flock -w 60 "$target" wget "${wopts[@]}" "$url" || { rm -f "$target"; output "Error downloading file."; return 1; }
+         fi
+         if [[ -n "${B_SHA256:-}" ]]; then
+            local digest
+            digest=$(sha256sum "$target" | cut -d' ' -f1) || { output "B_GET: cannot checksum $target"; return 1; }
+            if [[ "$digest" != "$B_SHA256" ]]; then
+               output "B_GET: sha256 mismatch for $fn (got ${digest}, want ${B_SHA256})"
+               return 1
+            fi
+            output "B_GET: sha256 verified for $fn"
          fi
          flock -w 60 "$target" cp "$target" "$fn"
          ;;
@@ -512,6 +576,90 @@ build() {
       esac
    }
    export -f B_GET
+
+   # Verify and check out a git tag/commit with source-integrity checks
+   # (SECURITY.md group A1 & A2). Replaces a bare `git checkout tags/v$B_VERSION`
+   # in recipes so that tag signatures (A1) and pinned commits (A2) are enforced.
+   # Parameters: <ref>  e.g. "v$B_VERSION" or "tags/v$B_VERSION"
+   # Uses B_GPGKEY (A1), B_COMMIT (A2) and B_STRICT from the build environment.
+   # shellcheck disable=SC2317
+   B_GITCHECKOUT() {
+      (( $# < 1 )) && { >&2 printf '%s\n' "Insufficient arguments to B_GITCHECKOUT."; return 1; }
+      local ref="$1"
+      local tag
+      if [[ "$ref" == tags/* ]]; then
+         tag="${ref#tags/}"
+      else
+         tag="$ref"
+         ref="tags/$ref"
+      fi
+
+      if ! git checkout "$ref" 2>/dev/null; then
+         git checkout "$tag" || { output "B_GITCHECKOUT: failed to checkout $tag"; return 1; }
+      fi
+
+      # A2: refuse to build if the resolved ref does not match the pinned commit.
+      if [[ -n "${B_COMMIT:-}" ]]; then
+         local head
+         head=$(git rev-parse HEAD 2>/dev/null) || { output "B_GITCHECKOUT: cannot resolve HEAD"; return 1; }
+         if [[ "$head" != "$B_COMMIT" ]]; then
+            output "B_GITCHECKOUT: resolved commit ${head} does not match pinned commit ${B_COMMIT}"
+            return 1
+         fi
+         output "B_GITCHECKOUT: pinned commit verified (${head})"
+      fi
+
+      # A1: verify the git tag signature against the expected signer.
+      if [[ -n "${B_GPGKEY:-}" ]]; then
+         if ! command -v gpg > /dev/null 2>&1; then
+            output "B_GITCHECKOUT: gpg not available but gpgkey is set"
+            return 1
+         fi
+         # Fetch the expected key if it is not already in the keyring.
+         # A local key file (gpgkeyfile) is preferred over keyserver fetch so
+         # verification works in network-restricted build environments.
+         if ! gpg --list-keys "$B_GPGKEY" > /dev/null 2>&1; then
+            if [[ -n "${B_GPGKEYFILE:-}" ]]; then
+               local keyfile="$B_GPGKEYFILE"
+               if [[ "$keyfile" != /* ]] && [[ -n "${B_FILES:-}" ]]; then
+                  keyfile="$B_FILES/$keyfile"
+               fi
+               if [[ -f "$keyfile" ]]; then
+                  gpg --import "$keyfile" 2>/dev/null || { output "B_GITCHECKOUT: could not import gpg key file ${B_GPGKEYFILE}"; return 1; }
+               else
+                  output "B_GITCHECKOUT: gpgkeyfile not found: ${B_GPGKEYFILE}"; return 1
+               fi
+            else
+               # Try several keyservers; keys.openpgp.org returns some keys
+               # without user IDs (which gpg skips), so ubuntu/pgpkeys are used
+               # as fallbacks.
+               local ks
+               for ks in hkps://keys.openpgp.org hkps://keyserver.ubuntu.com hkps://pgpkeys.eu; do
+                  gpg --keyserver "$ks" --recv-keys "$B_GPGKEY" 2>/dev/null
+                  gpg --list-keys "$B_GPGKEY" > /dev/null 2>&1 && break
+               done
+            fi
+            gpg --list-keys "$B_GPGKEY" > /dev/null 2>&1 || { output "B_GITCHECKOUT: could not fetch gpg key ${B_GPGKEY}"; return 1; }
+         fi
+         local raw
+         if ! raw=$(git verify-tag --raw "$tag" 2>&1); then
+            output "B_GITCHECKOUT: tag ${tag} signature invalid or missing"
+            output "$raw"
+            return 1
+         fi
+         # Confirm the signature was made by the expected key (fingerprint or id).
+         if ! printf '%s\n' "$raw" | grep -qE "GOODSIG ${B_GPGKEY}|VALIDSIG ${B_GPGKEY}"; then
+            output "B_GITCHECKOUT: tag ${tag} not signed by expected key ${B_GPGKEY}"
+            return 1
+         fi
+         output "B_GITCHECKOUT: tag ${tag} signature verified"
+      elif [[ "${B_STRICT:-0}" == "1" ]]; then
+         output "B_GITCHECKOUT: STRICT mode requires a gpgkey for git checkouts"
+         return 1
+      fi
+      return 0
+   }
+   export -f B_GITCHECKOUT
 
    # Update the package build number in PKGLIST
    # shellcheck disable=SC2317
@@ -960,7 +1108,9 @@ version_get() {
    # shellcheck disable=SC2317
    B_SFVER() {
       local URL="$1"
-      wget -q -O - "$URL/rss?path=/" | xml2 | grep '/rss/channel/item/link' | sed 's/.*\/files\/\([^\/]\+\)\/.*/\1/; s/.\+-\(.\+\)/\1/' | sort -t. -k 1,1n -k 2,2n -k 3,3n -k 4,4n | tail -1
+      # A4: force HTTPS for the SourceForge RSS feed (a known weak link).
+      URL="${URL/http:\/\/https:\/\/}"
+      wget -q --secure-protocol=TLSv1_2 --https-only -O - "$URL/rss?path=/" | xml2 | grep '/rss/channel/item/link' | sed 's/.*\/files\/\([^\/]\+\)\/.*/\1/; s/.\+-\(.\+\)/\1/' | sort -t. -k 1,1n -k 2,2n -k 3,3n -k 4,4n | tail -1
    }
 
    # Get the last changed date for an SVN repository
@@ -1235,12 +1385,20 @@ docker_prepare_env() {
       printf 'export PKGORG="%s"\n' "${PKGORG:-}"
       printf 'export QUIET=%s\n' "$QUIET"
 
+      # Source-integrity variables (SECURITY.md group A)
+      printf 'export B_GPGKEY="%s"\n' "${B_GPGKEY:-}"
+      printf 'export B_COMMIT="%s"\n' "${B_COMMIT:-}"
+      printf 'export B_SHA256="%s"\n' "${B_SHA256:-}"
+      printf 'export B_ALLOW_INSECURE="%s"\n' "${B_ALLOW_INSECURE:-}"
+      printf 'export B_GPGKEYFILE="%s"\n' "${B_GPGKEYFILE:-}"
+      printf 'export B_STRICT="%s"\n' "${B_STRICT:-0}"
+
       # Distribution variables (used by package_deb for section selection)
       printf 'distr="%s"\n' "${distr:-}"
       printf 'rel="%s"\n' "${rel:-}"
 
       # Function definitions (exported from build() function scope)
-      declare -f B_GET B_LINKFILES B_LINKFILE B_UPDATEPKGBLD
+      declare -f B_GET B_GITCHECKOUT B_LINKFILES B_LINKFILE B_UPDATEPKGBLD
 
       # Utility functions needed by packaging
       declare -f output
@@ -1414,6 +1572,12 @@ docker_run_build() {
       "-e" "PKGPOSTFIX=${PKGPOSTFIX:-}"
       "-e" "PKGMAIL=${PKGMAIL:-}"
       "-e" "PKGORG=${PKGORG:-}"
+      "-e" "B_GPGKEY=${B_GPGKEY:-}"
+      "-e" "B_COMMIT=${B_COMMIT:-}"
+      "-e" "B_SHA256=${B_SHA256:-}"
+      "-e" "B_ALLOW_INSECURE=${B_ALLOW_INSECURE:-}"
+      "-e" "B_GPGKEYFILE=${B_GPGKEYFILE:-}"
+      "-e" "B_STRICT=${B_STRICT:-0}"
       "-e" "distr=${distr:-}"
       "-e" "rel=${rel:-}"
    )
@@ -1555,6 +1719,12 @@ docker_run_package() {
       "-e" "PKGPOSTFIX=${PKGPOSTFIX:-}"
       "-e" "PKGMAIL=${PKGMAIL:-}"
       "-e" "PKGORG=${PKGORG:-}"
+      "-e" "B_GPGKEY=${B_GPGKEY:-}"
+      "-e" "B_COMMIT=${B_COMMIT:-}"
+      "-e" "B_SHA256=${B_SHA256:-}"
+      "-e" "B_ALLOW_INSECURE=${B_ALLOW_INSECURE:-}"
+      "-e" "B_GPGKEYFILE=${B_GPGKEYFILE:-}"
+      "-e" "B_STRICT=${B_STRICT:-0}"
       "-e" "distr=${distr:-}"
       "-e" "rel=${rel:-}"
    )

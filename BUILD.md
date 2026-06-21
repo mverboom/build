@@ -219,6 +219,43 @@ If this option is set to 1, the recipe will not be included when running the bui
 script with the -a flag. This can be useful for recipes under development, not ready
 to include in a nightly run.
 
+The following optional keys enable source-integrity checks at fetch time
+(see `SECURITY.md` group A):
+
+gpgkey
+
+A GPG key fingerprint or key id used to verify the signature on the git tag
+checked out by `B_GITCHECKOUT` (A1). When set, the tag must carry a valid
+signature made by this key or the build fails. When the `STRICT` configuration
+option is enabled, git-based recipes without a `gpgkey` are refused.
+
+gpgkeyfile
+
+Path to an exported public key file (ASCII-armoured or binary) for the key
+named by `gpgkey`. If the path is relative, it is resolved against `B_FILES`
+(the recipe's `.files/B_BUILD` directory). `B_GITCHECKOUT` imports this file
+with `gpg --import` before verifying the tag, so signature verification works
+in build environments that cannot reach public keyservers. If `gpgkeyfile`
+is omitted, `B_GITCHECKOUT` falls back to fetching the key from keyservers.
+
+commit
+
+A 40-character commit SHA. When set, `B_GITCHECKOUT` refuses to build unless
+the resolved ref matches this exact commit (A2). This makes what was built
+deterministic and auditable, independent of movable tags.
+
+sha256
+
+The expected SHA-256 digest of an asset fetched with `B_GET http` or
+`B_GET sf` (A3). When set, the downloaded (or cached) file is verified with
+`sha256sum` before it is used; a mismatch fails the build.
+
+allow_insecure
+
+Set to 1 to explicitly allow plain `http://`, `git://` or `svn://` fetches
+that would otherwise be rejected by the HTTPS-only enforcement (A4). Use only
+for sources that have no encrypted transport available.
+
 ## CHECK VERSION
 
 For checking of the current version of the software available the following section
@@ -417,6 +454,14 @@ used to store files used during the build process.
 The B_GET function assists in caching and downloading of content. It supports
 different download methods and caches content in the cache directory.
 
+As a supply-chain safeguard (SECURITY.md group A4), `B_GET` enforces encrypted
+transport: URLs must use `https://`, `git@`, `ssh://`, `svn+ssh://` or
+`file://`. Plain `http://`, `git://` and `svn://` URLs are rejected unless the
+recipe sets `allow_insecure=1` in its `[INFO]` section. `wget` calls use
+`--secure-protocol=TLSv1_2` and `--https-only` (when insecure fetches are not
+allowed). For `http` and `sf` methods, an `[INFO]` `sha256=` value is verified
+against the fetched asset (A3).
+
 The url should reference the content that needs to be downloaded.
 
 The name references the name of the cache object that needs to be created. For
@@ -477,6 +522,19 @@ If `B_GET` completes successfully, a folder called `src` will be available with
 the repository content.
 This download method also initialises the following environment variables:
 GOROOT GOPATH
+
+`B_GITCHECKOUT <ref>`
+
+Verifies and checks out a git tag or ref with source-integrity enforcement
+(SECURITY.md group A1 & A2). Use it in place of a bare
+`git checkout tags/v$B_VERSION` so that tag signatures and pinned commits are
+checked. The `<ref>` may be given as `v$B_VERSION` or `tags/v$B_VERSION`.
+
+When `[INFO]` `gpgkey=` is set, the tag signature is verified with `git
+verify-tag` and must be made by the declared key (A1); otherwise the build
+fails. When `[INFO]` `commit=` is set, the resolved `HEAD` must match that
+SHA exactly (A2). In `STRICT` mode, a git checkout without a `gpgkey` is
+refused.
 
 `B_UPDATEPKGBLD`
 

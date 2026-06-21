@@ -9,8 +9,9 @@ excludefromall=1
 [BUILD]
 B_GET git https://github.com/mverboom/build build
 cd build
-# set repository to required version
-git checkout tags/v$B_VERSION
+# set repository to required version and verify source integrity (gpgkey /
+# commit pins are read from [INFO]; see SECURITY.md group A)
+B_GITCHECKOUT v$B_VERSION
 mkdir -p $B_INSTALLDIR/usr/bin
 cp build torepo debclean $B_INSTALLDIR/usr/bin
 [PKG]

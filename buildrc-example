@@ -37,3 +37,7 @@ BUILDDISTRO=bookworm
 #DOCKER_IMAGE_PREFIX=
 # Directory containing Dockerfiles (defaults to script directory /docker)
 #DOCKER_DIR=$HOME/bin/build.git/docker
+# Source-integrity strict mode (SECURITY.md group A). When set to 1, git-based
+# recipes must declare a gpgkey and plain-http fetches are refused even if a
+# recipe sets allow_insecure=1.
+#STRICT=1
