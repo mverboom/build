@@ -1483,85 +1483,24 @@ PKGSCRIPT
    return 0
 }
 
-# Run the build phase (and optionally package phase) inside a Docker container.
-# Parameters: image envfile buildfile [pkgcmdfile]
-#   pkgcmdfile - optional path to package command script; if provided,
-#               the container will also run the packaging phase after build.
-# Returns the exit status of the docker run command.
-docker_run_build() {
-   local image="$1"
-   local envfile="$2"
-   local buildfile="$3"
-   local pkgcmdfile="${4:-}"
-   local container_id
-   local result
-
-   local -a docker_args=()
-
-   # Remove container after run is handled below after capturing logs
-   # (not using --rm since we need to inspect exit code)
-
-   # Hostname for identification
-   docker_args+=("--hostname" "build-${B_NAME}")
-
-   # Mount volumes (same paths inside and outside container)
-   # Resolve symlinks for directories that may be symlinked on the host
-   local recipes_real home_real
-   recipes_real=$(readlink -f "$RECIPEDIR")
-   home_real=$(readlink -f "$HOME")
-   docker_args+=(
-      "-v" "${home_real}:${HOME}"
-      "-v" "${recipes_real}:${RECIPEDIR}"
-      "-v" "$(readlink -f "$CACHEDIR"):${CACHEDIR}"
-      "-v" "$(readlink -f "$DESTDIR"):${DESTDIR}"
-      "-v" "$(readlink -f "$LOGDIR"):${LOGDIR}"
-      "-v" "${envfile}:/tmp/build-env.sh:ro"
-      "-v" "${buildfile}:/tmp/build-cmd.sh:ro"
-   )
-
-   # Mount package command script if provided (Phase 2: Docker packaging)
-   if [[ -n "$pkgcmdfile" ]]; then
-      docker_args+=("-v" "${pkgcmdfile}:/tmp/package-cmd.sh:ro")
-   fi
-
-   # Also mount symlink target paths if they differ from the mounted directories
-   # This handles cases like /home/builduser/recipes -> /home/builduser.orig/recipes
-   # where the symlink target needs to be accessible at its real path
-   local mount_real
-   for mount_real in "$home_real" "$recipes_real" "$(readlink -f "$CACHEDIR")" "$(readlink -f "$DESTDIR")" "$(readlink -f "$LOGDIR")"; do
-      # Extract the base directory from the real path and mount it
-      # This ensures symlink chains can be followed inside the container
-      local base_real
-      base_real=$(dirname "$mount_real")
-      if [[ "$base_real" != "$HOME" && "$base_real" != "$RECIPEDIR" && "$base_real" != "$CACHEDIR" && "$base_real" != "$DESTDIR" && "$base_real" != "$LOGDIR" ]]; then
-         docker_args+=("-v" "${base_real}:${base_real}")
-      fi
-   done
-
-   # Mount PKGDIR if it exists
-   if [[ -d "$PKGDIR" ]]; then
-      docker_args+=("-v" "${PKGDIR}:${PKGDIR}")
-   fi
-
-   # Mount apt configuration for Debian-based builds (custom repos, proxy settings)
-   docker_add_apt_mounts docker_args "${BUILDDISTRO:-}"
-
-   # Pass environment variables
-   docker_args+=(
+# Append the common environment (-e) flags to a docker args array.
+# Build-only vars (B_FILES, B_FORCE, BUILD_DEPS) are added by the caller when
+# running a build, so a package-only container never installs build deps.
+# Parameters: array_name (nameref)
+_docker_env_args() {
+   local -n _ea_ref="$1"
+   _ea_ref+=(
       "-e" "B_VERSION=${B_VERSION}"
-      "-e" "B_INSTALLDIR=${B_INSTALLDIR}"
+      "-e" "B_INSTALLDIR=${B_INSTALLDIR:-}"
       "-e" "B_ARCH=${B_ARCH}"
       "-e" "B_NAME=${B_NAME}"
-      "-e" "B_BUILDNR=${B_BUILDNR}"
-      "-e" "B_CACHEDIR=${CACHEDIR}"
-      "-e" "B_FILES=${B_FILES:-}"
-      "-e" "B_FORCE=${B_FORCE}"
+      "-e" "B_BUILDNR=${B_BUILDNR:-1}"
+      "-e" "B_CACHEDIR=${CACHEDIR:-}"
       "-e" "B_INSTANCE=${B_INSTANCE:-}"
       "-e" "HOME=${HOME}"
       "-e" "BUILDMODE=docker"
       "-e" "HOST_UID=$(id -u)"
       "-e" "HOST_GID=$(id -g)"
-      "-e" "BUILD_DEPS=${BUILD_DEPS:-}"
       "-e" "TMPDIR=/tmp"
       "-e" "DESTDIR=${DESTDIR}"
       "-e" "DESTSPLIT=${DESTSPLIT:-}"
@@ -1581,25 +1520,104 @@ docker_run_build() {
       "-e" "distr=${distr:-}"
       "-e" "rel=${rel:-}"
    )
+}
+
+# Run a Docker container for a build and/or package phase.
+# Single implementation backing both docker_run_build and docker_run_package.
+# Parameters: image envfile [buildfile] [pkgcmdfile]
+#   buildfile  - if given, the build phase runs (with DEBUGSHELL sentinel
+#                support and the symlink-base mount loop); if absent, this is a
+#                package-only run.
+#   pkgcmdfile - optional package command script; if given alongside a build,
+#                packaging runs after the build in the same container.
+# Returns the exit status of the container.
+_docker_run() {
+   local image="$1" envfile="$2" buildfile="${3:-}" pkgcmdfile="${4:-}"
+   local container_id result
+   local -a docker_args=()
+
+   local build_mode=0
+   [[ -n "$buildfile" ]] && build_mode=1
+
+   # Hostname for identification
+   docker_args+=("--hostname" "$([[ $build_mode == 1 ]] && printf 'build' || printf 'package')-${B_NAME}")
+
+   # Mount volumes (same paths inside and outside container).
+   # Resolve symlinks for directories that may be symlinked on the host.
+   local recipes_real home_real
+   recipes_real=$(readlink -f "$RECIPEDIR")
+   home_real=$(readlink -f "$HOME")
+   docker_args+=(
+      "-v" "${home_real}:${HOME}"
+      "-v" "${recipes_real}:${RECIPEDIR}"
+   )
+   # CACHEDIR is only needed for builds; package-only runs don't use it.
+   [[ $build_mode == 1 ]] && docker_args+=("-v" "$(readlink -f "$CACHEDIR"):${CACHEDIR}")
+   docker_args+=(
+      "-v" "$(readlink -f "$DESTDIR"):${DESTDIR}"
+      "-v" "$(readlink -f "$LOGDIR"):${LOGDIR}"
+      "-v" "${envfile}:/tmp/build-env.sh:ro"
+   )
+   [[ -n "$buildfile" ]] && docker_args+=("-v" "${buildfile}:/tmp/build-cmd.sh:ro")
+   [[ -n "$pkgcmdfile" ]] && docker_args+=("-v" "${pkgcmdfile}:/tmp/package-cmd.sh:ro")
+
+   # Also mount symlink target base dirs so chains resolve inside the container.
+   # This handles cases like /home/builduser/recipes -> /home/builduser.orig/recipes
+   # where the symlink target must be reachable at its real path. Only needed
+   # for the build phase (which may checkout sources into these paths).
+   if [[ $build_mode == 1 ]]; then
+      local mount_real base_real
+      for mount_real in "$home_real" "$recipes_real" "$(readlink -f "$CACHEDIR")" "$(readlink -f "$DESTDIR")" "$(readlink -f "$LOGDIR")"; do
+         base_real=$(dirname "$mount_real")
+         if [[ "$base_real" != "$HOME" && "$base_real" != "$RECIPEDIR" && "$base_real" != "$CACHEDIR" && "$base_real" != "$DESTDIR" && "$base_real" != "$LOGDIR" ]]; then
+            docker_args+=("-v" "${base_real}:${base_real}")
+         fi
+      done
+   fi
+
+   # Mount PKGDIR if it exists
+   if [[ -d "$PKGDIR" ]]; then
+      docker_args+=("-v" "${PKGDIR}:${PKGDIR}")
+   fi
+
+   # Mount apt configuration for Debian-based builds (custom repos, proxy settings)
+   docker_add_apt_mounts docker_args "${BUILDDISTRO:-}"
+
+   # Pass environment variables (common set; build-only vars added below)
+   _docker_env_args docker_args
+   if [[ $build_mode == 1 ]]; then
+      docker_args+=(
+         "-e" "B_FILES=${B_FILES:-}"
+         "-e" "B_FORCE=${B_FORCE}"
+         "-e" "BUILD_DEPS=${BUILD_DEPS:-}"
+      )
+   fi
 
    # Proxy settings
    [[ -n "$PROXY" ]] && docker_args+=("-e" "http_proxy=${PROXY}" "-e" "https_proxy=${PROXY}")
 
-   if [[ -n "$pkgcmdfile" ]]; then
+   if [[ -n "$buildfile" && -n "$pkgcmdfile" ]]; then
       output "Starting Docker build+package for ${B_NAME} (${image})..."
-   else
+   elif [[ -n "$buildfile" ]]; then
       output "Starting Docker build for ${B_NAME} (${image})..."
+   else
+      output "Starting Docker package for ${B_NAME} (${image})..."
    fi
 
    # Reap leftover containers from previous (possibly interrupted) runs so
    # overlay2 does not accumulate exited build containers.
    _docker_reap
 
-   # Unique token ties the container's debug-wait sentinel to this run.
-   local debug_token="${B_NAME:-build}-$$-$RANDOM"
    docker_args+=("--label" "build.system=build")
-   docker_args+=("-e" "DEBUGSHELL=${DEBUGSHELL:-0}")
-   docker_args+=("-e" "_BUILD_DEBUG_TOKEN=${debug_token}")
+
+   # Unique token ties the container's debug-wait sentinel to this run (build only).
+   local debug_token="" sentinel="" debug_ready=0
+   if [[ $build_mode == 1 ]]; then
+      debug_token="${B_NAME:-build}-$$-$RANDOM"
+      docker_args+=("-e" "DEBUGSHELL=${DEBUGSHELL:-0}")
+      docker_args+=("-e" "_BUILD_DEBUG_TOKEN=${debug_token}")
+      sentinel="$LOGDIR/.build-debug-${debug_token}"
+   fi
 
    # Run container detached; the entrypoint writes build output to the mounted
    # log file and cats it to stdout for `docker logs`.
@@ -1617,13 +1635,11 @@ docker_run_build() {
    # does not leak. Leftovers are also reaped at the start of the next run.
    trap 'kill "$logpid" 2>/dev/null; docker rm -f "$container_id" > /dev/null 2>&1; exit 130' INT TERM
 
-   local sentinel="$LOGDIR/.build-debug-${debug_token}"
-   local debug_ready=0
    local st
    while :; do
       st=$(docker inspect -f '{{.State.Status}}' "$container_id" 2>/dev/null || echo exited)
       [[ "$st" == "exited" ]] && break
-      if [[ -f "$sentinel" ]]; then
+      if [[ -n "$sentinel" && -f "$sentinel" ]]; then
          debug_ready=1
          break
       fi
@@ -1657,6 +1673,15 @@ docker_run_build() {
    return "$result"
 }
 
+# Run the build phase (and optionally package phase) inside a Docker container.
+# Parameters: image envfile buildfile [pkgcmdfile]
+#   pkgcmdfile - optional path to package command script; if provided,
+#               the container will also run the packaging phase after build.
+# Returns the exit status of the docker run command.
+docker_run_build() {
+   _docker_run "$1" "$2" "$3" "${4:-}"
+}
+
 # Run only the packaging phase inside a Docker container.
 # Used when BUILDMODE=docker and -p is specified without -b, so the host
 # doesn't need dpkg/fakeroot installed.
@@ -1664,115 +1689,7 @@ docker_run_build() {
 # Returns the exit status of the docker run command.
 # After the container exits, reads the package result file to get the filename.
 docker_run_package() {
-   local image="$1"
-   local envfile="$2"
-   local pkgcmdfile="$3"
-   local container_id
-   local result
-
-   local -a docker_args=()
-
-   # Hostname for identification
-   docker_args+=("--hostname" "package-${B_NAME}")
-
-   # Mount volumes
-   local recipes_real home_real
-   recipes_real=$(readlink -f "$RECIPEDIR")
-   home_real=$(readlink -f "$HOME")
-   docker_args+=(
-      "-v" "${home_real}:${HOME}"
-      "-v" "${recipes_real}:${RECIPEDIR}"
-      "-v" "$(readlink -f "$DESTDIR"):${DESTDIR}"
-      "-v" "$(readlink -f "$LOGDIR"):${LOGDIR}"
-      "-v" "${envfile}:/tmp/build-env.sh:ro"
-      "-v" "${pkgcmdfile}:/tmp/package-cmd.sh:ro"
-   )
-
-   # Mount PKGDIR if it exists
-   if [[ -d "$PKGDIR" ]]; then
-      docker_args+=("-v" "${PKGDIR}:${PKGDIR}")
-   fi
-
-   # Mount apt configuration for Debian-based builds (custom repos, proxy settings)
-   docker_add_apt_mounts docker_args "${BUILDDISTRO:-}"
-
-   # Pass environment variables
-   docker_args+=(
-      "-e" "B_VERSION=${B_VERSION}"
-      "-e" "B_INSTALLDIR=${B_INSTALLDIR:-}"
-      "-e" "B_ARCH=${B_ARCH}"
-      "-e" "B_NAME=${B_NAME}"
-      "-e" "B_BUILDNR=${B_BUILDNR:-1}"
-      "-e" "B_CACHEDIR=${CACHEDIR:-}"
-      "-e" "B_INSTANCE=${B_INSTANCE:-}"
-      "-e" "HOME=${HOME}"
-      "-e" "BUILDMODE=docker"
-      "-e" "HOST_UID=$(id -u)"
-      "-e" "HOST_GID=$(id -g)"
-      "-e" "TMPDIR=/tmp"
-      "-e" "DESTDIR=${DESTDIR}"
-      "-e" "DESTSPLIT=${DESTSPLIT:-}"
-      "-e" "RECIPEDIR=${RECIPEDIR}"
-      "-e" "LOGDIR=${LOGDIR}"
-      "-e" "PKGLIST=${PKGLIST}"
-      "-e" "PKGDIR=${PKGDIR}"
-      "-e" "PKGPOSTFIX=${PKGPOSTFIX:-}"
-      "-e" "PKGMAIL=${PKGMAIL:-}"
-      "-e" "PKGORG=${PKGORG:-}"
-      "-e" "B_GPGKEY=${B_GPGKEY:-}"
-      "-e" "B_COMMIT=${B_COMMIT:-}"
-      "-e" "B_SHA256=${B_SHA256:-}"
-      "-e" "B_ALLOW_INSECURE=${B_ALLOW_INSECURE:-}"
-      "-e" "B_GPGKEYFILE=${B_GPGKEYFILE:-}"
-      "-e" "B_STRICT=${B_STRICT:-0}"
-      "-e" "distr=${distr:-}"
-      "-e" "rel=${rel:-}"
-   )
-
-   # Proxy settings
-   [[ -n "$PROXY" ]] && docker_args+=("-e" "http_proxy=${PROXY}" "-e" "https_proxy=${PROXY}")
-
-   output "Starting Docker package for ${B_NAME} (${image})..."
-
-   # Reap leftover containers from previous (possibly interrupted) runs.
-   _docker_reap
-
-   docker_args+=("--label" "build.system=build")
-
-   # Run container in detached mode
-   # The entrypoint will detect no build-cmd.sh and just run the package command
-   container_id=$(docker run -d "${docker_args[@]}" "$image")
-   if [[ -z "$container_id" ]]; then
-      ERR=1 output "Failed to start Docker container."
-      return 1
-   fi
-
-   # Stream logs in the background while we wait for completion.
-   docker logs -f "$container_id" 2>&1 &
-   local logpid=$!
-   # Best-effort cleanup if interrupted (Ctrl-C); leftovers are reaped next run.
-   trap 'kill "$logpid" 2>/dev/null; docker rm -f "$container_id" > /dev/null 2>&1; exit 130' INT TERM
-
-   local st
-   while :; do
-      st=$(docker inspect -f '{{.State.Status}}' "$container_id" 2>/dev/null || echo exited)
-      [[ "$st" == "exited" ]] && break
-      sleep 1
-   done
-
-   kill "$logpid" 2>/dev/null
-   wait "$logpid" 2>/dev/null
-   trap - INT TERM
-
-   # Get the container's exit code
-   local exit_code
-   exit_code=$(docker inspect --format='{{.State.ExitCode}}' "$container_id" 2>/dev/null || echo "1")
-   result="$exit_code"
-
-   # Clean up container
-   docker rm "$container_id" > /dev/null 2>&1
-
-   return "$result"
+   _docker_run "$1" "$2" "" "$3"
 }
 
 # Start interactive development shell in a Docker container.
