@@ -1655,10 +1655,13 @@ _docker_run() {
       # the user can inspect it interactively via docker exec.
       printf '\n'
       printf '%s\n' "## Build failed. Container $container_id kept alive for debugging."
-      printf '%s\n' "## Attach with: docker exec -it $container_id bash"
+      printf '%s\n' "## Attach with: docker exec -it -w /tmp -e PS1='\\h:\\w buildroot $ ' $container_id bash --norc"
       printf '%s\n' "## Type exit to return (the container is then removed automatically)."
       printf '%s\n' ""
-      docker exec -it "$container_id" bash
+      # Drop into a clean shell (no host bashrc) at the build root (/tmp, where
+      # sources are extracted) with a default PS1 so custom host prompts don't
+      # error out.
+      docker exec -it -w /tmp -e PS1='\h:\w buildroot $ ' "$container_id" bash --norc
       rm -f "$sentinel"
       docker rm -f "$container_id" > /dev/null 2>&1
       return 1
@@ -1821,7 +1824,10 @@ docker_attach() {
    printf '## Type exit to detach.\n'
    printf '\n'
 
-   docker exec -it "$container_id" bash
+   # Drop into a clean shell (no host bashrc) at the build root (/tmp, where
+   # sources are extracted) with a default PS1 so custom host prompts don't
+   # error out.
+   docker exec -it -w /tmp -e PS1='\h:\w buildroot $ ' "$container_id" bash --norc
    return $?
 }
 
