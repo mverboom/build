@@ -2,12 +2,11 @@
 SERVER=repo@repo
 # Run post command (if any) when adding multiple packages in 1 go
 POST="freight cache"
-# Set REPONAME to use
+# Set REPONAME to use. When torepo is invoked by build, build exports B_DISTRO
+# (the target distro codename, e.g. trixie/bookworm) and torepo prefers that
+# over REPONAME. REPONAME below is therefore only the fallback used when torepo
+# is run standalone (without build) or when B_DISTRO is not set.
 case "$HOSTNAME" in
-"build64-deb10")
-   REPONAME=buster
-;;
-*)
-   REPONAME=current
-;;
+"build64-deb10") REPONAME=buster  ;;
+*)               REPONAME=current ;;
 esac

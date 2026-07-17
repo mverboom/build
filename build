@@ -66,6 +66,11 @@ ATTACH_CONTAINER=""
 # Distribution segment for the output directory (e.g. "debian-trixie").
 # Computed in main() from BUILDDISTRO (docker mode) or lsb_release (native).
 B_DISTRODIR=""
+# Target distribution codename (e.g. "trixie", "bookworm"). Platform-agnostic
+# identifier of the distro being built for; exported so the TODEBREPO command
+# (and other publish hooks) know which repository to add a package to.
+# Computed in main() alongside B_DISTRODIR by distro_dir().
+B_DISTRO=""
 
 # Initialize option variables (set by parse_options)
 B_FORCE=0
@@ -478,7 +483,7 @@ build() {
    # Define build environment variables and functions
    B_CACHEDIR="$CACHEDIR"
    [[ -d "$RECIPEDIR/$B_NAME.files/B_BUILD" ]] && B_FILES="$RECIPEDIR/$B_NAME.files/B_BUILD"
-   export B_VERSION B_INSTALLDIR B_ARCH B_INSTANCE B_CACHEDIR B_NAME B_BUILDNR B_FILES B_FORCE B_DISTRODIR
+   export B_VERSION B_INSTALLDIR B_ARCH B_INSTANCE B_CACHEDIR B_NAME B_BUILDNR B_FILES B_FORCE B_DISTRODIR B_DISTRO
    export B_GPGKEY B_COMMIT B_SHA256 B_ALLOW_INSECURE B_GPGKEYFILE B_STRICT
 
    # Define build environment functions (used in both native and Docker modes)
@@ -1348,7 +1353,10 @@ distro_dir() {
       [[ -z "$family" ]] && family="unknown"
       [[ -z "$codename" ]] && codename="$family"
    fi
-   printf '%s-%s' "$family" "$codename"
+   # Set the global distribution globals: the directory segment (family-codename)
+   # and the platform-agnostic bare codename used by publish hooks (TODEBREPO).
+   B_DISTRODIR="$family-$codename"
+   B_DISTRO="$codename"
 }
 
 # Add apt configuration mounts for Debian-based builds.
@@ -1486,6 +1494,7 @@ docker_prepare_env() {
       printf 'export B_VERSION="%s"\n' "$B_VERSION"
       printf 'export B_INSTALLDIR="%s"\n' "$B_INSTALLDIR"
       printf 'export B_DISTRODIR="%s"\n' "$B_DISTRODIR"
+      printf 'export B_DISTRO="%s"\n' "$B_DISTRO"
       printf 'export B_ARCH="%s"\n' "$B_ARCH"
       printf 'export B_NAME="%s"\n' "$B_NAME"
       printf 'export B_BUILDNR="%s"\n' "$B_BUILDNR"
@@ -1619,6 +1628,7 @@ _docker_env_args() {
       "-e" "B_VERSION=${B_VERSION}"
       "-e" "B_INSTALLDIR=${B_INSTALLDIR:-}"
       "-e" "B_DISTRODIR=${B_DISTRODIR:-}"
+      "-e" "B_DISTRO=${B_DISTRO:-}"
       "-e" "B_ARCH=${B_ARCH}"
       "-e" "B_NAME=${B_NAME}"
       "-e" "B_BUILDNR=${B_BUILDNR:-1}"
@@ -2161,8 +2171,10 @@ main() {
    local global_instance="${B_INSTANCE:-}"
 
    # Distribution segment for the output directory (e.g. debian-trixie).
-   # See distro_dir() for the derivation rules.
-   B_DISTRODIR=$(distro_dir)
+   # See distro_dir() for the derivation rules. distro_dir() also sets the
+   # platform-agnostic B_DISTRO codename as a side effect.
+   distro_dir
+   export B_DISTRO
 
    [[ -n "$PROXY" ]] && { export http_proxy="$PROXY"; export https_proxy="$PROXY"; }
 

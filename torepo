@@ -39,14 +39,19 @@ main() {
    (( $# < 1 )) && { printf '%s\n' "Invalid arguments."; usage; return 1; }
    [[ "${1:-}" == "-q" ]] && { flags="-q"; shift; }
    (( $# < 1 )) && { printf '%s\n' "Invalid arguments."; usage; return 1; }
-   [[ -z "${REPONAME:-}" ]] && { printf '%s\n' "REPONAME not configured."; usage; return 1; }
+
+   # Target repository: prefer the B_DISTRO codename exported by build (so a
+   # single host can build for multiple distros); fall back to REPONAME from
+   # ~/.toreporc for backward compatibility.
+   local repo="${B_DISTRO:-${REPONAME:-}}"
+   [[ -z "$repo" ]] && { printf '%s\n' "Neither B_DISTRO nor REPONAME configured."; usage; return 1; }
 
    for pkg in "$@"; do
       [[ -f "$pkg" ]] || { printf '%s\n' "No such file $pkg."; return 1; }
       filename=$(basename "$pkg")
       scp -q "$pkg" "${SERVER}:/tmp"
       # Use repo-add on the destination system to wrap whatever you are using.
-      ssh "$SERVER" "repo-add $flags $REPONAME /tmp/$filename" || ret=1
+      ssh "$SERVER" "repo-add $flags $repo /tmp/$filename" || ret=1
       rm "$pkg"
    done
 

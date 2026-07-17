@@ -161,6 +161,12 @@ can get the -q (quiet) option passed if the build process is run with -q. If
 multiple packages are processed, all which be passed to the script in a single
 go.
 
+The target repository can be derived from the `B_DISTRO` environment variable
+(see below), which `build` exports for the script. This is the platform-
+agnostic codename of the distro being built for (e.g. `trixie`, `bookworm`),
+so a single `TODEBREPO` script can select the right repository without relying
+on the build host's hostname.
+
 `INSTDEP` (defaults to yes)
 If set to yes will try to install the required packages specified in the
 recipe for the build. On the host this happens inside the Docker container via
@@ -454,6 +460,15 @@ a new package of the same version.
 
 When the build phase of the recipe was forced through -f, this variable will be set to
 1.
+
+`B_DISTRO`
+
+The target distribution codename for the build (e.g. `trixie`, `bookworm`). It
+is a platform-agnostic identifier derived from `-d` / `BUILDDISTRO` in Docker
+mode, or from the running system's `lsb_release` in native mode. It is exported
+so that the `TODEBREPO` publish script (and any other post-build hook) can
+select the target repository without having to infer it from the package
+filename or the build host's hostname.
 
 `B_FILES`
 
