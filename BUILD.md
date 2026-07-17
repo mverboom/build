@@ -34,10 +34,22 @@ To repository, creates packages and copies to repository for specified recipe(s)
 
 `-a`
 Process all recipes in the recipe directory. Recipes that are not for the current systems
-architecture or don't have a build section for this system will be excluded.
+architecture or don't have a build section for this system will be excluded. Recipes
+that require an instance (see `instance` in their `[INFO]` section) are skipped unless an
+instance is given with `-i`.
 
-`-v`
-Specify specific version, will prevent from running version section of recipe(s)
+A recipe name given on the command line may be suffixed with a forced version and/or
+instance, in either order:
+
+```
+recipe                  use the recipe's own version check
+recipe@version          build a specific version (skips the recipe's version check)
+recipe:instance         build for a specific instance
+recipe@version:instance both (also recipe:instance@version)
+```
+
+This lets you build several recipes at different versions and/or instances in a single
+command, e.g. `build -bp -d trixie foo@1.2.3 bar:dev baz@4.5.6:prod`.
 
 `-q`
 Quiet output.
@@ -60,7 +72,8 @@ Required on the host, since builds always run inside Docker. Inside the `-S` dev
 shell container it is optional and defaults to the container's distribution.
 
 `-i`
-Specify an instance for a recipe
+Specify an instance for a recipe. Applies to all recipes on the command line unless a
+recipe overrides it with the `recipe:instance` suffix.
 
 `-R`
 Do not remove required packages after build and skip any post build script.
@@ -419,8 +432,9 @@ Architecture software is being build for.
 
 `B_INSTANCE`
 
-Instance name of software being build. This is only set if an instance was provided on
-the invokation of the build script.
+Instance name of software being build. This is set when an instance was provided on
+the invokation of the build script, either globally via `-i` or per recipe via the
+`recipe:instance` command-line suffix (the per-recipe value takes precedence).
 
 `B_CACHEDIR`
 

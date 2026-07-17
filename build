@@ -71,7 +71,6 @@ B_DISTRODIR=""
 B_FORCE=0
 DEBUG=""
 DEBUGSHELL=""
-FORCEVERSION=""
 B_INSTANCE=""
 B_NOPKGRM=0
 DO_CHECK=0
@@ -196,7 +195,6 @@ usage() {
    printf '%s\n' ""
    printf '%s\n' "Operation modifiers:"
    printf '%s\n' "   -a  Select all recipes available."
-   printf '%s\n' "   -v  Specify specific version, will prevent from running version section of recipe(s)"
    printf '%s\n' "   -q  Quiet output"
    printf '%s\n' "   -x  Enable debugging output"
    printf '%s\n' "   -s  Drop to a shell when building process fails to inspect."
@@ -211,6 +209,12 @@ usage() {
    printf '%s\n' "   -S  Shell, start interactive development shell in a Docker container for the"
    printf '%s\n' "       specified distro (e.g., -S bookworm, -S trixie)."
    printf '%s\n' "   -A  Attach, re-attach to a running Docker container by container ID."
+   printf '%s\n' ""
+   printf '%s\n' "A recipe name may be suffixed with a forced version and/or instance:"
+   printf '%s\n' "   recipe@version            build a specific version (skips version check)"
+   printf '%s\n' "   recipe:instance           build for a specific instance"
+   printf '%s\n' "   recipe@version:instance    both, in either order (recipe:instance@version)"
+   printf '%s\n' "Several recipes can be built at different versions/instances in one command."
    printf '%s\n' ""
    return 1
 }
@@ -1260,24 +1264,30 @@ recipe_select_arch() {
 }
 
 # Check if a recipe's version is already built.
-# Parameters: recipe_name
+# Parameters: recipe_name [forced_version] [instance]
 # Returns 0 if not built, 1 if already built, 2 if version check failed.
+# When forced_version is given, the recipe's version section is skipped.
+# instance (if any) is included in the built-output path check.
 check_version_built() {
    local pkg="$1"
+   local fver="${2:-}"
+   local inst="${3:-}"
    local RET=0
-   local version
-   local pkgdir
+   local version versiondir pkgdir
 
-   if [[ -n "$FORCEVERSION" ]]; then
-      version="$FORCEVERSION"
+   if [[ -n "$fver" ]]; then
+      version="$fver"
    else
       version=$(version_get "$pkg") || return 2
    fi
 
+   versiondir="$version"
+   [[ -n "$inst" ]] && versiondir="$version-$inst"
+
    if [[ -n "$DESTSPLIT" ]]; then
-      pkgdir="$DESTDIR/$B_DISTRODIR/$B_ARCH/$pkg/$version"
+      pkgdir="$DESTDIR/$B_DISTRODIR/$B_ARCH/$pkg/$versiondir"
    else
-      pkgdir="$DESTDIR/$B_DISTRODIR/$B_ARCH/$pkg-$version"
+      pkgdir="$DESTDIR/$B_DISTRODIR/$B_ARCH/$pkg-$versiondir"
    fi
 
    if [[ -d "$pkgdir" ]]; then
@@ -1954,7 +1964,6 @@ parse_options() {
    B_FORCE=0
    DEBUG=""
    DEBUGSHELL=""
-   FORCEVERSION=""
    B_INSTANCE=""
    DO_CHECK=0
    DO_BUILD=0
@@ -1963,7 +1972,7 @@ parse_options() {
    B_NOPKGRM=0
    local all=0
 
-   while getopts :csbprad:i:RS:A:xqfhv:m: opt; do
+   while getopts :csbprad:i:RS:A:xqfhm: opt; do
       case $opt in
       c)
          DO_CHECK=1
@@ -2016,9 +2025,6 @@ parse_options() {
          usage
          return 1
          ;;
-      v)
-         FORCEVERSION="$OPTARG"
-         ;;
       m)
          email="$OPTARG"
          ;;
@@ -2054,11 +2060,43 @@ parse_options() {
       rel=$(lsb_release -c -s | tr '[:lower:]' '[:upper:]')
    fi
 
-   local recipe
+   local recipe base rest version instance instancereq
    for recipe in "$@"; do
+      # Recipe arguments may carry a forced version and/or instance suffix:
+      #   recipe, recipe@version, recipe:instance, recipe@version:instance
+      #   or recipe:instance@version (the @/: parts may appear in either order).
+      base="${recipe%%[:@]*}"
+      rest="${recipe#"$base"}"
+      version=""
+      instance=""
+      if [[ "$rest" == *@* ]]; then
+         version="${rest#*@}"
+         version="${version%%:*}"
+      fi
+      if [[ "$rest" == *:* ]]; then
+         instance="${rest#*:}"
+         instance="${instance%%@*}"
+      fi
+      recipe="$base"
+
+      if [[ ! -f "$RECIPEDIR/$recipe.recipe" ]]; then
+         output "recipe $recipe does not exist."
+         continue
+      fi
       if recipe_select_arch "$recipe"; then
-         work_recipes+=("$recipe")
-         work_arch["$recipe"]="$B_ARCH"
+         if recipe_select_build "$recipe"; then
+            instancereq=$(recipe_item_get "$recipe" INFO instance)
+            if [[ -n "$instancereq" && -z "$instance" && -z "${B_INSTANCE:-}" ]]; then
+               output "Recipe $recipe requires an instance, but none specified."
+               continue
+            fi
+            work_recipes+=("$recipe")
+            work_arch["$recipe"]="$B_ARCH"
+            [[ -n "$version" ]]  && work_forcever["$recipe"]="$version"
+            [[ -n "$instance" ]] && work_instance["$recipe"]="$instance"
+         else
+            output "$recipe has no build section for this system."
+         fi
       else
          output "$recipe not for this architecture."
       fi
@@ -2073,6 +2111,11 @@ parse_options() {
          if [[ "$exclude" != "1" ]]; then
             if recipe_select_arch "$recipe"; then
                if recipe_select_build "$recipe"; then
+                  instancereq=$(recipe_item_get "$recipe" INFO instance)
+                  if [[ -n "$instancereq" && -z "${B_INSTANCE:-}" ]]; then
+                     output "Recipe $recipe requires an instance, skipping."
+                     continue
+                  fi
                   work_recipes+=("$recipe")
                   work_arch["$recipe"]="$B_ARCH"
                else
@@ -2099,6 +2142,8 @@ main() {
    local i=0
    local retval=0
    declare -A work_arch
+   declare -A work_forcever=()
+   declare -A work_instance=()
    declare -a work_recipes=()
    declare -a work_version=()
    declare -a work_built=()
@@ -2110,6 +2155,10 @@ main() {
 
    B_SARCH=$(arch_get)
    parse_options "$@" || return 1
+
+   # Global -i instance (if any), captured before the build loops so a
+   # per-recipe :instance can override it without leaking to the next recipe.
+   local global_instance="${B_INSTANCE:-}"
 
    # Distribution segment for the output directory (e.g. debian-trixie).
    # See distro_dir() for the derivation rules.
@@ -2168,7 +2217,8 @@ main() {
       # Get current version and check if already built
       for i in "${!work_recipes[@]}"; do
          B_ARCH="${work_arch[${work_recipes[$i]}]}"
-         work_version[i]=$(check_version_built "${work_recipes[$i]}")
+         local r="${work_recipes[$i]}"
+         work_version[i]=$(check_version_built "$r" "${work_forcever[$r]:-}" "${work_instance[$r]:-$global_instance}")
          work_built[i]=$?
          if (( DO_CHECK == 1 || (DO_BUILD == 1 && B_FORCE == 0) )); then
             (( work_built[i] == 1 )) && output "${work_recipes[$i]} ${work_version[$i]} (already built)"
@@ -2184,6 +2234,7 @@ main() {
       lock_get || { printf '%s\n' "Unable to get lock, other instance running?"; return 1; }
       for i in "${!work_recipes[@]}"; do
          B_ARCH="${work_arch[${work_recipes[$i]}]}"
+         B_INSTANCE="${work_instance[${work_recipes[$i]}]:-$global_instance}"
          if (( work_built[i] == 0 || B_FORCE == 1 )); then
             build "${work_recipes[$i]}" "${work_version[$i]}"
             if [[ $? -eq 1 ]]; then
@@ -2214,6 +2265,7 @@ main() {
       # if no build action and version built, package. if build action successful, build.
       for i in "${!work_recipes[@]}"; do
          B_ARCH="${work_arch[${work_recipes[$i]}]}"
+         B_INSTANCE="${work_instance[${work_recipes[$i]}]:-$global_instance}"
 
          # Skip if already packaged (e.g., in Docker combined build+package)
          [[ "${work_packaged[$i]:-1}" == "0" ]] && continue
@@ -2242,7 +2294,6 @@ main() {
                B_CACHEDIR="$CACHEDIR"
                B_FILES=""
                B_FORCE=0
-               B_INSTANCE="${B_INSTANCE:-}"
 
                local image
                image=$(docker_image_select "$BUILDDISTRO")
