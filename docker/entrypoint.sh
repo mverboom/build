@@ -54,11 +54,15 @@ dep_failed=0
 if [[ -n "${BUILD_DEPS:-}" ]]; then
    printf '%s\n' "Installing build dependencies: ${BUILD_DEPS}"
    if command -v apt-get > /dev/null 2>&1; then
-      # If apt config is mounted read-only from host, ensure we can still update
-      # by using the default container lists directory
-      run_pkg "$deps_log" apt-get update || dep_failed=1
-      # shellcheck disable=SC2086
-      run_pkg "$deps_log" apt-get -y install ${BUILD_DEPS} || dep_failed=1
+      # apt-get update must succeed before we attempt the install. If either
+      # fails the build is aborted below -- a build must never run with missing
+      # build dependencies (it would otherwise produce a bogus package).
+      if run_pkg "$deps_log" apt-get update; then
+         # shellcheck disable=SC2086
+         run_pkg "$deps_log" apt-get -y install ${BUILD_DEPS} || dep_failed=1
+      else
+         dep_failed=1
+      fi
    elif command -v dnf > /dev/null 2>&1; then
       # shellcheck disable=SC2086
       run_pkg "$deps_log" dnf install -y ${BUILD_DEPS} || dep_failed=1
@@ -73,6 +77,14 @@ fi
 if [[ "${B_VERBOSE:-0}" == "1" ]] || (( dep_failed != 0 )); then
    printf '### Dependency setup output\n' >> "$log_file"
    cat "$deps_log" >> "$log_file"
+fi
+
+# Abort if dependency setup failed: do NOT proceed to the build, so a failed
+# dependency install can never lead to a "succeeded" build, an empty package,
+# or a push to the repository.
+if (( dep_failed != 0 )); then
+   printf '%s\n' "## Aborting: build dependency setup failed (see output above)." >&2
+   exit 1
 fi
 
 # --- Create build user matching host UID/GID ---
