@@ -19,6 +19,36 @@
 
 set -u
 
+# Run a package-manager (or other setup) command, capturing its output.
+# Errors are ALWAYS surfaced (printed to stderr and appended to the build log);
+# the full successful output is shown only when B_VERBOSE=1.
+# Parameters: log_file  command [args...]
+# Returns the command's exit status.
+run_pkg() {
+   local logf="$1"; shift
+   local rc
+   if [[ "${B_VERBOSE:-0}" == "1" ]]; then
+      printf '## %s\n' "$*"
+      "$@" 2>&1 | tee -a "$logf"
+      rc=${PIPESTATUS[0]}
+   else
+      "$@" > "$logf" 2>&1
+      rc=$?
+      if (( rc != 0 )); then
+         printf '## Command failed (exit %s): %s\n' "$rc" "$*" >&2
+         cat "$logf" >&2
+      fi
+   fi
+   return "$rc"
+}
+
+# Build log file (defined early so dependency output can be appended to it).
+log_dir="${LOGDIR:-/tmp}"
+log_file="${log_dir}/${B_NAME:-build}-${B_ARCH:-all}.log"
+deps_log="/tmp/build-deps.log"
+: > "$deps_log"
+dep_failed=0
+
 # --- Install build dependencies ---
 
 if [[ -n "${BUILD_DEPS:-}" ]]; then
@@ -26,20 +56,23 @@ if [[ -n "${BUILD_DEPS:-}" ]]; then
    if command -v apt-get > /dev/null 2>&1; then
       # If apt config is mounted read-only from host, ensure we can still update
       # by using the default container lists directory
-      apt-get update > /dev/null 2>&1
+      run_pkg "$deps_log" apt-get update || dep_failed=1
       # shellcheck disable=SC2086
-      apt-get -y install ${BUILD_DEPS} > /dev/null 2>&1 || {
-         printf '%s\n' "Warning: Some build dependencies may not have installed correctly." >&2
-      }
+      run_pkg "$deps_log" apt-get -y install ${BUILD_DEPS} || dep_failed=1
    elif command -v dnf > /dev/null 2>&1; then
       # shellcheck disable=SC2086
-      dnf install -y ${BUILD_DEPS} > /dev/null 2>&1 || {
-         printf '%s\n' "Warning: Some build dependencies may not have installed correctly." >&2
-      }
+      run_pkg "$deps_log" dnf install -y ${BUILD_DEPS} || dep_failed=1
    else
       printf '%s\n' "Error: No supported package manager found." >&2
       exit 1
    fi
+fi
+
+# Persist dependency setup output into the build log when verbose or on failure,
+# so errors are recoverable from the log file (not only from docker logs).
+if [[ "${B_VERBOSE:-0}" == "1" ]] || (( dep_failed != 0 )); then
+   printf '### Dependency setup output\n' >> "$log_file"
+   cat "$deps_log" >> "$log_file"
 fi
 
 # --- Create build user matching host UID/GID ---
@@ -69,9 +102,6 @@ fi
 
 # --- Execute build and/or package commands ---
 
-log_dir="${LOGDIR:-/tmp}"
-log_file="${log_dir}/${B_NAME:-build}-${B_ARCH:-all}.log"
-
 if [[ -f "/tmp/build-cmd.sh" ]]; then
    # Build phase: run build command, optionally followed by package command
    # Write a wrapper script that sources the env and runs the commands.
@@ -94,15 +124,16 @@ if [[ -f "/tmp/build-cmd.sh" ]]; then
    # of `cat`/`tee` was used, masking build failures).
    build_rc=0
    if [[ -n "${HOST_UID:-}" ]]; then
-      # Run as builduser, capture output to log file and stdout
-      su builduser -s /bin/bash /tmp/run-build.sh > "${log_file}" 2>&1
+      # Run as builduser, capture output to log file and stdout (append, so
+      # any dependency-setup output already written to the log is preserved).
+      su builduser -s /bin/bash /tmp/run-build.sh >> "${log_file}" 2>&1
       build_rc=$?
       # Fix ownership of log file (created by root, should be builduser)
       chown builduser:builduser "${log_file}" 2>/dev/null || true
       # Output the log file to stdout so docker logs can capture it
       cat "${log_file}"
    else
-      /tmp/run-build.sh > "${log_file}" 2>&1
+      /tmp/run-build.sh >> "${log_file}" 2>&1
       build_rc=$?
       cat "${log_file}"
    fi
@@ -130,12 +161,12 @@ elif [[ -f "/tmp/package-cmd.sh" ]]; then
 
    pkg_rc=0
    if [[ -n "${HOST_UID:-}" ]]; then
-      su builduser -s /bin/bash /tmp/run-build.sh > "${log_file}" 2>&1
+      su builduser -s /bin/bash /tmp/run-build.sh >> "${log_file}" 2>&1
       pkg_rc=$?
       chown builduser:builduser "${log_file}" 2>/dev/null || true
       cat "${log_file}"
    else
-      /tmp/run-build.sh > "${log_file}" 2>&1
+      /tmp/run-build.sh >> "${log_file}" 2>&1
       pkg_rc=$?
       cat "${log_file}"
    fi
@@ -145,10 +176,10 @@ else
    if [[ -n "${HOST_UID:-}" ]]; then
       # Install sudo for interactive use
       if command -v apt-get > /dev/null 2>&1; then
-         apt-get update > /dev/null 2>&1
-         apt-get -y install sudo > /dev/null 2>&1 || true
+         run_pkg "$deps_log" apt-get update || true
+         run_pkg "$deps_log" apt-get -y install sudo || true
       elif command -v dnf > /dev/null 2>&1; then
-         dnf install -y sudo > /dev/null 2>&1 || true
+         run_pkg "$deps_log" dnf install -y sudo || true
       fi
       # Configure passwordless sudo for builduser
       printf 'builduser ALL=(ALL) NOPASSWD:ALL\n' > /etc/sudoers.d/builduser

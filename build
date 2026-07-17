@@ -28,6 +28,7 @@ set -u
 # Global variables and constants
 LOCK="/tmp/build.lck"
 QUIET=0
+VERBOSE=0
 _BUILD_TMP=""
 
 # Default configuration (overridden by ~/.buildrc)
@@ -219,6 +220,7 @@ usage() {
    printf '%s\n' "Operation modifiers:"
    printf '%s\n' "   -a  Select all recipes available."
    printf '%s\n' "   -q  Quiet output"
+   printf '%s\n' "   -v  Verbose output: show command output that is normally suppressed"
    printf '%s\n' "   -x  Enable debugging output"
    printf '%s\n' "   -s  Drop to a shell when building process fails to inspect."
    printf '%s\n' "   -f  Force build for recipe, even if complete build is already available."
@@ -369,6 +371,28 @@ recipe_section_get() {
         /^\[$label\]/ { found=1;}" "$recipe" | grep -v "^#"
 }
 
+# Run a sudo package command, surfacing errors always and full output when
+# VERBOSE=1. Used by the native build dependency path (the -S dev shell).
+# Parameters: command [args...]
+_sudo_pkg() {
+   local logf
+   logf=$(mktemp) || { "$@"; return $?; }
+   local rc
+   if [[ "${VERBOSE:-0}" == "1" ]]; then
+      sudo "$@" 2>&1 | tee "$logf"
+      rc=${PIPESTATUS[0]}
+   else
+      sudo "$@" > "$logf" 2>&1
+      rc=$?
+      if (( rc != 0 )); then
+         output -f "Command failed (exit $rc): sudo $*"
+         cat "$logf" >&2
+      fi
+   fi
+   rm -f "$logf"
+   return "$rc"
+}
+
 # Install required build dependencies.
 # Parameters: space-separated list of package names
 # In Docker mode, packages are installed inside the container by the entrypoint.
@@ -403,15 +427,15 @@ build_require() {
    done
 
    if (( ${#toinst[@]} != 0 )); then
-      sudo apt-get update > /dev/null 2>&1
-      sudo apt-get -qq -y install "${toinst[@]}" > /dev/null 2>&1 || \
-         { output "Error installing dependencies (${toinst[*]})."; return 1; }
+      _sudo_pkg apt-get update || { output -f "apt-get update failed."; return 1; }
+      _sudo_pkg apt-get -qq -y install "${toinst[@]}" || \
+         { output -f "Error installing dependencies (${toinst[*]})."; return 1; }
    fi
 
    if (( ${#toinsttr[@]} != 0 )); then
       for pkg in "${toinsttr[@]}"; do
-         sudo apt-get -qq -y -t "${pkg/@*/}" install "${pkg/@*/}" > /dev/null 2>&1 || \
-            { output "Error installing dependency ($pkg)."; return 1; }
+         _sudo_pkg apt-get -qq -y -t "${pkg/@*/}" install "${pkg/@*/}" || \
+            { output -f "Error installing dependency ($pkg)."; return 1; }
       done
    fi
 
@@ -1700,6 +1724,7 @@ docker_prepare_env() {
       printf 'export PKGMAIL="%s"\n' "${PKGMAIL:-}"
       printf 'export PKGORG="%s"\n' "${PKGORG:-}"
       printf 'export QUIET=%s\n' "$QUIET"
+      printf 'export B_VERBOSE=%s\n' "${VERBOSE:-0}"
 
       # Source-integrity variables (SECURITY.md group A)
       printf 'export B_GPGKEY="%s"\n' "${B_GPGKEY:-}"
@@ -1835,6 +1860,7 @@ _docker_env_args() {
       "-e" "B_ALLOW_INSECURE=${B_ALLOW_INSECURE:-}"
       "-e" "B_GPGKEYFILE=${B_GPGKEYFILE:-}"
       "-e" "B_STRICT=${B_STRICT:-0}"
+      "-e" "B_VERBOSE=${VERBOSE:-0}"
       "-e" "distr=${distr:-}"
       "-e" "rel=${rel:-}"
    )
@@ -2109,6 +2135,8 @@ docker_shell() {
 
    # Pass instance if specified
    [[ -n "${B_INSTANCE:-}" ]] && docker_args+=("-e" "B_INSTANCE=${B_INSTANCE}")
+   # Verbose flag (so the entrypoint surfaces suppressed command output)
+   docker_args+=("-e" "B_VERBOSE=${VERBOSE:-0}")
 
    # Proxy settings
    [[ -n "$PROXY" ]] && docker_args+=("-e" "http_proxy=${PROXY}" "-e" "https_proxy=${PROXY}")
@@ -2171,7 +2199,7 @@ parse_options() {
    B_NOPKGRM=0
    local all=0
 
-   while getopts :csbprad:i:RS:A:xqfhm: opt; do
+   while getopts :csbprad:i:RS:A:xvqfhm: opt; do
       case $opt in
       c)
          DO_CHECK=1
@@ -2210,6 +2238,9 @@ parse_options() {
          ;;
       x)
          DEBUG=1
+         ;;
+      v)
+         VERBOSE=1
          ;;
       s)
          DEBUGSHELL=1

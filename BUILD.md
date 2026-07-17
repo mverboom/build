@@ -56,6 +56,13 @@ Quiet output.
 Specify once will still show output on succesfull and failed builds.
 Specify twice will not show output.
 
+`-v`
+Verbose output. Show command output that is normally suppressed (e.g. the
+`apt-get update`/`apt-get install` run by the container entrypoint to install
+build dependencies). Errors from such commands are always surfaced (and written
+to the build log) even without `-v`; `-v` additionally shows the full successful
+output.
+
 `-x`
 Enable debugging output
 
