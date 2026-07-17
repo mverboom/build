@@ -136,18 +136,23 @@ if [[ -f "/tmp/build-cmd.sh" ]]; then
    # of `cat`/`tee` was used, masking build failures).
    build_rc=0
    if [[ -n "${HOST_UID:-}" ]]; then
-      # Run as builduser, capture output to log file and stdout (append, so
+      # Run as builduser, capturing all output to the log file (append, so
       # any dependency-setup output already written to the log is preserved).
+      # The log is echoed to stdout only in verbose mode, or on failure so
+      # errors are visible (matching run_pkg behaviour for dependency installs).
       su builduser -s /bin/bash /tmp/run-build.sh >> "${log_file}" 2>&1
       build_rc=$?
       # Fix ownership of log file (created by root, should be builduser)
       chown builduser:builduser "${log_file}" 2>/dev/null || true
-      # Output the log file to stdout so docker logs can capture it
-      cat "${log_file}"
+      if [[ "${B_VERBOSE:-0}" == "1" ]] || (( build_rc != 0 )); then
+         cat "${log_file}"
+      fi
    else
       /tmp/run-build.sh >> "${log_file}" 2>&1
       build_rc=$?
-      cat "${log_file}"
+      if [[ "${B_VERBOSE:-0}" == "1" ]] || (( build_rc != 0 )); then
+         cat "${log_file}"
+      fi
    fi
 
    # On failure with DEBUGSHELL enabled, keep the container alive so the user
@@ -176,11 +181,15 @@ elif [[ -f "/tmp/package-cmd.sh" ]]; then
       su builduser -s /bin/bash /tmp/run-build.sh >> "${log_file}" 2>&1
       pkg_rc=$?
       chown builduser:builduser "${log_file}" 2>/dev/null || true
-      cat "${log_file}"
+      if [[ "${B_VERBOSE:-0}" == "1" ]] || (( pkg_rc != 0 )); then
+         cat "${log_file}"
+      fi
    else
       /tmp/run-build.sh >> "${log_file}" 2>&1
       pkg_rc=$?
-      cat "${log_file}"
+      if [[ "${B_VERBOSE:-0}" == "1" ]] || (( pkg_rc != 0 )); then
+         cat "${log_file}"
+      fi
    fi
    exit "${pkg_rc}"
 else
