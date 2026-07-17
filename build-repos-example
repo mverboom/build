@@ -1,0 +1,64 @@
+# Example per-distro apt/repository configuration.
+#
+# Copy to ~/.build-repos.d/<distro>  (e.g. ~/.build-repos.d/trixie,
+# ~/.build-repos.d/bookworm, or ~/.build-repos.d/debian-trixie).
+# The file is a sourced bash script; only the distro being built for
+# (selected with -d / BUILDDISTRO) is loaded. If no file exists for a distro,
+# the standard Debian default repositories are used with no custom proxy.
+#
+# Docker builds NEVER read the host OS's /etc/apt -- all repositories, proxies,
+# signing keys and credentials come from here (or from the Debian defaults).
+
+# Generic proxy to use for generic commands (B_GET, wget, git, ...) and for
+# apt unless overridden per repository. Optional: leave unset/commented for a
+# direct connection. Overrides the global PROXY from ~/.buildrc for this distro.
+PROXY="http://proxy.example.net:8080"
+
+# Drop the standard Debian default repositories? 0 = keep them (default), 1 =
+# use only the repositories declared below.
+NO_DEFAULT_REPOS=0
+
+# Replace the default repositories with your own. Only meaningful when
+# NO_DEFAULT_REPOS=1. Multi-line; written verbatim as a sources .list file.
+#DEFAULT_REPOS="deb http://deb.debian.org/debian trixie main contrib non-free non-free-firmware
+#deb http://deb.debian.org/debian trixie-updates main contrib non-free non-free-firmware
+#deb http://security.debian.org/debian-security trixie-security main contrib non-free non-free-firmware"
+
+# Custom repositories. Each is one line:
+#   repo <id> key=value ...
+# Fields:
+#   url=         repository URL (required)
+#   suite=       distribution suite / codename (required)
+#   components=  space-separated components (default: main)
+#   proxy=       per-repo proxy URL, or DIRECT to bypass the generic PROXY for
+#                this repository's host
+#   auth=        HTTP basic auth as user:password (for the repository host)
+#   authfile=    path to an apt auth.conf.d credentials file (relative paths
+#                resolve against this config file's directory)
+#   key=         signing key: file:<path> (relative to this dir or absolute),
+#                url:<https-url> or a plain https:// URL
+#   signedby=    apt signed-by key id (alternative to key=)
+#   arch=        restrict to architectures, e.g. amd64,arm64
+
+# Internal repo: use the generic proxy, with auth + a local signing key.
+repo internal \
+  url=https://repo.example.net/debian \
+  suite=trixie \
+  components="main contrib" \
+  auth=builduser:s3cret \
+  key=file:./keys/repo-example-net.asc
+
+# Cache repo routed through its own proxy (a dedicated apt-cacher).
+repo upstream-cache \
+  url=http://apt-cache:3142/deb.debian.org/debian \
+  suite=trixie \
+  components=main \
+  proxy=http://apt-cache:3142
+
+# Repo that must NOT go through the generic proxy (DIRECT bypass).
+repo direct-host \
+  url=https://repo.verboom.net/debian \
+  suite=trixie \
+  components=main \
+  proxy=DIRECT \
+  key=https://repo.verboom.net/key.asc

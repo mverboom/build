@@ -24,6 +24,13 @@ DEINSTDEP=yes
 PKGPOSTFIX=myorganisation
 # Script to run after a build
 POSTBUILD="clean -c"
+# Point to a proxy hostname and port to use when connecting to network
+# resources. Optional; passed to containers as http_proxy/https_proxy. A
+# per-distro override is possible via ~/.build-repos.d/<distro>.
+#PROXY="http://proxy:8080"
+# Directory holding per-distro apt/repository configuration files (defaults to
+# ~/.build-repos.d). See BUILD.md "APT / REPOSITORIES".
+#BUILD_REPOS_DIR=$HOME/.build-repos.d
 # Build mode. On the host, builds ALWAYS run inside Docker containers;
 # native (host) builds are no longer supported. The native build path is
 # retained only for in-container use by the -S dev shell, so BUILDMODE=native

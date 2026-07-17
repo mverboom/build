@@ -52,6 +52,24 @@ PROXY=""
 # allow_insecure.
 STRICT=0
 
+# Per-distro apt/repository configuration.
+# Builds must not inherit apt config (repositories, proxies, keys, credentials)
+# from the host OS. Instead, each target distro's apt configuration is declared
+# in a file under BUILD_REPOS_DIR named after the distro (codename, or
+# family-codename). If no file exists for a distro, the standard Debian default
+# repositories are used. See BUILD.md "APT / REPOSITORIES".
+BUILD_REPOS_DIR="${BUILD_REPOS_DIR:-$HOME/.build-repos.d}"
+# State populated by load_distro_repos() and consumed by
+# docker_add_apt_config(). REPO_ORDER lists repo ids in declaration order; the
+# REPO_* associative arrays hold per-repo fields.
+NO_DEFAULT_REPOS=0
+DEFAULT_REPOS=""
+declare -A REPO_URL=() REPO_SUITE=() REPO_COMPONENTS=() REPO_PROXY=()
+declare -A REPO_AUTH=() REPO_AUTHFILE=() REPO_KEY=() REPO_ARCH=() REPO_SIGNEDBY=()
+declare -a REPO_ORDER=()
+# Path to the generated apt-config mount directory (set by docker_add_apt_config).
+_BUILD_APT_DIR=""
+
 # Docker build configuration.
 # On the host, builds always run inside Docker. The native build path is
 # retained only for in-container use (the -S dev shell), where there is no
@@ -1359,78 +1377,241 @@ distro_dir() {
    B_DISTRO="$codename"
 }
 
-# Add apt configuration mounts for Debian-based builds.
-# Mounts host's apt configuration directories to make custom repositories
-# and proxy settings available inside the container.
-# Parameters: docker_args_array_name (reference to array)
-docker_add_apt_mounts() {
-   local -n args_ref="$1"
-   local distro="${2:-}"
+# Declare a custom apt repository in a per-distro config file.
+# Usage: repo <id> key=value ...
+#   url=<url>          repository URL (required)
+#   suite=<suite>      distribution suite / codename (required)
+#   components=<c...>  space-separated components (default: main)
+#   proxy=<url|DIRECT> per-repository proxy, or DIRECT to bypass the generic
+#                      proxy for this repository's host
+#   auth=<user:pass>   HTTP basic auth credentials for the repository host
+#   authfile=<path>    path to an apt auth.conf.d credentials file (relative
+#                      paths resolve against BUILD_REPOS_DIR)
+#   key=<src>          signing key: file:<path> (relative to BUILD_REPOS_DIR or
+#                      absolute), url:<https-url> or a plain https:// URL
+#   signedby=<keyid>   optional apt signed-by key id (if key not given)
+#   arch=<archs>       restrict to architectures (e.g. amd64,arm64)
+repo() {
+   local id="$1"; shift
+   local kv k v
+   if [[ -z "${REPO_URL[$id]+x}" ]]; then
+      REPO_ORDER+=("$id")
+   fi
+   for kv in "$@"; do
+      k="${kv%%=*}"; v="${kv#*=}"
+      case "$k" in
+         url)        REPO_URL["$id"]="$v" ;;
+         suite)      REPO_SUITE["$id"]="$v" ;;
+         components) REPO_COMPONENTS["$id"]="$v" ;;
+         proxy)      REPO_PROXY["$id"]="$v" ;;
+         auth)       REPO_AUTH["$id"]="$v" ;;
+         authfile)   REPO_AUTHFILE["$id"]="$v" ;;
+         key)        REPO_KEY["$id"]="$v" ;;
+         signedby)   REPO_SIGNEDBY["$id"]="$v" ;;
+         arch)       REPO_ARCH["$id"]="$v" ;;
+         *) ERR=1 output "repo: unknown field '$k' for repository '$id'" ;;
+      esac
+   done
+}
 
-   # Only add apt mounts for Debian-based distros
+# Load per-distro apt/repository configuration.
+# Sources $BUILD_REPOS_DIR/<distro> (or <family>-<distro>) if present, which may
+# set PROXY (distro-specific generic proxy override), NO_DEFAULT_REPOS,
+# DEFAULT_REPOS and declare repositories via the `repo` helper.
+# Parameters: distro_codename
+distro_repos_load() {
+   local distro="${1:-}"
+   local cfgfile=""
+   # Reset state for this invocation.
+   REPO_ORDER=()
+   REPO_URL=() REPO_SUITE=() REPO_COMPONENTS=() REPO_PROXY=()
+   REPO_AUTH=() REPO_AUTHFILE=() REPO_KEY=() REPO_ARCH=() REPO_SIGNEDBY=()
+   NO_DEFAULT_REPOS=0
+   DEFAULT_REPOS=""
+
+   [[ -z "$distro" ]] && return 0
+
+   local f
+   for f in "${BUILD_REPOS_DIR}/${B_DISTRODIR}" "${BUILD_REPOS_DIR}/${distro}"; do
+      if [[ -f "$f" ]]; then
+         cfgfile="$f"
+         break
+      fi
+   done
+   [[ -z "$cfgfile" ]] && return 0
+
+   # Source the per-distro config. It may reference the `repo` helper and set
+   # PROXY/NO_DEFAULT_REPOS/DEFAULT_REPOS. Paths in `key=`/`authfile=` are
+   # resolved against the config file's directory by the generator.
+   # shellcheck source=/dev/null
+   source "$cfgfile"
+}
+
+# Emit the standard Debian default sources for a codename into a .list file.
+# Used when NO_DEFAULT_REPOS is not set and DEFAULT_REPOS is not provided.
+# Parameters: output_list_file codename
+_distro_default_sources() {
+   local out="$1" codename="$2"
+   local comps="main contrib non-free"
+   case "$codename" in
+      bookworm|trixie|sid) comps="main contrib non-free non-free-firmware" ;;
+   esac
+   {
+      printf 'deb http://deb.debian.org/debian %s %s\n' "$codename" "$comps"
+      if [[ "$codename" != sid ]]; then
+         printf 'deb http://deb.debian.org/debian %s-updates %s\n' "$codename" "$comps"
+         printf 'deb http://security.debian.org/debian-security %s-security %s\n' "$codename" "$comps"
+      fi
+   } > "$out"
+}
+
+# Generate the in-container apt configuration for a distro into a temp dir.
+# Produces sources.list (empty), sources.list.d/*.list, apt.conf.d/99build-proxy,
+# keyrings/*.gpg and auth.conf.d/*.conf entirely from build config -- never
+# from the host's /etc/apt. Returns the dir path on stdout.
+# Parameters: distro_codename
+distro_apt_generate() {
+   local distro="${1:-}"
+   local cfgdir
+   cfgdir=$(mktemp -d -t build-apt-XXXXXX) || { ERR=1 output "mktemp failed"; return 1; }
+   mkdir -p "$cfgdir/sources.list.d" "$cfgdir/apt.conf.d" "$cfgdir/keyrings" "$cfgdir/auth.conf.d"
+   : > "$cfgdir/sources.list"   # neutralise any image /etc/apt/sources.list
+
+   # Only generate apt config for Debian-based distros (others have no apt).
    if [[ -n "$distro" ]] && ! is_debian_distro "$distro"; then
+      printf '%s' "$cfgdir"
       return 0
    fi
 
-   # Check for apt-get to confirm it's a Debian-based container
-   # Mount sources.list for custom repositories (read-only)
-   if [[ -f /etc/apt/sources.list ]]; then
-      args_ref+=("-v" "/etc/apt/sources.list:/etc/apt/sources.list:ro")
+   # Resolve config-file-relative key/authfile paths against the config dir.
+   local cfgdir_base=""
+   local f
+   for f in "${BUILD_REPOS_DIR}/${B_DISTRODIR}" "${BUILD_REPOS_DIR}/${distro}"; do
+      [[ -f "$f" ]] && { cfgdir_base=$(dirname "$f"); break; }
+   done
+
+   # --- Sources: defaults ---
+   if [[ "${NO_DEFAULT_REPOS:-0}" == "1" ]]; then
+      : # no default sources
+   elif [[ -n "${DEFAULT_REPOS:-}" ]]; then
+      printf '%s\n' "$DEFAULT_REPOS" > "$cfgdir/sources.list.d/00-default.list"
+   else
+      _distro_default_sources "$cfgdir/sources.list.d/00-default.list" "$distro"
    fi
 
-   # Mount sources.list.d for custom repositories (read-only)
-   if [[ -d /etc/apt/sources.list.d ]]; then
-      args_ref+=("-v" "/etc/apt/sources.list.d:/etc/apt/sources.list.d:ro")
-   fi
-
-   # Mount apt.conf for proxy and other settings (read-only)
-   if [[ -f /etc/apt/apt.conf ]]; then
-      args_ref+=("-v" "/etc/apt/apt.conf:/etc/apt/apt.conf:ro")
-   fi
-
-   # Mount apt.conf.d files individually to avoid problematic hooks
-   # that reference scripts not present in the container
-   if [[ -d /etc/apt/apt.conf.d ]]; then
-      local apt_conf_file
-      for apt_conf_file in /etc/apt/apt.conf.d/*; do
-         if [[ -f "$apt_conf_file" ]]; then
-            local basename
-            basename=$(basename "$apt_conf_file")
-            # Skip files that reference scripts not likely to exist in container
-            if [[ "$basename" == *"hook"* ]] || [[ "$basename" == *"invoke"* ]]; then
-               continue
-            fi
-            args_ref+=("-v" "${apt_conf_file}:/etc/apt/apt.conf.d/${basename}:ro")
+   # --- Sources: custom repositories + per-repo proxy + keys + auth ---
+   local id url suite comps proxy key auth authfile arch signedby host opts
+   local proxyconf="$cfgdir/apt.conf.d/99build-proxy"
+   : > "$proxyconf"
+   for id in "${REPO_ORDER[@]}"; do
+      url="${REPO_URL[$id]:-}"; suite="${REPO_SUITE[$id]:-}"
+      comps="${REPO_COMPONENTS[$id]:-main}"
+      [[ -z "$url" || -z "$suite" ]] && { ERR=1 output "repo '$id': url and suite are required"; rm -rf "$cfgdir"; return 1; }
+      # host for proxy/auth directives
+      host="${url#*://}"; host="${host%%/*}"
+      # one-line sources entry with optional apt options [arch=... signed-by=...]
+      opts=""
+      [[ -n "${REPO_ARCH[$id]:-}" ]] && opts+="arch=${REPO_ARCH[$id]} "
+      if [[ -n "${REPO_KEY[$id]:-}" ]]; then
+         opts+="signed-by=/etc/apt/keyrings/${id}.gpg "
+      elif [[ -n "${REPO_SIGNEDBY[$id]:-}" ]]; then
+         opts+="signed-by=${REPO_SIGNEDBY[$id]} "
+      fi
+      if [[ -n "$opts" ]]; then
+         printf 'deb [ %s] %s %s %s\n' "${opts% }" "$url" "$suite" "$comps" > "$cfgdir/sources.list.d/${id}.list"
+      else
+         printf 'deb %s %s %s\n' "$url" "$suite" "$comps" > "$cfgdir/sources.list.d/${id}.list"
+      fi
+      # per-repo proxy directive (overrides the generic http_proxy/https_proxy
+      # env for this host; DIRECT bypasses the generic proxy).
+      proxy="${REPO_PROXY[$id]:-}"
+      if [[ -n "$proxy" && -n "$host" ]]; then
+         if [[ "$proxy" == "DIRECT" ]]; then
+            printf 'Acquire::http::Proxy::%s "DIRECT";\n' "$host" >> "$proxyconf"
+            printf 'Acquire::https::Proxy::%s "DIRECT";\n' "$host" >> "$proxyconf"
+         else
+            printf 'Acquire::http::Proxy::%s "%s";\n' "$host" "$proxy" >> "$proxyconf"
+            printf 'Acquire::https::Proxy::%s "%s";\n' "$host" "$proxy" >> "$proxyconf"
          fi
-      done
+      fi
+      # signing key import -> keyrings/<id>.gpg
+      key="${REPO_KEY[$id]:-}"
+      if [[ -n "$key" ]]; then
+         local keysrc="$key" keytmp=""
+         case "$key" in
+            file:*) keysrc="${key#file:}" ;;
+            url:*)  keysrc="${key#url:}" ;;
+         esac
+         if [[ "$key" == file:* ]]; then
+            [[ "$keysrc" != /* ]] && keysrc="$cfgdir_base/$keysrc"
+         fi
+         if [[ "$key" == url:* ]] || [[ "$key" == http* ]]; then
+            keytmp=$(mktemp) || { ERR=1 output "mktemp failed"; rm -rf "$cfgdir"; return 1; }
+            if ! wget -q --secure-protocol=TLSv1_2 -O "$keytmp" "$keysrc" 2>/dev/null \
+               && ! curl -fsSL -o "$keytmp" "$keysrc" 2>/dev/null; then
+               ERR=1 output "repo '$id': failed to fetch key $keysrc"; rm -f "$keytmp"; rm -rf "$cfgdir"; return 1
+            fi
+            keysrc="$keytmp"
+         fi
+         [[ -f "$keysrc" ]] || { ERR=1 output "repo '$id': key not found: $key"; rm -f "$keytmp"; rm -rf "$cfgdir"; return 1; }
+         if ! gpg --dearmor --yes --output "$cfgdir/keyrings/${id}.gpg" "$keysrc" 2>/dev/null; then
+            # Fallback: file may already be a binary keyring.
+            cp -f "$keysrc" "$cfgdir/keyrings/${id}.gpg" 2>/dev/null || {
+               ERR=1 output "repo '$id': failed to import key $keysrc"; rm -f "$keytmp"; rm -rf "$cfgdir"; return 1; }
+         fi
+         rm -f "$keytmp"
+      fi
+      # auth credentials -> auth.conf.d/<id>.conf
+      auth="${REPO_AUTH[$id]:-}"; authfile="${REPO_AUTHFILE[$id]:-}"
+      if [[ -n "$authfile" ]]; then
+         [[ "$authfile" != /* ]] && authfile="$cfgdir_base/$authfile"
+         cp -f "$authfile" "$cfgdir/auth.conf.d/${id}.conf" 2>/dev/null || {
+            ERR=1 output "repo '$id': authfile not found: $authfile"; rm -rf "$cfgdir"; return 1; }
+      elif [[ -n "$auth" && -n "$host" ]]; then
+         local user pass
+         user="${auth%%:*}"; pass="${auth#*:}"
+         printf 'machine %s login %s password %s\n' "$host" "$user" "$pass" > "$cfgdir/auth.conf.d/${id}.conf"
+      fi
+   done
+
+   printf '%s' "$cfgdir"
+}
+
+# Add generated apt configuration mounts for a Debian-based build.
+# Replaces the old host-/etc/apt mounting: the container's apt config is built
+# solely from build configuration (defaults + per-distro file), so builds no
+# longer depend on the host OS's repositories, proxies, keys or credentials.
+# Parameters: docker_args_array_name (reference) distro_codename
+docker_add_apt_config() {
+   local -n args_ref="$1"
+   local distro="${2:-}"
+
+   _BUILD_APT_DIR=$(distro_apt_generate "$distro") || return 1
+   local d="$_BUILD_APT_DIR"
+
+   # Replace the image's sources.list and sources.list.d entirely with our
+   # generated set (defaults + custom repos).
+   args_ref+=("-v" "${d}/sources.list:/etc/apt/sources.list:ro")
+   args_ref+=("-v" "${d}/sources.list.d:/etc/apt/sources.list.d:ro")
+
+   # Per-repo proxy directives (additive; the image's apt.conf.d is untouched).
+   if [[ -s "$d/apt.conf.d/99build-proxy" ]]; then
+      args_ref+=("-v" "${d}/apt.conf.d/99build-proxy:/etc/apt/apt.conf.d/99build-proxy:ro")
    fi
 
-   # Add direct connection exception for repositories that may not work through proxy
-   # Create a temporary file with proxy bypass configuration
-   local docker_apt_conf
-   docker_apt_conf=$(mktemp)
-   printf 'Acquire::https::Proxy::repo.verboom.net "DIRECT";\n' > "$docker_apt_conf"
-   # Clean up temp file after container starts
-   (
-      sleep 30
-      rm -f "$docker_apt_conf"
-   ) &
-   args_ref+=("-v" "${docker_apt_conf}:/etc/apt/apt.conf.d/99docker-direct:ro")
+   # Signing keys (mounted individually; image keyrings kept).
+   local kf
+   for kf in "$d"/keyrings/*.gpg; do
+      [[ -f "$kf" ]] || continue
+      args_ref+=("-v" "${kf}:/etc/apt/keyrings/$(basename "$kf"):ro")
+   done
 
-   # Mount trusted.gpg.d for repository signing keys (read-only)
-   if [[ -d /etc/apt/trusted.gpg.d ]]; then
-      args_ref+=("-v" "/etc/apt/trusted.gpg.d:/etc/apt/trusted.gpg.d:ro")
-   fi
-
-   # Mount keyrings directory if it exists (read-only)
-   if [[ -d /etc/apt/keyrings ]]; then
-      args_ref+=("-v" "/etc/apt/keyrings:/etc/apt/keyrings:ro")
-   fi
-
-   # Mount auth.conf.d for repository authentication credentials (read-only)
-   if [[ -d /etc/apt/auth.conf.d ]]; then
-      args_ref+=("-v" "/etc/apt/auth.conf.d:/etc/apt/auth.conf.d:ro")
-   fi
+   # Auth credentials (mounted individually).
+   local af
+   for af in "$d"/auth.conf.d/*.conf; do
+      [[ -f "$af" ]] || continue
+      args_ref+=("-v" "${af}:/etc/apt/auth.conf.d/$(basename "$af"):ro")
+   done
 }
 
 # Select the Docker image for a given distro name.
@@ -1717,8 +1898,9 @@ _docker_run() {
       docker_args+=("-v" "${PKGDIR}:${PKGDIR}")
    fi
 
-   # Mount apt configuration for Debian-based builds (custom repos, proxy settings)
-   docker_add_apt_mounts docker_args "${BUILDDISTRO:-}"
+   # Mount generated apt configuration for Debian-based builds (defaults +
+   # custom repos, per-repo proxy, keys, auth) -- never host /etc/apt.
+   docker_add_apt_config docker_args "${BUILDDISTRO:-}" || return 1
 
    # Pass environment variables (common set; build-only vars added below)
    _docker_env_args docker_args
@@ -1761,6 +1943,7 @@ _docker_run() {
    container_id=$(docker run -d "${docker_args[@]}" "$image")
    if [[ -z "$container_id" ]]; then
       ERR=1 output "Failed to start Docker container."
+      rm -rf "$_BUILD_APT_DIR" 2>/dev/null
       return 1
    fi
 
@@ -1801,6 +1984,7 @@ _docker_run() {
       docker exec -it -w /tmp -e PS1='\h:\w buildroot $ ' "$container_id" bash --norc
       rm -f "$sentinel"
       docker rm -f "$container_id" > /dev/null 2>&1
+      rm -rf "$_BUILD_APT_DIR" 2>/dev/null
       return 1
    fi
 
@@ -1809,6 +1993,8 @@ _docker_run() {
    exit_code=$(docker inspect --format='{{.State.ExitCode}}' "$container_id" 2>/dev/null || echo "1")
    result="$exit_code"
    docker rm "$container_id" > /dev/null 2>&1
+
+   rm -rf "$_BUILD_APT_DIR" 2>/dev/null
 
    return "$result"
 }
@@ -1881,8 +2067,9 @@ docker_shell() {
       docker_args+=("-v" "${PKGDIR}:${PKGDIR}")
    fi
 
-   # Mount apt configuration for Debian-based builds (custom repos, proxy settings)
-   docker_add_apt_mounts docker_args "$distro"
+   # Mount generated apt configuration for Debian-based builds (defaults +
+   # custom repos, per-repo proxy, keys, auth) -- never host /etc/apt.
+   docker_add_apt_config docker_args "$distro" || return 1
 
    # Mount the build script into the container so 'build' command works inside
    local build_script_path
@@ -1933,7 +2120,9 @@ docker_shell() {
    printf '\n'
 
    docker run "${docker_args[@]}" "$image"
-   return $?
+   local rc=$?
+   rm -rf "$_BUILD_APT_DIR" 2>/dev/null
+   return $rc
 }
 
 # Attach to a running Docker container for interactive debugging.
@@ -2175,6 +2364,11 @@ main() {
    # platform-agnostic B_DISTRO codename as a side effect.
    distro_dir
    export B_DISTRO
+
+   # Load per-distro apt/repository configuration (may override PROXY for this
+   # distro and declare custom repositories). Must run after distro_dir sets
+   # B_DISTRO/B_DISTRODIR and before PROXY is exported below.
+   distro_repos_load "$B_DISTRO"
 
    [[ -n "$PROXY" ]] && { export http_proxy="$PROXY"; export https_proxy="$PROXY"; }
 

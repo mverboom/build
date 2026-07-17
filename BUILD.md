@@ -108,6 +108,11 @@ The target distribution is set with `-d` / `BUILDDISTRO` and is required on the
 host. Custom Docker images live in the `docker/` directory (build them with
 `docker build -t build-<distro>:latest -f docker/Dockerfile.<distro> docker`).
 
+The container's apt configuration (repositories, proxies, signing keys and
+credentials) is generated from build configuration only -- it does not
+inherit anything from the host OS's `/etc/apt`. See the APT / REPOSITORIES
+section below.
+
 # CONFIGURATION FILE
 
 The script uses a configuration file which is located at:
@@ -197,6 +202,81 @@ complete. The included debclean script can for example be used here.
 
 `PROXY`
 Point to a proxy hostname and port to use when connecting to network resources.
+This is a generic, optional proxy: it is passed to containers as the
+`http_proxy`/`https_proxy` environment variables and is used by generic
+commands (`B_GET`, `wget`, `git`, ...). It is not mandatory; if unset, the
+build connects directly. A per-distro override is possible (see
+APT / REPOSITORIES).
+
+`BUILD_REPOS_DIR`
+Directory holding per-distro apt/repository configuration files (defaults to
+`~/.build-repos.d`). See the APT / REPOSITORIES section.
+
+# APT / REPOSITORIES
+
+Docker builds **never** read the host OS's `/etc/apt` configuration
+(repositories, proxies, signing keys, credentials). All of that comes either
+from the standard Debian defaults or from per-distro configuration files.
+
+For each target distribution there may be a configuration file, named after the
+bare codename (`~/.build-repos.d/trixie`) or the family-codename
+(`~/.build-repos.d/debian-trixie`). The file is a sourced bash script. If no
+file exists for a distro, the standard Debian default repositories are used
+with no custom proxy. An example is included as `build-repos-example`.
+
+The following may be set in a per-distro file:
+
+`PROXY`
+Optional distro-specific generic proxy. Overrides the global `PROXY` from
+`~/.buildrc` for builds of this distro.
+
+`NO_DEFAULT_REPOS`
+Set to `1` to drop the standard Debian default repositories and use only the
+custom repositories declared below. Default `0` (defaults are kept).
+
+`DEFAULT_REPOS`
+Multi-line text written verbatim as a sources `.list` file, used in place of
+the Debian defaults. Only meaningful with `NO_DEFAULT_REPOS=1`.
+
+Custom repositories are declared with the `repo` helper, one per line:
+
+    repo <id> key=value ...
+
+The fields are:
+
+`url=`         repository URL (required)
+
+`suite=`       distribution suite / codename (required)
+
+`components=`  space-separated components (default `main`)
+
+`proxy=`       per-repository proxy URL, or `DIRECT` to bypass the generic
+proxy for this repository's host. This overrides the `PROXY` for apt traffic
+to this repository only.
+
+`auth=`        HTTP basic auth credentials as `user:password`, applied to the
+repository host.
+
+`authfile=`    path to an apt `auth.conf.d` credentials file. Relative paths
+resolve against the per-distro config file's directory.
+
+`key=`         signing key: `file:<path>` (relative to the config dir or
+absolute), `url:<https-url>`, or a plain `https://` URL. The key is imported
+into the container keyring as `/etc/apt/keyrings/<id>.gpg`.
+
+`signedby=`    apt `signed-by` key id (alternative to `key=`).
+
+`arch=`        restrict the repository to architectures (e.g. `amd64,arm64`).
+
+Example:
+
+    PROXY="http://proxy.example.net:8080"
+    repo internal \
+      url=https://repo.example.net/debian suite=trixie components="main contrib" \
+      auth=builduser:s3cret key=file:./keys/repo-example-net.asc
+    repo direct-host \
+      url=https://repo.verboom.net/debian suite=trixie proxy=DIRECT \
+      key=https://repo.verboom.net/key.asc
 
 # RECIPE
 
