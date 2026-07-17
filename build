@@ -2036,6 +2036,19 @@ parse_options() {
       return 1
    fi
 
+   # Determine distribution and release (distr/rel) before selecting recipes.
+   # recipe_select_build() (used by the -a loop below) references these, so they
+   # must be set here, after getopts populated BUILDDISTRO. In Docker mode use
+   # the specified distro; otherwise detect from the running system.
+   if [[ -n "$BUILDDISTRO" ]]; then
+      IFS='-' read -r distr rel <<< "$BUILDDISTRO"
+      distr=$(printf '%s' "$distr" | tr '[:lower:]' '[:upper:]')
+      rel=$(printf '%s' "${rel:-$distr}" | tr '[:lower:]' '[:upper:]')
+   else
+      distr=$(lsb_release -i -s | tr '[:lower:]' '[:upper:]')
+      rel=$(lsb_release -c -s | tr '[:lower:]' '[:upper:]')
+   fi
+
    local recipe
    for recipe in "$@"; do
       if recipe_select_arch "$recipe"; then
@@ -2092,18 +2105,6 @@ main() {
 
    B_SARCH=$(arch_get)
    parse_options "$@" || return 1
-
-   # Determine distribution and release
-   # In Docker mode, use the specified distro; otherwise, detect from host
-   # Must be after parse_options() so BUILDDISTRO is set from -d flag
-   if [[ -n "$BUILDDISTRO" ]]; then
-      IFS='-' read -r distr rel <<< "$BUILDDISTRO"
-      distr=$(printf '%s' "$distr" | tr '[:lower:]' '[:upper:]')
-      rel=$(printf '%s' "${rel:-$distr}" | tr '[:lower:]' '[:upper:]')
-   else
-      distr=$(lsb_release -i -s | tr '[:lower:]' '[:upper:]')
-      rel=$(lsb_release -c -s | tr '[:lower:]' '[:upper:]')
-   fi
 
    # Distribution segment for the output directory (e.g. debian-trixie).
    # See distro_dir() for the derivation rules.
