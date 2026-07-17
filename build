@@ -1942,11 +1942,11 @@ _docker_run() {
    [[ -n "$PROXY" ]] && docker_args+=("-e" "http_proxy=${PROXY}" "-e" "https_proxy=${PROXY}")
 
    if [[ -n "$buildfile" && -n "$pkgcmdfile" ]]; then
-      output "Starting Docker build+package for ${B_NAME} (${image})..."
+      output "Building ${B_NAME} (${image})..."
    elif [[ -n "$buildfile" ]]; then
-      output "Starting Docker build for ${B_NAME} (${image})..."
+      output "Building ${B_NAME} (${image})..."
    else
-      output "Starting Docker package for ${B_NAME} (${image})..."
+      output "Packaging ${B_NAME} (${image})..."
    fi
 
    # Reap leftover containers from previous (possibly interrupted) runs so
