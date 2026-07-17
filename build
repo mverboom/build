@@ -63,6 +63,9 @@ DOCKER_IMAGE_PREFIX="${DOCKER_IMAGE_PREFIX:-}"
 BUILD_DEPS="${BUILD_DEPS:-}"
 SHELL_MODE=0
 ATTACH_CONTAINER=""
+# Distribution segment for the output directory (e.g. "debian-trixie").
+# Computed in main() from BUILDDISTRO (docker mode) or lsb_release (native).
+B_DISTRODIR=""
 
 # Initialize option variables (set by parse_options)
 B_FORCE=0
@@ -372,9 +375,9 @@ build() {
    _BUILD_TMP="$TMP"
 
    if [[ -n "$DESTSPLIT" ]]; then
-      B_INSTALLDIR="$DESTDIR/$B_ARCH/$B_NAME/$versiondir"
+      B_INSTALLDIR="$DESTDIR/$B_DISTRODIR/$B_ARCH/$B_NAME/$versiondir"
    else
-      B_INSTALLDIR="$DESTDIR/$B_ARCH/$B_NAME-$versiondir"
+      B_INSTALLDIR="$DESTDIR/$B_DISTRODIR/$B_ARCH/$B_NAME-$versiondir"
    fi
    (( B_FORCE == 1 )) && rm -rf "$B_INSTALLDIR"
    mkdir -p "$B_INSTALLDIR"
@@ -394,7 +397,7 @@ build() {
    # Define build environment variables and functions
    B_CACHEDIR="$CACHEDIR"
    [[ -d "$RECIPEDIR/$B_NAME.files/B_BUILD" ]] && B_FILES="$RECIPEDIR/$B_NAME.files/B_BUILD"
-   export B_VERSION B_INSTALLDIR B_ARCH B_INSTANCE B_CACHEDIR B_NAME B_BUILDNR B_FILES B_FORCE
+   export B_VERSION B_INSTALLDIR B_ARCH B_INSTANCE B_CACHEDIR B_NAME B_BUILDNR B_FILES B_FORCE B_DISTRODIR
    export B_GPGKEY B_COMMIT B_SHA256 B_ALLOW_INSECURE B_GPGKEYFILE B_STRICT
 
    # Define build environment functions (used in both native and Docker modes)
@@ -869,7 +872,7 @@ package() {
       ID="$pkg-$ID"
    fi
 
-   if [[ ! -d "$DESTDIR/$B_ARCH/$ID" ]]; then
+   if [[ ! -d "$DESTDIR/$B_DISTRODIR/$B_ARCH/$ID" ]]; then
       ERR=1 output "Version $version of $pkg is not available for packaging."
       return 1
    fi
@@ -946,9 +949,9 @@ package_deb() {
 
    local pkgdir
    if [[ -n "$DESTSPLIT" ]]; then
-      pkgdir="$DESTDIR/$B_ARCH/$pkg/$version"
+      pkgdir="$DESTDIR/$B_DISTRODIR/$B_ARCH/$pkg/$version"
    else
-      pkgdir="$DESTDIR/$B_ARCH/$pkg-$version"
+      pkgdir="$DESTDIR/$B_DISTRODIR/$B_ARCH/$pkg-$version"
    fi
 
    if [[ -z "$pkgready" ]]; then
@@ -1023,7 +1026,7 @@ package_deb() {
       else
          local -a deb_files=("$pkgdir"/*.deb)
          cp "${deb_files[@]}" "$PKGDIR"
-         pkgfile=$(basename "$DESTDIR/$B_ARCH/${P_PKGDIR}"/*.deb)
+         pkgfile=$(basename "$DESTDIR/$B_DISTRODIR/$B_ARCH/${P_PKGDIR}"/*.deb)
       fi
    fi
    printf '%s\n' "$pkgfile"
@@ -1195,9 +1198,9 @@ check_version_built() {
    fi
 
    if [[ -n "$DESTSPLIT" ]]; then
-      pkgdir="$DESTDIR/$B_ARCH/$pkg/$version"
+      pkgdir="$DESTDIR/$B_DISTRODIR/$B_ARCH/$pkg/$version"
    else
-      pkgdir="$DESTDIR/$B_ARCH/$pkg-$version"
+      pkgdir="$DESTDIR/$B_DISTRODIR/$B_ARCH/$pkg-$version"
    fi
 
    if [[ -d "$pkgdir" ]]; then
@@ -1224,6 +1227,41 @@ is_debian_distro() {
          return 1
          ;;
    esac
+}
+
+# Compute the distribution segment for the output directory.
+# Produces a family-codename string such as "debian-trixie".
+#
+# Historically each distribution had its own build server, so output was
+# split per host (DESTDIR was set per host, e.g. ~/build/<hostname>). With
+# Docker all distributions build on one host, so the target distribution is
+# encoded in the output path instead: $DESTDIR/<segment>/$B_ARCH/...
+#
+# In Docker mode, BUILDDISTRO may be given as either a bare codename
+# ("trixie") or a family-codename ("debian-trixie"). Known codenames are
+# mapped to their family. In native mode (e.g. the -S dev shell running
+# inside a container), the running system's lsb_release output is used.
+distro_dir() {
+   local family="" codename=""
+   if [[ -n "${BUILDDISTRO:-}" ]]; then
+      if [[ "$BUILDDISTRO" == *-* ]]; then
+         family="${BUILDDISTRO%%-*}"
+         codename="${BUILDDISTRO#*-}"
+      else
+         codename="$BUILDDISTRO"
+         if is_debian_distro "$codename"; then
+            family="debian"
+         else
+            family="$codename"
+         fi
+      fi
+   else
+      family=$(lsb_release -i -s 2>/dev/null | tr '[:upper:]' '[:lower:]')
+      codename=$(lsb_release -c -s 2>/dev/null | tr '[:upper:]' '[:lower:]')
+      [[ -z "$family" ]] && family="unknown"
+      [[ -z "$codename" ]] && codename="$family"
+   fi
+   printf '%s-%s' "$family" "$codename"
 }
 
 # Add apt configuration mounts for Debian-based builds.
@@ -1360,6 +1398,7 @@ docker_prepare_env() {
       # Export all B_* variables
       printf 'export B_VERSION="%s"\n' "$B_VERSION"
       printf 'export B_INSTALLDIR="%s"\n' "$B_INSTALLDIR"
+      printf 'export B_DISTRODIR="%s"\n' "$B_DISTRODIR"
       printf 'export B_ARCH="%s"\n' "$B_ARCH"
       printf 'export B_NAME="%s"\n' "$B_NAME"
       printf 'export B_BUILDNR="%s"\n' "$B_BUILDNR"
@@ -1441,9 +1480,9 @@ version="${version}"
 ID="${id_val}"
 
 if [[ -n "\$DESTSPLIT" ]]; then
-   pkgdir="\$DESTDIR/\$B_ARCH/\$pkg/\$version"
+   pkgdir="\$DESTDIR/\$B_DISTRODIR/\$B_ARCH/\$pkg/\$version"
 else
-   pkgdir="\$DESTDIR/\$B_ARCH/\$pkg-\$version"
+   pkgdir="\$DESTDIR/\$B_DISTRODIR/\$B_ARCH/\$pkg-\$version"
 fi
 if [[ ! -d "\$pkgdir" ]]; then
    ERR=1 output "Version \$version of \$pkg is not available for packaging."
@@ -1492,6 +1531,7 @@ _docker_env_args() {
    _ea_ref+=(
       "-e" "B_VERSION=${B_VERSION}"
       "-e" "B_INSTALLDIR=${B_INSTALLDIR:-}"
+      "-e" "B_DISTRODIR=${B_DISTRODIR:-}"
       "-e" "B_ARCH=${B_ARCH}"
       "-e" "B_NAME=${B_NAME}"
       "-e" "B_BUILDNR=${B_BUILDNR:-1}"
@@ -1990,6 +2030,10 @@ main() {
       rel=$(lsb_release -c -s | tr '[:lower:]' '[:upper:]')
    fi
 
+   # Distribution segment for the output directory (e.g. debian-trixie).
+   # See distro_dir() for the derivation rules.
+   B_DISTRODIR=$(distro_dir)
+
    [[ -n "$PROXY" ]] && { export http_proxy="$PROXY"; export https_proxy="$PROXY"; }
 
    # The host always builds with Docker. The native build path is retained only
@@ -2110,9 +2154,9 @@ main() {
 
                # Compute B_INSTALLDIR (normally set in build(), but we skipped it)
                if [[ -n "$DESTSPLIT" ]]; then
-                  B_INSTALLDIR="$DESTDIR/$B_ARCH/$B_NAME/$B_VERSION"
+                  B_INSTALLDIR="$DESTDIR/$B_DISTRODIR/$B_ARCH/$B_NAME/$B_VERSION"
                else
-                  B_INSTALLDIR="$DESTDIR/$B_ARCH/$B_NAME-$B_VERSION"
+                  B_INSTALLDIR="$DESTDIR/$B_DISTRODIR/$B_ARCH/$B_NAME-$B_VERSION"
                fi
                B_CACHEDIR="$CACHEDIR"
                B_FILES=""
