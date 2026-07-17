@@ -112,8 +112,9 @@ output() {
 
 # Email a build-completion summary to the address given with -m.
 # Uses the work_* arrays populated by main(). Includes a per-recipe summary
-# (build/package ok/fail with percentages) and, when any build failed, log
-# excerpts (head 5 / tail 5) for the failed recipes. No-op when no -m was given.
+# (build/package ok/fail with percentages) and, only for recipes that were
+# actually built and failed, log excerpts (head 5 / tail 5). The target
+# distribution is included in the subject. No-op when no -m was given.
 sendmail() {
    [[ -z "$email" ]] && return
    if ! command -v mail > /dev/null 2>&1; then
@@ -125,6 +126,8 @@ sendmail() {
    local buildtotal=0 built=0 pkgtotal=0 packaged=0
    local summaryok="" summaryfail=""
    local buildsubject="" pkgsubject="" subject
+   local distro_label="${BUILDDISTRO:-}"
+   [[ -z "$distro_label" ]] && distro_label=$(printf '%s' "${distr:-}" | tr '[:upper:]' '[:lower:]')
 
    for i in "${!work_recipes[@]}"; do
       pkg="${work_recipes[$i]} ${work_version[$i]}:"
@@ -165,7 +168,9 @@ sendmail() {
       if (( built < buildtotal )); then
          printf '%s\n' "Log excerpt for failed builds:"
          for i in "${!work_recipes[@]}"; do
-            [[ "${work_build[$i]:-0}" != "0" ]] && continue
+            # Only include recipes that were actually built and failed; skip
+            # ones that were already built (work_build unset) or succeeded.
+            [[ "${work_build[$i]:-}" != "0" ]] && continue
             printf '%s\n' "${work_recipes[$i]} ${work_version[$i]}:"
             log="$LOGDIR/${work_recipes[$i]}-${work_arch[${work_recipes[$i]}]}.log"
             [[ -e "$log" ]] || { printf '\n'; continue; }
@@ -177,7 +182,7 @@ sendmail() {
             printf '\n'
          done
       fi
-   } | mail -r "$HOSTNAME" -s "build completed (${subject%%, })" "$email"
+   } | mail -r "$HOSTNAME" -s "build completed${distro_label:+ $distro_label} (${subject%%, })" "$email"
 }
 
 usage() {
