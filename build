@@ -78,6 +78,7 @@ DO_CHECK=0
 DO_BUILD=0
 DO_PACKAGE=0
 DO_REPO=0
+email=""
 
 # Source configuration
 if [[ -f "$HOME/.buildrc" ]]; then
@@ -109,6 +110,76 @@ output() {
    [[ -n "${ERR:-}" ]] && (>&2 printf '%s\n' "$1") || printf '%s\n' "$1"
 }
 
+# Email a build-completion summary to the address given with -m.
+# Uses the work_* arrays populated by main(). Includes a per-recipe summary
+# (build/package ok/fail with percentages) and, when any build failed, log
+# excerpts (head 5 / tail 5) for the failed recipes. No-op when no -m was given.
+sendmail() {
+   [[ -z "$email" ]] && return
+   if ! command -v mail > /dev/null 2>&1; then
+      output "mail command not found, cannot send summary to $email"
+      return
+   fi
+
+   local i pkg log
+   local buildtotal=0 built=0 pkgtotal=0 packaged=0
+   local summaryok="" summaryfail=""
+   local buildsubject="" pkgsubject="" subject
+
+   for i in "${!work_recipes[@]}"; do
+      pkg="${work_recipes[$i]} ${work_version[$i]}:"
+      if [[ -n "${work_build[$i]:-}" ]]; then
+         buildtotal=$(( buildtotal + 1 ))
+         if (( work_build[i] == 1 )); then
+            built=$(( built + 1 ))
+            summaryok+="${pkg} build ok"
+            if [[ -n "${work_packaged[$i]:-}" ]]; then
+               pkgtotal=$(( pkgtotal + 1 ))
+               if (( work_packaged[i] == 0 )); then
+                  packaged=$(( packaged + 1 ))
+                  summaryok+=", package ok"
+               else
+                  summaryok+=", package fail"
+               fi
+            fi
+            summaryok+=$'\n'
+         else
+            summaryfail+="${pkg} build fail"$'\n'
+         fi
+      fi
+   done
+
+   # Nothing was built or packaged; don't send an empty mail.
+   (( buildtotal == 0 && pkgtotal == 0 )) && return
+
+   local buildperc=0 pkgperc=0
+   (( buildtotal > 0 )) && { buildperc=$(( built * 100 / buildtotal )); buildsubject="${buildperc}% built"; }
+   (( pkgtotal > 0 ))   && { pkgperc=$(( packaged * 100 / pkgtotal )); pkgsubject="${pkgperc}% packaged"; }
+   [[ -n "$buildsubject" || -n "$pkgsubject" ]] && subject="$buildsubject, $pkgsubject"
+
+   {
+      printf '%s\n' "Summary:"
+      [[ -n "$summaryok" ]]   && printf '%s' "$summaryok"
+      [[ -n "$summaryfail" ]] && printf '%s' "$summaryfail"
+      printf '\n'
+      if (( built < buildtotal )); then
+         printf '%s\n' "Log excerpt for failed builds:"
+         for i in "${!work_recipes[@]}"; do
+            [[ "${work_build[$i]:-0}" != "0" ]] && continue
+            printf '%s\n' "${work_recipes[$i]} ${work_version[$i]}:"
+            log="$LOGDIR/${work_recipes[$i]}-${work_arch[${work_recipes[$i]}]}.log"
+            [[ -e "$log" ]] || { printf '\n'; continue; }
+            if (( $(wc -l < "$log") > 10 )); then
+               { head -5 "$log"; printf '%s\n' "Skip middle..."; tail -5 "$log"; } | sed 's/^/  /'
+            else
+               sed 's/^/  /' "$log"
+            fi
+            printf '\n'
+         done
+      fi
+   } | mail -r "$HOSTNAME" -s "build completed (${subject%%, })" "$email"
+}
+
 usage() {
    printf '%s\n' "Usage: build [OPTION]... [RECIPE]..."
    printf '%s\n' ""
@@ -128,6 +199,7 @@ usage() {
    printf '%s\n' "   -d  Specify target distribution for Docker (required on the host, e.g., -d trixie, -d bookworm)"
    printf '%s\n' "   -i  Specify an instance for a recipe"
    printf '%s\n' "   -R  Don't remove required packages after building and skip any post build script."
+   printf '%s\n' "   -m  Mail a completion summary to the given email address."
    printf '%s\n' "   -h  This help message"
    printf '%s\n' ""
    printf '%s\n' "Docker interactive commands:"
@@ -1886,7 +1958,7 @@ parse_options() {
    B_NOPKGRM=0
    local all=0
 
-   while getopts :csbprad:i:RS:A:xqfhv: opt; do
+   while getopts :csbprad:i:RS:A:xqfhv:m: opt; do
       case $opt in
       c)
          DO_CHECK=1
@@ -1941,6 +2013,9 @@ parse_options() {
          ;;
       v)
          FORCEVERSION="$OPTARG"
+         ;;
+      m)
+         email="$OPTARG"
          ;;
       \?)
          printf '%s\n' "Unknown option: -$OPTARG"
@@ -2230,6 +2305,8 @@ main() {
       fi
       lock_free
    fi
+
+   sendmail
 
    return "$retval"
 }
