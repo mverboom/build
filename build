@@ -2092,7 +2092,11 @@ _docker_run() {
    fi
 
    # Run container detached; the entrypoint writes build output to the mounted
-   # log file and cats it to stdout for `docker logs`.
+   # log file (append) and cats it to stdout for `docker logs`. Truncate the
+   # per-recipe log first so each run starts fresh -- otherwise the entrypoint
+   # appends across runs and verbose mode replays stale output from previous
+   # builds, making failures hard to read.
+   : > "$LOGDIR/${B_NAME}-${B_ARCH}.log" 2>/dev/null || true
    container_id=$(docker run -d "${docker_args[@]}" "$image")
    if [[ -z "$container_id" ]]; then
       ERR=1 output "Failed to start Docker container."
