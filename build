@@ -1974,7 +1974,14 @@ _docker_run() {
    fi
 
    # Stream logs in the background while we wait for completion (or debug-wait).
-   docker logs -f "$container_id" 2>&1 &
+   # In quiet mode the container's log file already captures all build output;
+   # suppress the live stream so nothing leaks to the host stdout/stderr (which
+   # would, e.g., trigger an unwanted cron mail on top of the -m summary).
+   if (( QUIET >= 1 )); then
+      docker logs -f "$container_id" > /dev/null 2>&1 &
+   else
+      docker logs -f "$container_id" 2>&1 &
+   fi
    local logpid=$!
 
    # Best-effort cleanup if interrupted (Ctrl-C): remove the container so it
