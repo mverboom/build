@@ -1703,7 +1703,7 @@ docker_image_ensure() {
 
    local current=""
    if docker image inspect "$image" > /dev/null 2>&1; then
-      current=$(docker image inspect --format '{{.Config.Labels.build.image.hash}}' "$image" 2>/dev/null)
+      current=$(docker image inspect --format '{{index .Config.Labels "build.image.hash"}}' "$image" 2>/dev/null)
    fi
 
    # Up to date: nothing to do.
