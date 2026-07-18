@@ -1083,7 +1083,6 @@ package_deb() {
 
    local pkgready
    pkgready=$(recipe_item_get "$pkg" PKG pkgready) || true
-   local P_PKGDIR="${pkg}-${ID}"
 
    local pkgdir
    if [[ -n "$DESTSPLIT" ]]; then
@@ -1164,7 +1163,7 @@ package_deb() {
       else
          local -a deb_files=("$pkgdir"/*.deb)
          cp "${deb_files[@]}" "$PKGDIR"
-         pkgfile=$(basename "$DESTDIR/$B_DISTRODIR/$B_ARCH/${P_PKGDIR}"/*.deb)
+         pkgfile=$(basename "${deb_files[0]}")
       fi
    fi
    printf '%s\n' "$pkgfile"
