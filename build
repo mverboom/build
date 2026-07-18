@@ -1665,6 +1665,69 @@ docker_image_select() {
    printf '%s' "$image"
 }
 
+# Compute the content hash used to decide whether a build image is stale.
+# Hashes the entrypoint and the distro's Dockerfile together, so any change to
+# either (entrypoint logic, package list, base layer) is detected.
+# Parameters: dockerfile_path
+# Prints the sha256 on stdout; returns 1 if inputs are missing.
+_docker_image_hash() {
+   local dockerfile="$1"
+   local entrypoint="${dockerfile%/*}/entrypoint.sh"
+   [[ -f "$entrypoint" && -f "$dockerfile" ]] || return 1
+   { cat "$entrypoint"; cat "$dockerfile"; } | sha256sum | awk '{print $1}'
+}
+
+# Ensure the Docker image for a distro exists and is up to date with the
+# entrypoint and Dockerfile shipped with this script. Builds (or rebuilds) the
+# image automatically when it is missing or when its recorded content hash no
+# longer matches, so an admin never has to rebuild images by hand after an
+# entrypoint/Dockerfile change. No-op for distros that use a pulled or
+# externally configured image (no Dockerfile.<distro> found in DOCKER_DIR).
+# Parameters: distro_name
+# Returns 0 if the image is ready (or nothing to build), 1 on build failure.
+docker_image_ensure() {
+   local distro="$1"
+   local image
+   image=$(docker_image_select "$distro")
+
+   local docker_dir="${DOCKER_DIR:-${0%/*}/docker}"
+   local dockerfile="$docker_dir/Dockerfile.${distro}"
+   # No shipped Dockerfile for this distro: nothing to build (pulled image).
+   [[ -f "$dockerfile" ]] || return 0
+
+   local hash
+   hash=$(_docker_image_hash "$dockerfile") || {
+      ERR=1 output "Cannot compute image hash; missing entrypoint.sh or Dockerfile.${distro}."
+      return 1
+   }
+
+   local current=""
+   if docker image inspect "$image" > /dev/null 2>&1; then
+      current=$(docker image inspect --format '{{.Config.Labels.build.image.hash}}' "$image" 2>/dev/null)
+   fi
+
+   # Up to date: nothing to do.
+   [[ "$current" == "$hash" ]] && return 0
+
+   output -f "Rebuilding Docker image ${image} (entrypoint/Dockerfile changed)."
+   local build_log
+   build_log=$(mktemp -p "${TMPDIR:-/tmp}" build-image-XXXXXX.log)
+   local rc
+   if (( QUIET >= 1 )); then
+      docker build --label build.image.hash="$hash" -t "$image" \
+         -f "$dockerfile" "$docker_dir" > "$build_log" 2>&1
+      rc=$?
+      (( rc != 0 )) && { ERR=1 output "Docker image build failed:"; cat "$build_log" >&2; }
+   else
+      docker build --label build.image.hash="$hash" -t "$image" \
+         -f "$dockerfile" "$docker_dir"
+      rc=$?
+      (( rc != 0 )) && ERR=1 output "Docker image build failed (see output above)."
+   fi
+   rm -f "$build_log"
+   return "$rc"
+}
+
 # Remove leftover build/package containers from previous runs.
 # Each build container is labelled build.system=build; any that are still
 # around (exited) when a new run starts are leftovers from an interrupted or
@@ -2061,15 +2124,11 @@ docker_shell() {
    local image
    image=$(docker_image_select "$distro")
 
-   # Check that the Docker image exists
+   # Build/rebuild the image automatically if missing or stale; for distros
+   # without a shipped Dockerfile (pulled images) this is a no-op.
+   docker_image_ensure "$distro" || return 1
    if ! docker image inspect "$image" > /dev/null 2>&1; then
-      ERR=1 output "Docker image '$image' not found. Build it first with:"
-      local dockerfile="${DOCKER_DIR:-${0%/*}/docker}/Dockerfile.${distro}"
-      if [[ -f "$dockerfile" ]]; then
-         ERR=1 output "  docker build -t $image -f $dockerfile ${dockerfile%/*}"
-      else
-         ERR=1 output "  docker pull $image"
-      fi
+      ERR=1 output "Docker image '$image' not found. Pull it with: docker pull $image"
       return 1
    fi
 
@@ -2439,6 +2498,13 @@ main() {
       if [[ "$BUILDMODE" == "docker" ]]; then
          [[ -n "$BUILDDISTRO" ]] || { ERR=1 output "Docker builds require --distro (-d) to be specified (e.g., -d bookworm)."; return 1; }
       fi
+   fi
+
+   # In Docker mode, make sure the target image exists and is up to date with
+   # the shipped entrypoint/Dockerfile before we start any build or package
+   # work (no-op for check-only runs and for pulled-image distros).
+   if [[ "$BUILDMODE" == "docker" ]] && (( DO_BUILD != 0 || DO_PACKAGE != 0 )); then
+      docker_image_ensure "$BUILDDISTRO" || return 1
    fi
 
    # Handle --attach mode: re-attach to a running Docker container
