@@ -112,6 +112,17 @@ else
    :
 fi
 
+# If /tmp is a bind mount from a host directory (BUILDDOCKERTMP), remove
+# leftover source trees from previous runs so checkouts/extractions don't
+# collide (e.g. "git clone" refuses an existing destination). The read-only
+# bind-mounted build scripts are preserved. Runs as root; builduser-owned
+# extractions are removed too. On the default ephemeral /tmp this is a no-op.
+if [[ "${B_DOCKERTMP:-0}" == "1" ]]; then
+   find /tmp -mindepth 1 -maxdepth 1 \
+      ! -name 'build-env.sh' ! -name 'build-cmd.sh' ! -name 'package-cmd.sh' \
+      -exec rm -rf {} + 2>/dev/null || true
+fi
+
 # --- Execute build and/or package commands ---
 
 if [[ -f "/tmp/build-cmd.sh" ]]; then

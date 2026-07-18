@@ -82,6 +82,16 @@ DOCKER_IMAGE_PREFIX="${DOCKER_IMAGE_PREFIX:-}"
 BUILD_DEPS="${BUILD_DEPS:-}"
 SHELL_MODE=0
 ATTACH_CONTAINER=""
+# Host directory bind-mounted over the container's /tmp during builds, so
+# large source extractions land on a volume with free space instead of the
+# container's (potentially small) writable layer. Empty = use the container's
+# own /tmp (default behaviour). See BUILD.md "DOCKER / STORAGE".
+BUILDDOCKERTMP="${BUILDDOCKERTMP:-}"
+# Automatic Docker cleanup before each build session. "yes"/"on"/1 prunes
+# dangling images and build cache (leftovers from interrupted/failed builds;
+# keeps base images). "full"/"all" also removes unused images (aggressive:
+# base images get rebuilt on the next build). Empty/"no"/0 = off.
+DOCKERAUTOPRUNE="${DOCKERAUTOPRUNE:-}"
 # Distribution segment for the output directory (e.g. "debian-trixie").
 # Computed in main() from BUILDDISTRO (docker mode) or lsb_release (native).
 B_DISTRODIR=""
@@ -1746,6 +1756,33 @@ _docker_reap() {
    docker rm -f "${ids[@]}" > /dev/null 2>&1
 }
 
+# Best-effort Docker cleanup run once before each build session. Removes the
+# leftovers of interrupted/failed builds (dangling images and build cache) so
+# /var/lib/docker does not fill up and starve container writable layers of
+# space. Controlled by DOCKERAUTOPRUNE in ~/.buildrc:
+#   yes/on/1 - prune dangling images + build cache (safe; keeps base images)
+#   full/all - also remove unused images (aggressive: base images are rebuilt
+#              by docker_image_ensure on the next build)
+#   anything else / empty - off
+# Never fatal: a prune failure is reported but does not block the build.
+_docker_autoprune() {
+   local mode="${DOCKERAUTOPRUNE:-}"
+   case "$mode" in
+      ""|0|no|off|No|Off|NO|OFF) return 0 ;;
+      yes|on|1|full|all|YES|ON|FULL|ALL) : ;;
+      *) output "DOCKERAUTOPRUNE: unknown value '$mode' (expected yes, full or off)"; return 0 ;;
+   esac
+   command -v docker > /dev/null 2>&1 || return 0
+   output "Docker auto-prune (mode=$mode): removing dangling images and build cache..."
+   docker image prune -f > /dev/null 2>&1 || true
+   docker builder prune -f > /dev/null 2>&1 || true
+   if [[ "$mode" == "full" || "$mode" == "all" || "$mode" == "FULL" || "$mode" == "ALL" ]]; then
+      output "Docker auto-prune (full): removing unused images (base images will be rebuilt)..."
+      docker image prune -a -f > /dev/null 2>&1 || true
+   fi
+   return 0
+}
+
 # Prepare the build environment script for use inside a Docker container.
 # Writes all exported variables and function definitions to a script file
 # that will be sourced inside the container.
@@ -1960,6 +1997,32 @@ _docker_run() {
    )
    # CACHEDIR is only needed for builds; package-only runs don't use it.
    [[ $build_mode == 1 ]] && docker_args+=("-v" "$(readlink -f "$CACHEDIR"):${CACHEDIR}")
+
+   # Optional: bind-mount a host directory over the container's /tmp so large
+   # source extractions land on a volume with space instead of the container's
+   # small writable layer (BUILDDOCKERTMP in ~/.buildrc). Build-only; /tmp is
+   # where the entrypoint extracts sources. The read-only build-script file
+   # mounts below stack on top of this directory bind, so it MUST appear in
+   # docker_args before those file mounts.
+   local docker_tmp=0
+   if [[ $build_mode == 1 && -n "${BUILDDOCKERTMP:-}" ]]; then
+      local bdt_real
+      bdt_real=$(readlink -f "$BUILDDOCKERTMP" 2>/dev/null) || bdt_real="$BUILDDOCKERTMP"
+      if ! mkdir -p "$bdt_real" 2>/dev/null; then
+         ERR=1 output "BUILDDOCKERTMP: cannot create directory $bdt_real"
+         return 1
+      fi
+      docker_args+=("-v" "${bdt_real}:/tmp")
+      docker_tmp=1
+      # Ensure the symlink-target base dir is mounted so the path resolves
+      # inside the container (same logic as the symlink-base loop below).
+      local bdt_base
+      bdt_base=$(dirname "$bdt_real")
+      if [[ "$bdt_base" != "$HOME" && "$bdt_base" != "$RECIPEDIR" && "$bdt_base" != "$CACHEDIR" && "$bdt_base" != "$DESTDIR" && "$bdt_base" != "$LOGDIR" ]]; then
+         docker_args+=("-v" "${bdt_base}:${bdt_base}")
+      fi
+   fi
+
    docker_args+=(
       "-v" "$(readlink -f "$DESTDIR"):${DESTDIR}"
       "-v" "$(readlink -f "$LOGDIR"):${LOGDIR}"
@@ -1998,6 +2061,7 @@ _docker_run() {
          "-e" "B_FILES=${B_FILES:-}"
          "-e" "B_FORCE=${B_FORCE}"
          "-e" "BUILD_DEPS=${BUILD_DEPS:-}"
+         "-e" "B_DOCKERTMP=${docker_tmp}"
       )
    fi
 
@@ -2504,6 +2568,7 @@ main() {
    # the shipped entrypoint/Dockerfile before we start any build or package
    # work (no-op for check-only runs and for pulled-image distros).
    if [[ "$BUILDMODE" == "docker" ]] && (( DO_BUILD != 0 || DO_PACKAGE != 0 )); then
+      _docker_autoprune
       docker_image_ensure "$BUILDDISTRO" || return 1
    fi
 

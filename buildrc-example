@@ -38,6 +38,17 @@ POSTBUILD="clean -c"
 BUILDMODE=docker
 # Target distribution for Docker builds (REQUIRED on the host, e.g., trixie, bookworm)
 BUILDDISTRO=bookworm
+# Host directory bind-mounted over the container's /tmp during builds, so
+# large source checkouts are extracted onto a volume with free space instead
+# of the container's (potentially small) writable layer. Set this to a path on
+# a roomy volume when the Docker storage root is tight. Empty = use the
+# container's own /tmp (default behaviour).
+#BUILDDOCKERTMP=/home/builduser.orig/buildtmp
+# Automatic Docker cleanup before each build session. "yes" prunes dangling
+# images and build cache (leftovers from interrupted/failed builds; keeps base
+# images). "full" also removes unused images (aggressive: base images get
+# rebuilt on the next build). Empty = off (no automatic pruning).
+#DOCKERAUTOPRUNE=yes
 # Docker image names per distro (optional, overrides default mapping)
 #DOCKER_IMAGE_TRIXIE=debian:trixie
 # Docker image prefix for custom images (optional)
