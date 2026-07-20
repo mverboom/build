@@ -961,38 +961,36 @@ package_buildnr_get() {
 # Copy built packages to the repository.
 # Parameters: package files to push
 package_torepo() {
-   local type
-   local pkg
-   local pkgs="$*"
-   local -A splittype
+   local pkg type
+   local -a deb_pkgs=()
+   local -A unknown_types=()
    local RET=0
 
-   for pkg in $pkgs; do
+   for pkg in "$@"; do
       type="${pkg/*./}"
-      if [[ -z "${splittype[$type]:-}" ]]; then
-         splittype["$type"]="$pkg"
-      else
-         splittype["$type"]="${splittype[$type]} $pkg"
-      fi
-   done
-
-   cd "$PKGDIR" || return 1
-   for type in "${!splittype[@]}"; do
       case "$type" in
       "deb")
-         if [[ -n "${TODEBREPO:-}" ]]; then
-            $TODEBREPO "${splittype[$type]}" || RET=1
-         else
-            ERR=1 output "TODEBREPO not configured"
-            RET=1
-         fi
+         deb_pkgs+=("$pkg")
          ;;
       *)
-         ERR=1 output "Copy to repository not implemented for type $type"
+         # Emit the "not implemented" error once per unknown type.
+         [[ -z "${unknown_types[$type]:-}" ]] && \
+            ERR=1 output "Copy to repository not implemented for type $type"
+         unknown_types["$type"]=1
          RET=1
          ;;
       esac
    done
+
+   cd "$PKGDIR" || return 1
+   if (( ${#deb_pkgs[@]} != 0 )); then
+      if [[ -n "${TODEBREPO:-}" ]]; then
+         $TODEBREPO "${deb_pkgs[@]}" || RET=1
+      else
+         ERR=1 output "TODEBREPO not configured"
+         RET=1
+      fi
+   fi
    return "$RET"
 }
 
