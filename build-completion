@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+#
+# Bash completion for the build script.
+#
+# Completes:
+#   * recipe names (read from RECIPEDIR in ~/.buildrc)
+#   * command-line options (-c -b -p -r -a -q -v -x -s -f -R -h
+#     and the argument-taking -d -i -S -A -m)
+#   * option arguments where a meaningful value is known:
+#       -d / -S   target distribution codename
+#       -A        running Docker container (name or id)
+#
+# Install by sourcing this file from your ~/.bashrc, or copy/symlink it into
+# /etc/bash_completion.d/ (or ~/.local/share/bash-completion/completions/).
+#
+# Copyright 2011-2019 Mark Verboom
+#
+# This file is part of Build.
+#
+#     Build is free software: you can redistribute it and/or modify
+#     it under the terms of the GNU General Public License as published by
+#     the Free Software Foundation, either version 3 of the License, or
+#     (at your option) any later version.
+#
+#     Build is distributed in the hope that it will be useful,
+#     but WITHOUT ANY WARRANTY; without even the implied warranty of
+#     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#     GNU General Public License for more details.
+#
+#     You should have received a copy of the GNU General Public License
+#     along with Build.  If not, see <http://www.gnu.org/licenses/>.
+
+# Distribution codenames recognised by build (see is_debian_distro() in build).
+_build_known_distros() {
+   printf '%s\n' \
+      trixie bookworm sid bullseye buster stretch jessie
+}
+
+# Print the recipe names found in RECIPEDIR (as declared in ~/.buildrc).
+# Returns nothing (empty completion) when the config or directory is absent.
+_build_recipe_names() {
+   local buildrc="${BUILD_BUILDRC:-$HOME/.buildrc}"
+   [[ -f "$buildrc" ]] || return 0
+
+   # Pull the last RECIPEDIR assignment out of the config without sourcing
+   # the whole file (sourcing would pollute the interactive shell).
+   local line value
+   line=$(grep -E '^[[:space:]]*RECIPEDIR=' "$buildrc" | tail -1) || return 0
+   [[ -n "$line" ]] || return 0
+
+   value="${line#*RECIPEDIR=}"
+   # Strip an optional surrounding pair of quotes.
+   value="${value#[\"\']}"
+   value="${value%[\"\']}"
+   # Expand a leading tilde and the common $HOME/$USER references that
+   # buildrc files use, without sourcing the config (which would leak its
+   # other variables into the interactive shell) or resorting to eval.
+   case "$value" in
+      '~'*) value="$HOME${value#\~}" ;;
+   esac
+   value="${value//\$HOME/$HOME}"
+   value="${value//\$USER/$USER}"
+
+   [[ -n "$value" && -d "$value" ]] || return 0
+   find -L "$value" -maxdepth 1 -name '*.recipe' -printf '%f\n' 2>/dev/null \
+      | sed 's/\.recipe$//'
+}
+
+# Completion entry point for the build command.
+_build_completions() {
+   local cur prev
+   cur=${COMP_WORDS[COMP_CWORD]}
+   prev=${COMP_WORDS[COMP_CWORD-1]}
+
+   # When the previous word is an option that takes an argument, complete
+   # the argument value rather than a new option or recipe.
+   case "$prev" in
+      -d|-S)
+         mapfile -t COMPREPLY < <(compgen -W "$(_build_known_distros)" -- "$cur")
+         return 0
+         ;;
+      -A)
+         # Offer running Docker container names and ids (if docker exists).
+         if command -v docker > /dev/null 2>&1; then
+            local containers
+            containers=$(docker ps \
+                           --format '{{.Names}}' 2>/dev/null; \
+                        docker ps \
+                           --format '{{.ID}}' 2>/dev/null)
+            mapfile -t COMPREPLY < <(compgen -W "$containers" -- "$cur")
+         fi
+         return 0
+         ;;
+      -i|-m)
+         # No meaningful static completion; leave it to the user/reader.
+         return 0
+         ;;
+   esac
+
+   # An option being typed: complete the available short options.
+   if [[ "$cur" == -* ]]; then
+      local opts="-c -b -p -r -a -q -v -x -s -f -R -h -d -i -S -A -m"
+      mapfile -t COMPREPLY < <(compgen -W "$opts" -- "$cur")
+      return 0
+   fi
+
+   # Otherwise: complete recipe names.
+   mapfile -t COMPREPLY < <(compgen -W "$(_build_recipe_names)" -- "$cur")
+   return 0
+}
+
+complete -F _build_completions build

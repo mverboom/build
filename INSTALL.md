@@ -79,6 +79,23 @@ cp build.git/toreporc-example ~/.toreporc
   In particular, set `BUILDDISTRO` to the target distribution (required on the
   host, e.g. `bookworm`).
 
+# Bash completion
+
+Tab completion for recipe names and command-line options is available via
+`build-completion`. Source it from your shell rc, or install it system-wide:
+
+```
+# per-user (add to ~/.bashrc):
+echo 'source ~/bin/build.git/build-completion' >> ~/.bashrc
+
+# system-wide:
+sudo cp ~/bin/build.git/build-completion /etc/bash_completion.d/build
+```
+
+It completes recipe names (read from `RECIPEDIR` in `~/.buildrc`), the
+`build` options, and where meaningful the option arguments (e.g. `-d`/`-S`
+distribution codenames, `-A` running Docker containers).
+
 # Example build
 
 You should now be ready to build your first recipe. Assuming you have stayed with the default
