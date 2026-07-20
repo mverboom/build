@@ -2055,9 +2055,10 @@ _docker_run() {
 
    # Also mount symlink target base dirs so chains resolve inside the container.
    # This handles cases like /home/builduser/recipes -> /home/builduser.orig/recipes
-   # where the symlink target must be reachable at its real path. Only needed
-   # for the build phase (which may checkout sources into these paths).
-   if [[ $build_mode == 1 ]]; then
+   # where the symlink target must be reachable at its real path. Needed for the
+   # build phase (which may checkout sources into these paths) AND the package
+   # phase (which reads recipe files and the build output dir).
+   if [[ $build_mode == 1 || -n "$pkgcmdfile" ]]; then
       local mount_real base_real
       for mount_real in "$home_real" "$recipes_real" "$(readlink -f "$CACHEDIR")" "$(readlink -f "$DESTDIR")" "$(readlink -f "$LOGDIR")"; do
          base_real=$(dirname "$mount_real")
