@@ -1362,19 +1362,25 @@ check_version_built() {
 
 # --- Docker domain functions ---
 
+# Print the list of known Debian-based distribution codenames that build
+# can target. Single source of truth for the supported distro set; used by
+# is_debian_distro() and by the hidden --list-distros helper (for bash
+# completion).
+known_distros() {
+   printf '%s\n' \
+      trixie bookworm sid bullseye buster stretch jessie
+}
+
 # Check if the given distro is a Debian-based distribution.
 # Parameters: distro_name
 # Returns 0 if Debian-based, 1 otherwise.
 is_debian_distro() {
    local distro="$1"
-   case "$distro" in
-      trixie|bookworm|sid|bullseye|buster|stretch|jessie)
-         return 0
-         ;;
-      *)
-         return 1
-         ;;
-   esac
+   local d
+   for d in $(known_distros); do
+      [[ "$d" == "$distro" ]] && return 0
+   done
+   return 1
 }
 
 # Compute the distribution segment for the output directory.
@@ -2517,6 +2523,15 @@ main() {
    declare -a work_build=()
    declare -a work_package=()
    declare -a work_packaged=()
+
+   # Hidden helper: print the known target distributions and exit. Used by
+   # bash completion (build-completion) as the single source of truth, so the
+   # completion does not duplicate the distro list. Runs before sanity_check
+   # to avoid requiring Docker or a valid build configuration.
+   if [[ "${1:-}" == "--list-distros" ]]; then
+      known_distros
+      return 0
+   fi
 
    sanity_check || return 1
 
