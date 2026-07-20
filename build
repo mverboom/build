@@ -1002,6 +1002,11 @@ package() {
    local pkgtype
    local ID
 
+   # Ensure B_NAME is set (build() sets it, but a package-only run -p may skip
+   # build()). Used for the per-recipe log file path so packaging output lands in
+   # the same log as the build output.
+   B_NAME="$pkg"
+
    recipe_section_get "$pkg" PKG > /dev/null || return 1
 
    if [[ -n "$B_INSTANCE" ]]; then
@@ -1144,15 +1149,23 @@ package_deb() {
       printf '%s\n' "$INFO" | sed "s/B_VERSION/$pkgversion/" | sed "s/B_ARCH/$B_ARCH/" > "$TMP/build/DEBIAN/control"
 
       cd "$TMP" || return 1
-      fakeroot dpkg --build "$TMP/build" . > "$TMP/.buildoutput"
+      local pkglog="$LOGDIR/${B_NAME}-${B_ARCH}.log"
+      # Append packaging output to the per-recipe log so build + package output
+      # for a recipe live in one place. In native mode, also show it live when
+      # not quiet; in docker mode the entrypoint already echoes the log on
+      # failure/verbose, so we don't print here (would duplicate in the log).
+      printf '\n### Packaging %s (version %s)\n' "$pkg" "$version" >> "$pkglog"
+      fakeroot dpkg --build "$TMP/build" . > "$TMP/.buildoutput" 2>&1
       local result=$?
+      cat "$TMP/.buildoutput" >> "$pkglog"
+      (( QUIET == 0 && BUILDMODE != "docker" )) && cat "$TMP/.buildoutput"
       local pkgfile
       pkgfile=$(cut -d "'" -f 4 "$TMP/.buildoutput")
       pkgfile="${pkgfile/*\//}"
 
       if (( result != 0 )); then
          rm -rf "$TMP"
-         ERR=1 output "Error while building package."
+         ERR=1 output "Error while building package (see $pkglog)."
          return 1
       fi
 
