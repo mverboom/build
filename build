@@ -489,6 +489,13 @@ build() {
    fi
 
    [[ -n "$PKGPOSTFIX" ]] && pkgs="${pkgs//B_PF/$PKGPOSTFIX}"
+   # Reset the per-container dependency list so deps from previous recipes in
+   # the same run (e.g. `build -a`) do not leak into this recipe's container.
+   # build_require() only appends to BUILD_DEPS; without a reset each successive
+   # container would be told to install the union of all preceding recipes' deps,
+   # which can over-constrain apt (e.g. grunt pulling nodejs while another recipe
+   # pulls nodejs-lts-lnw, which Conflicts nodejs).
+   BUILD_DEPS=""
    build_require "$pkgs" || return 1
 
    if [[ -n "$B_INSTANCE" ]]; then
