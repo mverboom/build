@@ -147,22 +147,31 @@ if [[ -f "/tmp/build-cmd.sh" ]]; then
    # of `cat`/`tee` was used, masking build failures).
    build_rc=0
    if [[ -n "${HOST_UID:-}" ]]; then
-      # Run as builduser, capturing all output to the log file (append, so
-      # any dependency-setup output already written to the log is preserved).
-      # The log is echoed to stdout only in verbose mode, or on failure so
-      # errors are visible (matching run_pkg behaviour for dependency installs).
-      su builduser -s /bin/bash /tmp/run-build.sh >> "${log_file}" 2>&1
-      build_rc=$?
-      # Fix ownership of log file (created by root, should be builduser)
-      chown builduser:builduser "${log_file}" 2>/dev/null || true
-      if [[ "${B_VERBOSE:-0}" == "1" ]] || (( build_rc != 0 )); then
-         cat "${log_file}"
+      # Run as builduser, appending output to the log file (so any
+      # dependency-setup output already written to the log is preserved).
+      # In verbose mode stream output live to stdout (picked up by
+      # `docker logs -f` on the host) via tee, so progress is visible while
+      # the build runs instead of only after it finishes. On failure in
+      # non-verbose mode, surface the captured log so errors are visible
+      # (matching run_pkg behaviour for dependency installs).
+      if [[ "${B_VERBOSE:-0}" == "1" ]]; then
+         su builduser -s /bin/bash /tmp/run-build.sh 2>&1 | tee -a "${log_file}"
+         build_rc=${PIPESTATUS[0]}
+      else
+         su builduser -s /bin/bash /tmp/run-build.sh >> "${log_file}" 2>&1
+         build_rc=$?
+         (( build_rc != 0 )) && cat "${log_file}"
       fi
+      # Fix ownership of log file (created/extended by root, should be builduser)
+      chown builduser:builduser "${log_file}" 2>/dev/null || true
    else
-      /tmp/run-build.sh >> "${log_file}" 2>&1
-      build_rc=$?
-      if [[ "${B_VERBOSE:-0}" == "1" ]] || (( build_rc != 0 )); then
-         cat "${log_file}"
+      if [[ "${B_VERBOSE:-0}" == "1" ]]; then
+         /tmp/run-build.sh 2>&1 | tee -a "${log_file}"
+         build_rc=${PIPESTATUS[0]}
+      else
+         /tmp/run-build.sh >> "${log_file}" 2>&1
+         build_rc=$?
+         (( build_rc != 0 )) && cat "${log_file}"
       fi
    fi
 
@@ -189,17 +198,23 @@ elif [[ -f "/tmp/package-cmd.sh" ]]; then
 
    pkg_rc=0
    if [[ -n "${HOST_UID:-}" ]]; then
-      su builduser -s /bin/bash /tmp/run-build.sh >> "${log_file}" 2>&1
-      pkg_rc=$?
-      chown builduser:builduser "${log_file}" 2>/dev/null || true
-      if [[ "${B_VERBOSE:-0}" == "1" ]] || (( pkg_rc != 0 )); then
-         cat "${log_file}"
+      if [[ "${B_VERBOSE:-0}" == "1" ]]; then
+         su builduser -s /bin/bash /tmp/run-build.sh 2>&1 | tee -a "${log_file}"
+         pkg_rc=${PIPESTATUS[0]}
+      else
+         su builduser -s /bin/bash /tmp/run-build.sh >> "${log_file}" 2>&1
+         pkg_rc=$?
+         (( pkg_rc != 0 )) && cat "${log_file}"
       fi
+      chown builduser:builduser "${log_file}" 2>/dev/null || true
    else
-      /tmp/run-build.sh >> "${log_file}" 2>&1
-      pkg_rc=$?
-      if [[ "${B_VERBOSE:-0}" == "1" ]] || (( pkg_rc != 0 )); then
-         cat "${log_file}"
+      if [[ "${B_VERBOSE:-0}" == "1" ]]; then
+         /tmp/run-build.sh 2>&1 | tee -a "${log_file}"
+         pkg_rc=${PIPESTATUS[0]}
+      else
+         /tmp/run-build.sh >> "${log_file}" 2>&1
+         pkg_rc=$?
+         (( pkg_rc != 0 )) && cat "${log_file}"
       fi
    fi
    exit "${pkg_rc}"
