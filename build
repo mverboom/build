@@ -91,7 +91,9 @@ BUILDDOCKERTMP="${BUILDDOCKERTMP:-}"
 # dangling images and build cache (leftovers from interrupted/failed builds;
 # keeps base images). "full"/"all" also removes unused images (aggressive:
 # base images get rebuilt on the next build). Empty/"no"/0 = off.
-DOCKERAUTOPRUNE="${DOCKERAUTOPRUNE:-}"
+# Defaults to "yes" so the script self-cleans without ~/.buildrc config; set
+# DOCKERAUTOPRUNE=off in ~/.buildrc to disable.
+DOCKERAUTOPRUNE="${DOCKERAUTOPRUNE:-yes}"
 # Distribution segment for the output directory (e.g. "debian-trixie").
 # Computed in main() from BUILDDISTRO (docker mode) or lsb_release (native).
 B_DISTRODIR=""
@@ -637,6 +639,11 @@ build() {
             if ! git clone "$url" "$fn"; then
                printf '%s\n' "Error cloning repository."; return 1
             fi
+            # Fetch every tag explicitly. Some upstreams (e.g. influxdb) tag
+            # releases on commits that no branch points at; git's default
+            # tag auto-follow then skips them and `git checkout v$B_VERSION`
+            # fails. --tags forces all tags (and their objects) down.
+            (cd "$fn" || exit 1; git fetch --tags origin)
             if [[ "$option" == "-s" ]]; then
                (cd "$fn" || exit; git submodule update --init --recursive)
             fi
@@ -644,9 +651,9 @@ build() {
          else
             flock -w 60 "$targetnover" tar xzf "$targetnover"
             cd "$fn" || return 1
-            git remote update
+            git fetch --tags origin
             if [[ "$(git rev-parse @)" != "$(git rev-parse '@{u}')" ]]; then
-               git pull
+               git pull --tags
                if [[ "$option" == "-s" ]]; then
                   git submodule update --init --recursive
                fi
@@ -1761,17 +1768,18 @@ docker_image_ensure() {
    return "$rc"
 }
 
-# Remove leftover build/package containers from previous runs.
-# Each build container is labelled build.system=build; any that are still
-# around (exited) when a new run starts are leftovers from an interrupted or
-# abandoned previous run and are removed so /var/lib/docker/overlay2 does not
-# accumulate. Only exited containers are removed here, so an active container
-# is never killed (concurrent builds are already prevented by the build lock).
+# Remove leftover build/package containers from previous runs. Every
+# build-system container inherits the build.image.hash label from the build
+# base image (set by docker_image_ensure), so filtering on that catches both
+# current build containers (which also carry build.system=build) and legacy
+# containers from older script versions that predate the build.system label.
+# Only exited containers are removed here, so an active container is never
+# killed (concurrent builds are already prevented by the build lock).
 # Interactive -S shells use a separate label (build.system=shell) and are left
 # alone (and clean themselves up via --rm on exit).
 _docker_reap() {
    local leftovers
-   leftovers=$(docker ps -aq --filter label=build.system=build --filter status=exited 2>/dev/null)
+   leftovers=$(docker ps -aq --filter label=build.image.hash --filter status=exited 2>/dev/null)
    [[ -z "$leftovers" ]] && return 0
    local -a ids=()
    read -ra ids <<< "$leftovers"
