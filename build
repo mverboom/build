@@ -2029,15 +2029,40 @@ _docker_run() {
 
    # Mount volumes (same paths inside and outside container).
    # Resolve symlinks for directories that may be symlinked on the host.
+   #
+   # Only the specific home sub-trees the build needs are mounted -- NOT the
+   # whole $HOME. Mounting the whole home lets build tools (cargo, gradle,
+   # cpanm, maven, ccache, npm, ...) write their caches into $HOME/.<tool> on
+   # the host, where they persist as unbounded, unintended build artifacts
+   # (the .cargo/.gradle/.cpanm/... accumulation this fixes). By leaving those
+   # paths unmounted, such writes land in the container's ephemeral writable
+   # layer and are discarded when the container is removed, so only the real
+   # build output (~/build, ~/packages, ~/log), the legitimate caches
+   # (~/cache, ~/.gnupg), and build state (~/etc) persist. The interactive
+   # dev shell (-S / docker_run_shell) still mounts the whole home, as a dev
+   # shell is expected to have the user's full environment.
    local recipes_real home_real
    recipes_real=$(readlink -f "$RECIPEDIR")
    home_real=$(readlink -f "$HOME")
-   docker_args+=(
-      "-v" "${home_real}:${HOME}"
-      "-v" "${recipes_real}:${RECIPEDIR}"
-   )
+   docker_args+=("-v" "${recipes_real}:${RECIPEDIR}")
    # CACHEDIR is only needed for builds; package-only runs don't use it.
    [[ $build_mode == 1 ]] && docker_args+=("-v" "$(readlink -f "$CACHEDIR"):${CACHEDIR}")
+   # ~/etc holds PKGLIST (build-number state), read and written in-container
+   # by B_UPDATEPKGBLD / package_deb, so it must persist and be writable.
+   [[ -d "$HOME/etc" ]] && docker_args+=("-v" "$(readlink -f "$HOME/etc"):${HOME}/etc")
+   # Credentials/config the build needs from $HOME (read-only):
+   #   .buildrc  - re-sourced by B_UPDATEPKGBLD for PKGLIST/PKGORG/PKGMAIL/...
+   #   .ssh      - SSH keys/config/known_hosts for git clone over ssh://
+   #   .gitconfig - safe even if unused (clone/verify need no commit identity)
+   [[ -f "$HOME/.buildrc" ]] && docker_args+=("-v" "$(readlink -f "$HOME/.buildrc"):${HOME}/.buildrc:ro")
+   [[ -d "$HOME/.ssh" ]] && docker_args+=("-v" "$(readlink -f "$HOME/.ssh"):${HOME}/.ssh:ro")
+   [[ -f "$HOME/.gitconfig" ]] && docker_args+=("-v" "$(readlink -f "$HOME/.gitconfig"):${HOME}/.gitconfig:ro")
+   # ~/.gnupg: persistent GPG keyring cache for B_GITCHECKOUT source-integrity
+   # verification (SECURITY.md group A1). Read-write so keys fetched from a
+   # keyserver or imported from a recipe key file persist across builds (works
+   # offline, avoids per-build re-fetch). Apt repo signing keys are separate --
+   # docker_add_apt_config mounts those at /etc/apt/keyrings.
+   [[ -d "$HOME/.gnupg" ]] && docker_args+=("-v" "$(readlink -f "$HOME/.gnupg"):${HOME}/.gnupg")
 
    # Optional: bind-mount a host directory over the container's /tmp so large
    # source extractions land on a volume with space instead of the container's
@@ -2100,11 +2125,19 @@ _docker_run() {
    # where the symlink target must be reachable at its real path. Needed for the
    # build phase (which may checkout sources into these paths) AND the package
    # phase (which reads recipe files and the build output dir).
+   #
+   # $home_real itself is deliberately excluded from the loop: mounting its
+   # base (e.g. /home) would expose the whole home tree -- including the
+   # tool-cache dot-dirs this per-subdir strategy keeps ephemeral. The guard
+   # also skips any base that is $HOME or an ancestor of it for the same
+   # reason. (A split setup where individual subdirs symlink to a *different*
+   # real home may still expose that target's tree; not present in the
+   # current deployment.)
    if [[ $build_mode == 1 || -n "$pkgcmdfile" ]]; then
       local mount_real base_real
-      for mount_real in "$home_real" "$recipes_real" "$(readlink -f "$CACHEDIR")" "$(readlink -f "$DESTDIR")" "$(readlink -f "$LOGDIR")"; do
+      for mount_real in "$recipes_real" "$(readlink -f "$CACHEDIR")" "$(readlink -f "$DESTDIR")" "$(readlink -f "$LOGDIR")" "$(readlink -f "$HOME/etc")" "$(readlink -f "$HOME/.ssh")" "$(readlink -f "$HOME/.gnupg")" "$(readlink -f "$HOME/.buildrc")" "$(readlink -f "$HOME/.gitconfig")"; do
          base_real=$(dirname "$mount_real")
-         if [[ "$base_real" != "$HOME" && "$base_real" != "$RECIPEDIR" && "$base_real" != "$CACHEDIR" && "$base_real" != "$DESTDIR" && "$base_real" != "$LOGDIR" ]]; then
+         if [[ "$base_real" != "$HOME" && "$base_real" != "$RECIPEDIR" && "$base_real" != "$CACHEDIR" && "$base_real" != "$DESTDIR" && "$base_real" != "$LOGDIR" && "$home_real" != "$base_real" && "$home_real" != "${base_real}/"* ]]; then
             docker_args+=("-v" "${base_real}:${base_real}")
          fi
       done

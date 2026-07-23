@@ -96,12 +96,22 @@ if [[ -n "${HOST_UID:-}" ]]; then
    fi
 
    # Create user if it doesn't exist
-   # Use -M to skip home dir creation (it's mounted from the host)
+   # Use -M to skip home dir creation; $HOME is created below in the
+   # container's writable layer (only specific sub-trees are bind-mounted).
    if ! id -u builduser > /dev/null 2>&1; then
       useradd -u "${HOST_UID}" -g "${HOST_GID:-${HOST_UID}}" -M builduser
    fi
 
    # Ensure mount directories are writable by builduser
+   #
+   # $HOME itself is NOT bind-mounted as a whole (only specific sub-trees are
+   # mounted: recipes, cache, build, log, packages, etc, .buildrc, .ssh,
+   # .gnupg, .gitconfig). The unmounted $HOME path exists only in the
+   # container's writable layer, so it must be created and owned by builduser
+   # for tools that write caches into $HOME/.<tool> (cargo, gradle, ...) --
+   # those writes are deliberately ephemeral and discarded with the container.
+   mkdir -p "$HOME" 2>/dev/null || true
+   chown builduser:builduser "$HOME" 2>/dev/null || true
    for dir in "${B_INSTALLDIR:-}" "${B_CACHEDIR:-}" "${DESTDIR:-}" "${LOGDIR:-}" "${PKGDIR:-}"; do
       if [[ -n "${dir:-}" ]] && [[ -d "${dir}" ]]; then
          chown -R builduser:builduser "${dir}" 2>/dev/null || true
