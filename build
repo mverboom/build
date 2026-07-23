@@ -923,6 +923,12 @@ build() {
    [[ "$DEBUG" == "1" ]] && opts+=("-x")
    opts+=("-e" "-c")
 
+   # Remove the install directory if the build is interrupted (Ctrl-C), so a
+   # half-built tree is not mistaken for a completed build on the next run.
+   # The trap is cleared once the build command (and optional debug shell) has
+   # finished; the existing result-based cleanup handles normal failure/success.
+   trap 'rm -rf "${B_INSTALLDIR:-}" 2>/dev/null; exit 130' INT TERM
+
    pushd "$TMP" > /dev/null || return 1
    if [[ "$QUIET" == "1" ]]; then
       bash "${opts[@]}" "$CMD" 2>&1 | tee "$LOGDIR/${B_NAME}-${B_ARCH}.log" > /dev/null
@@ -939,6 +945,10 @@ build() {
       printf '%s\n' ""
       PS1="\h:\w buildroot $ " bash --norc
    fi
+   # Build command phase over: clear the interrupt trap so a Ctrl-C during
+   # post-build cleanup (e.g. dependency removal on a successful build) does
+   # not wipe a valid install directory.
+   trap - INT TERM
    popd > /dev/null || return 1
    find "$TMP" -type d -print0 | xargs -0 chmod +w
    rm -rf "$TMP"
@@ -2177,7 +2187,10 @@ _docker_run() {
    # own cleanup, so try to exec a root cleanup first; if that fails (container
    # already gone) fall back to removing what the host builduser can. Leftover
    # containers are also reaped at the start of the next run.
-   trap 'kill "$logpid" 2>/dev/null; docker exec "$container_id" find /tmp -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null; docker rm -f "$container_id" > /dev/null 2>&1; [[ -n "${bdt_subdir:-}" ]] && rmdir "$bdt_subdir" 2>/dev/null; exit 130' INT TERM
+   # On Ctrl-C, also drop the install directory for build runs so a
+   # half-built tree is not mistaken for a completed build on the next run.
+   # Package-only runs (build_mode == 0) keep the (successful) install dir.
+   trap 'kill "$logpid" 2>/dev/null; docker exec "$container_id" find /tmp -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null; docker rm -f "$container_id" > /dev/null 2>&1; [[ $build_mode == 1 && -n "${B_INSTALLDIR:-}" ]] && rm -rf "$B_INSTALLDIR" 2>/dev/null; [[ -n "${bdt_subdir:-}" ]] && rmdir "$bdt_subdir" 2>/dev/null; exit 130' INT TERM
 
    local st
    while :; do
