@@ -112,16 +112,23 @@ else
    :
 fi
 
-# If /tmp is a bind mount from a host directory (BUILDDOCKERTMP), remove
-# leftover source trees from previous runs so checkouts/extractions don't
-# collide (e.g. "git clone" refuses an existing destination). The read-only
-# bind-mounted build scripts are preserved. Runs as root; builduser-owned
-# extractions are removed too. On the default ephemeral /tmp this is a no-op.
-if [[ "${B_DOCKERTMP:-0}" == "1" ]]; then
+# When /tmp is a bind mount of a host BUILDDOCKERTMP subdirectory, clean it on
+# exit so root-owned build artifacts (created by apt/dpkg/etc. during the
+# build) are removed by root -- the host builduser cannot delete them. Each
+# build gets its own fresh subdirectory (created by the host script), so there
+# are no leftovers from previous runs to clean at start; this runs at exit
+# instead. The read-only bind-mounted scripts (build-env.sh, build-cmd.sh,
+# package-cmd.sh) are skipped: they are mount points and vanish automatically
+# when the container exits. On the default ephemeral /tmp (B_DOCKERTMP=0) this
+# is a no-op. Runs as root (the entrypoint process), so it can remove files
+# owned by both root and builduser.
+bdt_cleanup() {
+   [[ "${B_DOCKERTMP:-0}" == "1" ]] || return 0
    find /tmp -mindepth 1 -maxdepth 1 \
       ! -name 'build-env.sh' ! -name 'build-cmd.sh' ! -name 'package-cmd.sh' \
       -exec rm -rf {} + 2>/dev/null || true
-fi
+}
+trap bdt_cleanup EXIT
 
 # --- Execute build and/or package commands ---
 

@@ -42,7 +42,11 @@ BUILDDISTRO=bookworm
 # large source checkouts are extracted onto a volume with free space instead
 # of the container's (potentially small) writable layer. Set this to a path on
 # a roomy volume when the Docker storage root is tight. Empty = use the
-# container's own /tmp (default behaviour).
+# container's own /tmp (default behaviour). The directory MUST have 777
+# permissions (the container's builduser writes into it); the build aborts
+# with a clear error if it does not. Each build runs in its own subdirectory
+# underneath this path, so concurrent builds do not clash and the whole tree is
+# cleaned away afterwards.
 #BUILDDOCKERTMP=/home/builduser.orig/buildtmp
 # Automatic Docker cleanup before each build session. "yes" prunes dangling
 # images and build cache (leftovers from interrupted/failed builds; keeps base

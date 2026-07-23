@@ -85,7 +85,8 @@ ATTACH_CONTAINER=""
 # Host directory bind-mounted over the container's /tmp during builds, so
 # large source extractions land on a volume with free space instead of the
 # container's (potentially small) writable layer. Empty = use the container's
-# own /tmp (default behaviour). See BUILD.md "DOCKER / STORAGE".
+# own /tmp (default behaviour). Must be 777; each build gets its own
+# subdirectory under it. See BUILD.md "DOCKER / STORAGE".
 BUILDDOCKERTMP="${BUILDDOCKERTMP:-}"
 # Automatic Docker cleanup before each build session. "yes"/"on"/1 prunes
 # dangling images and build cache (leftovers from interrupted/failed builds;
@@ -2035,14 +2036,37 @@ _docker_run() {
    # mounts below stack on top of this directory bind, so it MUST appear in
    # docker_args before those file mounts.
    local docker_tmp=0
+   local bdt_subdir=""
    if [[ $build_mode == 1 && -n "${BUILDDOCKERTMP:-}" ]]; then
-      local bdt_real
+      local bdt_real bdt_mode
       bdt_real=$(readlink -f "$BUILDDOCKERTMP" 2>/dev/null) || bdt_real="$BUILDDOCKERTMP"
       if ! mkdir -p "$bdt_real" 2>/dev/null; then
          ERR=1 output "BUILDDOCKERTMP: cannot create directory $bdt_real"
          return 1
       fi
-      docker_args+=("-v" "${bdt_real}:/tmp")
+      # BUILDDOCKERTMP must be world-writable/searchable (777). The container's
+      # builduser (same UID as the host user) writes source extractions into the
+      # bind-mounted /tmp; if the directory is not open to all the build fails
+      # deep inside with a confusing "permission denied". Check up front so the
+      # error names the cause and the fix instead of surfacing mid-build.
+      bdt_mode=$(stat -c '%a' "$bdt_real" 2>/dev/null || echo "")
+      if [[ "$bdt_mode" != "777" ]]; then
+         ERR=1 output "BUILDDOCKERTMP: $bdt_real must have 777 permissions (found ${bdt_mode:-unknown}); fix with: chmod 777 $bdt_real"
+         return 1
+      fi
+      # Create a unique per-build subdirectory under BUILDDOCKERTMP and bind-mount
+      # it over the container's /tmp. This isolates concurrent builds (no clashes
+      # from shared source-extraction names like a bare "git clone" destination)
+      # and lets the host drop the whole build tree afterwards with a single
+      # rmdir: the container runs as root and cleans the contents before exiting,
+      # so root-owned artifacts (created by apt/dpkg/etc.) are removed even though
+      # the host builduser could not delete them.
+      bdt_subdir="${bdt_real}/build-${B_NAME:-build}-$$-$RANDOM"
+      if ! mkdir -p "$bdt_subdir" 2>/dev/null || ! chmod 777 "$bdt_subdir" 2>/dev/null; then
+         ERR=1 output "BUILDDOCKERTMP: cannot create build directory $bdt_subdir"
+         return 1
+      fi
+      docker_args+=("-v" "${bdt_subdir}:/tmp")
       docker_tmp=1
       # Ensure the symlink-target base dir is mounted so the path resolves
       # inside the container (same logic as the symlink-base loop below).
@@ -2131,6 +2155,7 @@ _docker_run() {
    container_id=$(docker run -d "${docker_args[@]}" "$image")
    if [[ -z "$container_id" ]]; then
       ERR=1 output "Failed to start Docker container."
+      [[ -n "${bdt_subdir:-}" ]] && rmdir "$bdt_subdir" 2>/dev/null || true
       rm -rf "$_BUILD_APT_DIR" 2>/dev/null
       return 1
    fi
@@ -2147,8 +2172,12 @@ _docker_run() {
    local logpid=$!
 
    # Best-effort cleanup if interrupted (Ctrl-C): remove the container so it
-   # does not leak. Leftovers are also reaped at the start of the next run.
-   trap 'kill "$logpid" 2>/dev/null; docker rm -f "$container_id" > /dev/null 2>&1; exit 130' INT TERM
+   # does not leak, and drop the per-build /tmp subdirectory so root-owned
+   # artifacts do not accumulate. The container is killed before it can run its
+   # own cleanup, so try to exec a root cleanup first; if that fails (container
+   # already gone) fall back to removing what the host builduser can. Leftover
+   # containers are also reaped at the start of the next run.
+   trap 'kill "$logpid" 2>/dev/null; docker exec "$container_id" find /tmp -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null; docker rm -f "$container_id" > /dev/null 2>&1; [[ -n "${bdt_subdir:-}" ]] && rmdir "$bdt_subdir" 2>/dev/null; exit 130' INT TERM
 
    local st
    while :; do
@@ -2178,16 +2207,27 @@ _docker_run() {
       # error out.
       docker exec -it -w /tmp -e PS1='\h:\w buildroot $ ' "$container_id" bash --norc
       rm -f "$sentinel"
+      # Clean the per-build /tmp (root-owned artifacts included) while the
+      # container is still alive, then remove it and drop the now-empty subdir.
+      docker exec "$container_id" find /tmp -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
       docker rm -f "$container_id" > /dev/null 2>&1
+      [[ -n "${bdt_subdir:-}" ]] && rmdir "$bdt_subdir" 2>/dev/null || true
       rm -rf "$_BUILD_APT_DIR" 2>/dev/null
       return 1
    fi
 
    # Normal completion: capture the container's exit code and clean up.
+   # The entrypoint's exit trap already emptied the per-build /tmp subdirectory
+   # (as root), so rmdir should succeed; guard anyway in case a crashed prior
+   # run left root-owned files the host builduser cannot remove.
    local exit_code
    exit_code=$(docker inspect --format='{{.State.ExitCode}}' "$container_id" 2>/dev/null || echo "1")
    result="$exit_code"
    docker rm "$container_id" > /dev/null 2>&1
+
+   if [[ -n "${bdt_subdir:-}" ]]; then
+      rmdir "$bdt_subdir" 2>/dev/null || ERR=1 output "BUILDDOCKERTMP: could not remove $bdt_subdir (leftover root-owned files); remove manually as root"
+   fi
 
    rm -rf "$_BUILD_APT_DIR" 2>/dev/null
 
