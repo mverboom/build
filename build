@@ -2032,9 +2032,9 @@ _docker_run() {
    # Optional: bind-mount a host directory over the container's /tmp so large
    # source extractions land on a volume with space instead of the container's
    # small writable layer (BUILDDOCKERTMP in ~/.buildrc). Build-only; /tmp is
-   # where the entrypoint extracts sources. The read-only build-script file
-   # mounts below stack on top of this directory bind, so it MUST appear in
-   # docker_args before those file mounts.
+   # where the entrypoint extracts sources. The read-only build-script files
+   # are mounted under /opt/build (not /tmp) so Docker does not create
+   # root-owned placeholder files inside this bind mount.
    local docker_tmp=0
    local bdt_subdir=""
    if [[ $build_mode == 1 && -n "${BUILDDOCKERTMP:-}" ]]; then
@@ -2080,10 +2080,10 @@ _docker_run() {
    docker_args+=(
       "-v" "$(readlink -f "$DESTDIR"):${DESTDIR}"
       "-v" "$(readlink -f "$LOGDIR"):${LOGDIR}"
-      "-v" "${envfile}:/tmp/build-env.sh:ro"
+      "-v" "${envfile}:/opt/build/build-env.sh:ro"
    )
-   [[ -n "$buildfile" ]] && docker_args+=("-v" "${buildfile}:/tmp/build-cmd.sh:ro")
-   [[ -n "$pkgcmdfile" ]] && docker_args+=("-v" "${pkgcmdfile}:/tmp/package-cmd.sh:ro")
+   [[ -n "$buildfile" ]] && docker_args+=("-v" "${buildfile}:/opt/build/build-cmd.sh:ro")
+   [[ -n "$pkgcmdfile" ]] && docker_args+=("-v" "${pkgcmdfile}:/opt/build/package-cmd.sh:ro")
 
    # Also mount symlink target base dirs so chains resolve inside the container.
    # This handles cases like /home/builduser/recipes -> /home/builduser.orig/recipes

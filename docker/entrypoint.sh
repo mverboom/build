@@ -13,9 +13,9 @@
 #   HOME        - Home directory path (matching host)
 #
 # Mounted files:
-#   /tmp/build-env.sh   - Build environment (variables + functions)
-#   /tmp/build-cmd.sh   - Build command script (recipe BUILD section)
-#   /tmp/package-cmd.sh - Package command script (optional, for Phase 2)
+#   /opt/build/build-env.sh   - Build environment (variables + functions)
+#   /opt/build/build-cmd.sh   - Build command script (recipe BUILD section)
+#   /opt/build/package-cmd.sh - Package command script (optional, for Phase 2)
 
 set -u
 
@@ -117,35 +117,33 @@ fi
 # build) are removed by root -- the host builduser cannot delete them. Each
 # build gets its own fresh subdirectory (created by the host script), so there
 # are no leftovers from previous runs to clean at start; this runs at exit
-# instead. The read-only bind-mounted scripts (build-env.sh, build-cmd.sh,
-# package-cmd.sh) are skipped: they are mount points and vanish automatically
-# when the container exits. On the default ephemeral /tmp (B_DOCKERTMP=0) this
-# is a no-op. Runs as root (the entrypoint process), so it can remove files
-# owned by both root and builduser.
+# instead. The read-only build scripts live under /opt/build (outside the /tmp
+# bind mount), so /tmp holds only generated build artifacts and can be wiped
+# without excluding any mount points. On the default ephemeral /tmp
+# (B_DOCKERTMP=0) this is a no-op. Runs as root (the entrypoint process), so
+# it can remove files owned by both root and builduser.
 bdt_cleanup() {
    [[ "${B_DOCKERTMP:-0}" == "1" ]] || return 0
-   find /tmp -mindepth 1 -maxdepth 1 \
-      ! -name 'build-env.sh' ! -name 'build-cmd.sh' ! -name 'package-cmd.sh' \
-      -exec rm -rf {} + 2>/dev/null || true
+   find /tmp -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
 }
 trap bdt_cleanup EXIT
 
 # --- Execute build and/or package commands ---
 
-if [[ -f "/tmp/build-cmd.sh" ]]; then
+if [[ -f "/opt/build/build-cmd.sh" ]]; then
    # Build phase: run build command, optionally followed by package command
    # Write a wrapper script that sources the env and runs the commands.
    cat > /tmp/run-build.sh <<- 'WRAPPER'
 	#!/usr/bin/env bash
 	set -e
-	source /tmp/build-env.sh
+	source /opt/build/build-env.sh
 	cd /tmp || exit 1
-	source /tmp/build-cmd.sh
+	source /opt/build/build-cmd.sh
 	WRAPPER
 
    # If package command exists, append it to the wrapper
-   if [[ -f "/tmp/package-cmd.sh" ]]; then
-      printf '\nsource /tmp/package-cmd.sh\n' >> /tmp/run-build.sh
+   if [[ -f "/opt/build/package-cmd.sh" ]]; then
+      printf '\nsource /opt/build/package-cmd.sh\n' >> /tmp/run-build.sh
    fi
 
    chmod +x /tmp/run-build.sh
@@ -193,13 +191,13 @@ if [[ -f "/tmp/build-cmd.sh" ]]; then
       tail -f /dev/null
    fi
    exit "${build_rc}"
-elif [[ -f "/tmp/package-cmd.sh" ]]; then
+elif [[ -f "/opt/build/package-cmd.sh" ]]; then
    # Package-only phase (no build command, just package)
    cat > /tmp/run-build.sh <<- 'WRAPPER'
 	#!/usr/bin/env bash
 	set -e
-	source /tmp/build-env.sh
-	source /tmp/package-cmd.sh
+	source /opt/build/build-env.sh
+	source /opt/build/package-cmd.sh
 	WRAPPER
    chmod +x /tmp/run-build.sh
 
