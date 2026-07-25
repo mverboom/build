@@ -247,7 +247,7 @@ else
       # Configure passwordless sudo for builduser
       printf 'builduser ALL=(ALL) NOPASSWD:ALL\n' > /etc/sudoers.d/builduser
       chmod 440 /etc/sudoers.d/builduser
-      exec su builduser -s /bin/bash
+      exec su - builduser -s /bin/bash
    else
       exec /bin/bash
    fi
