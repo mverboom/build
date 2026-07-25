@@ -2141,6 +2141,34 @@ _docker_run() {
             docker_args+=("-v" "${base_real}:${base_real}")
          fi
       done
+      # Mount the real target directories of the current recipe's symlinked
+      # recipe file and .files dir so they resolve inside the container.
+      # Recipe files (and their .files companions) are commonly symlinks into
+      # a separate recipes source tree (e.g. ~/recipes.github/<name>/); only
+      # ~/recipes is bind-mounted above, so a symlink like
+      # ~/recipes/<name>.recipe -> ../recipes.github/<name>/<name>.recipe
+      # dangles inside the container unless its target directory is also
+      # mounted. The package phase reads recipe sections and
+      # <name>.files/B_DEBIAN in-container, so the targets must be reachable.
+      # No-op for real (non-symlinked) recipe files. Read-only: recipes are
+      # never written to from a build/package container.
+      local rpath rtarget rbase existing_mounts
+      for rpath in "$RECIPEDIR/$B_NAME.recipe" "$RECIPEDIR/$B_NAME.files"; do
+         [[ -L "$rpath" ]] || continue
+         rtarget=$(readlink -f "$rpath" 2>/dev/null) || continue
+         [[ -n "$rtarget" ]] || continue
+         if [[ -d "$rtarget" ]]; then
+            rbase="$rtarget"
+         else
+            rbase=$(dirname "$rtarget")
+         fi
+         # Skip $HOME / ancestors (would re-expose the whole home tree) and
+         # dirs already covered by an existing mount.
+         [[ "$rbase" == "$HOME" || "$HOME" == "$rbase"/* ]] && continue
+         existing_mounts=" ${docker_args[*]} "
+         [[ "$existing_mounts" == *" -v ${rbase}:${rbase}"* ]] && continue
+         docker_args+=("-v" "${rbase}:${rbase}:ro")
+      done
    fi
 
    # Mount PKGDIR if it exists
