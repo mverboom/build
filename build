@@ -1764,7 +1764,7 @@ docker_image_ensure() {
    local build_log
    build_log=$(mktemp -p "${TMPDIR:-/tmp}" build-image-XXXXXX.log)
    local rc
-   if (( QUIET >= 1 )); then
+   if (( VERBOSE == 0 )); then
       docker build --label build.image.hash="$hash" -t "$image" \
          -f "$dockerfile" "$docker_dir" > "$build_log" 2>&1
       rc=$?

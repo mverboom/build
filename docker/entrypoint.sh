@@ -112,11 +112,12 @@ if [[ -n "${HOST_UID:-}" ]]; then
    # those writes are deliberately ephemeral and discarded with the container.
    mkdir -p "$HOME" 2>/dev/null || true
    chown builduser:builduser "$HOME" 2>/dev/null || true
-   for dir in "${B_INSTALLDIR:-}" "${B_CACHEDIR:-}" "${DESTDIR:-}" "${LOGDIR:-}" "${PKGDIR:-}"; do
-      if [[ -n "${dir:-}" ]] && [[ -d "${dir}" ]]; then
-         chown -R builduser:builduser "${dir}" 2>/dev/null || true
-      fi
-   done
+   # 20260725 MV: Don't know why this is done, disabled, should already be correct owner
+   #for dir in "${B_INSTALLDIR:-}" "${B_CACHEDIR:-}" "${DESTDIR:-}" "${LOGDIR:-}" "${PKGDIR:-}"; do
+   #   if [[ -n "${dir:-}" ]] && [[ -d "${dir}" ]]; then
+   #      chown -R builduser:builduser "${dir}" 2>/dev/null || true
+   #   fi
+   #done
 else
    # No UID provided, run as root
    :
@@ -246,7 +247,7 @@ else
       # Configure passwordless sudo for builduser
       printf 'builduser ALL=(ALL) NOPASSWD:ALL\n' > /etc/sudoers.d/builduser
       chmod 440 /etc/sudoers.d/builduser
-      exec su builduser -s /bin/bash
+      exec su - builduser -s /bin/bash
    else
       exec /bin/bash
    fi
