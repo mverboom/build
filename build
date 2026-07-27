@@ -146,6 +146,24 @@ output() {
    [[ -n "${ERR:-}" ]] && (>&2 printf '%s\n' "$1") || printf '%s\n' "$1"
 }
 
+# Print a short head/tail excerpt of a build log to stderr. Used to surface
+# the failure reason in quiet mode (QUIET == 1): there the live Docker log
+# stream is discarded (docker logs -f > /dev/null) and the native build
+# pipeline is teed to /dev/null, so the generic "(build failed)" line
+# otherwise hides WHY it failed -- e.g. a refused/insecure B_GET URL, a
+# failed download, or a sha256 mismatch. Mirrors the excerpt format used by
+# the email summary (head 5 / tail 5 with a "Skip middle..." marker).
+# Parameters: log_file
+_log_excerpt() {
+   local log="$1"
+   [[ -e "$log" ]] || return 0
+   if (( $(wc -l < "$log") > 10 )); then
+      { head -5 "$log"; printf '%s\n' "Skip middle..."; tail -5 "$log"; } | sed 's/^/  /' >&2
+   else
+      sed 's/^/  /' "$log" >&2
+   fi
+}
+
 # Email a build-completion summary to the address given with -m.
 # Uses the work_* arrays populated by main(). Includes a per-recipe summary
 # (build/package ok/fail with percentages) and, only for recipes that were
@@ -576,12 +594,12 @@ build() {
             https://*|git@*|ssh://*|svn+ssh://*|file://*) : ;;
             http://*|git://*|svn://*)
                if [[ "${B_ALLOW_INSECURE:-0}" != "1" ]]; then
-                  output "B_GET: refusing insecure URL: $url (set allow_insecure=1 to override)"
+                  ERR=1 output -f "B_GET: refusing insecure URL: $url (set allow_insecure=1 to override)"
                   return 1
                fi
                ;;
             *)
-               output "B_GET: refusing unrecognised URL scheme: $url"
+               ERR=1 output -f "B_GET: refusing unrecognised URL scheme: $url"
                return 1
                ;;
          esac
@@ -594,14 +612,14 @@ build() {
             printf '%s\n' "Http downloading files.."
             local -a wopts=(-O "$target" --secure-protocol=TLSv1_2)
             [[ "${B_ALLOW_INSECURE:-0}" != "1" ]] && wopts+=(--https-only)
-            flock -w 60 "$target" wget "${wopts[@]}" "$url" || { rm -f "$target"; output "Error downloading file."; return 1; }
+            flock -w 60 "$target" wget "${wopts[@]}" "$url" || { rm -f "$target"; ERR=1 output -f "Error downloading file."; return 1; }
          fi
          # A3: verify checksum of the asset (fresh or cached) when sha256 is set.
          if [[ -n "${B_SHA256:-}" ]]; then
             local digest
-            digest=$(sha256sum "$target" | cut -d' ' -f1) || { output "B_GET: cannot checksum $target"; return 1; }
+            digest=$(sha256sum "$target" | cut -d' ' -f1) || { ERR=1 output -f "B_GET: cannot checksum $target"; return 1; }
             if [[ "$digest" != "$B_SHA256" ]]; then
-               output "B_GET: sha256 mismatch for $fn (got ${digest}, want ${B_SHA256})"
+               ERR=1 output -f "B_GET: sha256 mismatch for $fn (got ${digest}, want ${B_SHA256})"
                return 1
             fi
             output "B_GET: sha256 verified for $fn"
@@ -614,19 +632,19 @@ build() {
             local sfurl="$url"
             sfurl="${sfurl/http:\/\/https:\/\/}"
             url=$(wget -q --secure-protocol=TLSv1_2 --https-only -O - "$sfurl/rss?path=/" | xml2 | grep '/rss/channel/item/link' | grep "$B_VERSION" | cut -d '=' -f 2 | tail -1)
-            [[ -n "$url" ]] || { output "B_GET: no SourceForge download found for $B_VERSION"; return 1; }
+            [[ -n "$url" ]] || { ERR=1 output -f "B_GET: no SourceForge download found for $B_VERSION"; return 1; }
             url="${url/http:\/\/https:\/\/}"
             [[ -d "$targetdir" ]] || mkdir -p "$targetdir"
             printf '%s\n' "Http sf downloading files.."
             local -a wopts=(-O "$target" --secure-protocol=TLSv1_2)
             [[ "${B_ALLOW_INSECURE:-0}" != "1" ]] && wopts+=(--https-only)
-            flock -w 60 "$target" wget "${wopts[@]}" "$url" || { rm -f "$target"; output "Error downloading file."; return 1; }
+            flock -w 60 "$target" wget "${wopts[@]}" "$url" || { rm -f "$target"; ERR=1 output -f "Error downloading file."; return 1; }
          fi
          if [[ -n "${B_SHA256:-}" ]]; then
             local digest
-            digest=$(sha256sum "$target" | cut -d' ' -f1) || { output "B_GET: cannot checksum $target"; return 1; }
+            digest=$(sha256sum "$target" | cut -d' ' -f1) || { ERR=1 output -f "B_GET: cannot checksum $target"; return 1; }
             if [[ "$digest" != "$B_SHA256" ]]; then
-               output "B_GET: sha256 mismatch for $fn (got ${digest}, want ${B_SHA256})"
+               ERR=1 output -f "B_GET: sha256 mismatch for $fn (got ${digest}, want ${B_SHA256})"
                return 1
             fi
             output "B_GET: sha256 verified for $fn"
@@ -2773,6 +2791,13 @@ main() {
             build "${work_recipes[$i]}" "${work_version[$i]}"
             if [[ $? -eq 1 ]]; then
                output -f "${work_recipes[$i]} ${work_version[$i]} (build failed)"
+               # In quiet mode the live build output is suppressed, so surface a
+               # short log excerpt to stderr so the failure reason (e.g. a failed
+               # B_GET download) is visible instead of just "(build failed)".
+               if (( QUIET == 1 )); then
+                  printf '%s\n' "Log excerpt for failed build ${work_recipes[$i]} ${work_version[$i]}:" >&2
+                  _log_excerpt "$LOGDIR/${work_recipes[$i]}-${work_arch[${work_recipes[$i]}]}.log"
+               fi
                work_build[i]=0
                retval=1
             else
@@ -2861,6 +2886,10 @@ main() {
                else
                   work_packaged[i]=1
                   output -f "${work_recipes[$i]} ${work_version[$i]} (package create failed)"
+                  if (( QUIET == 1 )); then
+                     printf '%s\n' "Log excerpt for failed packaging ${work_recipes[$i]} ${work_version[$i]}:" >&2
+                     _log_excerpt "$LOGDIR/${work_recipes[$i]}-${work_arch[${work_recipes[$i]}]}.log"
+                  fi
                   retval=1
                fi
             else
@@ -2870,6 +2899,10 @@ main() {
                   output "${work_recipes[$i]} ${work_version[$i]} (package created)"
                else
                   output -f "${work_recipes[$i]} ${work_version[$i]} (package create failed)"
+                  if (( QUIET == 1 )); then
+                     printf '%s\n' "Log excerpt for failed packaging ${work_recipes[$i]} ${work_version[$i]}:" >&2
+                     _log_excerpt "$LOGDIR/${work_recipes[$i]}-${work_arch[${work_recipes[$i]}]}.log"
+                  fi
                   retval=1
                fi
             fi
