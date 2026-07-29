@@ -215,6 +215,7 @@ sendmail() {
    [[ -n "$buildsubject" || -n "$pkgsubject" ]] && subject="$buildsubject, $pkgsubject"
 
    {
+      [[ -n "${BUILD_DURATION:-}" ]] && printf '%s\n' "Build duration: $BUILD_DURATION"
       printf '%s\n' "Summary:"
       [[ -n "$summaryok" ]]   && printf '%s' "$summaryok"
       [[ -n "$summaryfail" ]] && printf '%s' "$summaryfail"
@@ -2669,6 +2670,8 @@ parse_options() {
 main() {
    local i=0
    local retval=0
+   # Reset the bash SECONDS counter so we can report how long the build ran.
+   SECONDS=0
    declare -A work_arch
    declare -A work_forcever=()
    declare -A work_instance=()
@@ -2929,6 +2932,11 @@ main() {
       fi
       lock_free
    fi
+
+   # Format the elapsed build time as HH:MM:SS for the email summary.
+   local elapsed=$SECONDS
+   BUILD_DURATION=$(printf '%02d:%02d:%02d' \
+      $((elapsed / 3600)) $(((elapsed % 3600) / 60)) $((elapsed % 60)))
 
    sendmail
 
