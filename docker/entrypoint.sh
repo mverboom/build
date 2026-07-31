@@ -19,6 +19,10 @@
 
 set -u
 
+# Non-interactive container: silence debconf warnings such as
+# "unable to initialize frontend: Dialog" during package installs.
+export DEBIAN_FRONTEND=noninteractive
+
 # Run a package-manager (or other setup) command, capturing its output.
 # Errors are ALWAYS surfaced (printed to stderr and appended to the build log);
 # the full successful output is shown only when B_VERBOSE=1.

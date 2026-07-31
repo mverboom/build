@@ -1,5 +1,7 @@
 FROM debian:bookworm
 
+ENV DEBIAN_FRONTEND=noninteractive
+
 RUN apt-get update && apt-get -y install \
     gawk grep git subversion wget fakeroot bzip2 mercurial lsb-release jq xml2 dpkg-dev sudo gnupg \
     && apt-get clean

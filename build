@@ -410,11 +410,13 @@ _sudo_pkg() {
    local logf
    logf=$(mktemp) || { "$@"; return $?; }
    local rc
+   # Silence debconf warnings (e.g. "unable to initialize frontend: Dialog")
+   # during non-interactive package installs.
    if [[ "${VERBOSE:-0}" == "1" ]]; then
-      sudo "$@" 2>&1 | tee "$logf"
+      sudo DEBIAN_FRONTEND=noninteractive "$@" 2>&1 | tee "$logf"
       rc=${PIPESTATUS[0]}
    else
-      sudo "$@" > "$logf" 2>&1
+      sudo DEBIAN_FRONTEND=noninteractive "$@" > "$logf" 2>&1
       rc=$?
       if (( rc != 0 )); then
          output -f "Command failed (exit $rc): sudo $*"
@@ -484,7 +486,7 @@ build_require_remove() {
    for pkg in $pkgs; do
       list+=("${pkg/*@/}")
    done
-   sudo apt-get -qq -y --purge remove "${list[@]}" > /dev/null
+   sudo DEBIAN_FRONTEND=noninteractive apt-get -qq -y --purge remove "${list[@]}" > /dev/null
    # TODO: Check return code
 }
 
