@@ -51,8 +51,14 @@ main() {
       filename=$(basename "$pkg")
       scp -q "$pkg" "${SERVER}:/tmp"
       # Use repo-add on the destination system to wrap whatever you are using.
-      ssh "$SERVER" "repo-add $flags $repo /tmp/$filename" || ret=1
-      rm "$pkg"
+      # Only remove the local package once repo-add succeeded, so a failed
+      # publish does not lose the built file.
+      if ssh "$SERVER" "repo-add $flags $repo /tmp/$filename"; then
+         rm "$pkg"
+      else
+         printf '%s\n' "repo-add failed for $pkg; keeping local file." >&2
+         ret=1
+      fi
    done
 
    (( ret != 0 )) && return 1

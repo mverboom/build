@@ -146,23 +146,85 @@ output() {
    [[ -n "${ERR:-}" ]] && (>&2 printf '%s\n' "$1") || printf '%s\n' "$1"
 }
 
-# Print a short head/tail excerpt of a build log to stderr. Used to surface
-# the failure reason in quiet mode (QUIET == 1): there the live Docker log
-# stream is discarded (docker logs -f > /dev/null) and the native build
-# pipeline is teed to /dev/null, so the generic "(build failed)" line
-# otherwise hides WHY it failed -- e.g. a refused/insecure B_GET URL, a
-# failed download, or a sha256 mismatch. Mirrors the excerpt format used by
-# the email summary (head 5 / tail 5 with a "Skip middle..." marker).
-# Parameters: log_file
+# Print a short head/tail excerpt of a build log. Used to surface the failure
+# reason in quiet mode (QUIET == 1): there the live Docker log stream is
+# discarded (docker logs -f > /dev/null) and the native build pipeline is
+# teed to /dev/null, so the generic "(build failed)" line otherwise hides WHY
+# it failed -- e.g. a refused/insecure B_GET URL, a failed download, or a
+# sha256 mismatch. Mirrors the excerpt format used by the email summary
+# (head 5 / tail 5 with a "Skip middle..." marker).
+# Parameters: log_file [fd]  (fd defaults to 2/stderr; use 1 for the mail body)
 _log_excerpt() {
-   local log="$1"
+   local log="$1" fd="${2:-2}"
    [[ -e "$log" ]] || return 0
    if (( $(wc -l < "$log") > 10 )); then
-      { head -5 "$log"; printf '%s\n' "Skip middle..."; tail -5 "$log"; } | sed 's/^/  /' >&2
+      { head -5 "$log"; printf '%s\n' "Skip middle..."; tail -5 "$log"; } | sed 's/^/  /' >&"$fd"
    else
-      sed 's/^/  /' "$log" >&2
+      sed 's/^/  /' "$log" >&"$fd"
    fi
 }
+
+# In quiet mode, surface a short log excerpt to stderr for a failed run.
+# Parameters: label recipe version arch
+_fail_excerpt() {
+   (( QUIET == 1 )) || return 0
+   printf '%s\n' "$1 $2 $3:" >&2
+   _log_excerpt "$LOGDIR/${2}-${4}.log"
+}
+
+# Download $url to $target over HTTPS-only wget (unless allow_insecure), under
+# a per-file flock so concurrent builds don't corrupt the cache entry.
+# Parameters: target url
+_b_wget_fetch() {
+   local target="$1" url="$2"
+   local -a wopts=(-O "$target" --secure-protocol=TLSv1_2)
+   [[ "${B_ALLOW_INSECURE:-0}" != "1" ]] && wopts+=(--https-only)
+   flock -w 60 "$target" wget "${wopts[@]}" "$url" || { rm -f "$target"; ERR=1 output -f "Error downloading file."; return 1; }
+}
+
+# Verify the SHA-256 of a cached asset (A3) when B_SHA256 is set, then copy it
+# into the build tree under $fn. Parameters: target fn
+_b_verify_copy() {
+   local target="$1" fn="$2"
+   if [[ -n "${B_SHA256:-}" ]]; then
+      local digest
+      digest=$(sha256sum "$target" | cut -d' ' -f1) || { ERR=1 output -f "B_GET: cannot checksum $target"; return 1; }
+      if [[ "$digest" != "$B_SHA256" ]]; then
+         ERR=1 output -f "B_GET: sha256 mismatch for $fn (got ${digest}, want ${B_SHA256})"
+         return 1
+      fi
+      output "B_GET: sha256 verified for $fn"
+   fi
+   flock -w 60 "$target" cp "$target" "$fn"
+}
+
+# Compose the package identity string used in PKGLIST and build-number lookups.
+# Uses B_NAME, B_VERSION, B_INSTANCE, B_ARCH from the environment.
+_b_pkg_id() {
+   if [[ -n "${B_INSTANCE:-}" ]]; then
+      printf '%s' "${B_NAME}_${B_VERSION}-${B_INSTANCE}_${B_ARCH}"
+   else
+      printf '%s' "${B_NAME}_${B_VERSION}_${B_ARCH}"
+   fi
+}
+
+# Compute the build output directory for a recipe version (with optional
+# instance suffix), honouring DESTSPLIT. Prints the path (no trailing newline).
+# Parameters: name version [instance]
+_b_installdir() {
+   local name="$1" version="$2" inst="${3:-}"
+   local versiondir="$version"
+   [[ -n "$inst" ]] && versiondir="$version-$inst"
+   if [[ -n "$DESTSPLIT" ]]; then
+      printf '%s' "$DESTDIR/$B_DISTRODIR/$B_ARCH/$name/$versiondir"
+   else
+      printf '%s' "$DESTDIR/$B_DISTRODIR/$B_ARCH/$name-$versiondir"
+   fi
+}
+
+# Exported so they are available to B_GET / B_UPDATEPKGBLD in child shells
+# (native build path) and serialized into the Docker env script.
+export -f _b_wget_fetch _b_verify_copy _b_pkg_id
 
 # Email a build-completion summary to the address given with -m.
 # Uses the work_* arrays populated by main(). Includes a per-recipe summary
@@ -180,8 +242,9 @@ sendmail() {
    local buildtotal=0 built=0 pkgtotal=0 packaged=0
    local summaryok="" summaryfail=""
    local buildsubject="" pkgsubject="" subject
-   local distro_label="${BUILDDISTRO:-}"
-   [[ -z "$distro_label" ]] && distro_label=$(printf '%s' "${distr:-}" | tr '[:upper:]' '[:lower:]')
+   # Canonical lowercased distro codename (set by distro_dir()); avoids
+   # re-deriving/re-lowercasing BUILDDISTRO or distr here.
+   local distro_label="${B_DISTRO:-}"
 
    for i in "${!work_recipes[@]}"; do
       pkg="${work_recipes[$i]} ${work_version[$i]}:"
@@ -228,12 +291,7 @@ sendmail() {
             [[ "${work_build[$i]:-}" != "0" ]] && continue
             printf '%s\n' "${work_recipes[$i]} ${work_version[$i]}:"
             log="$LOGDIR/${work_recipes[$i]}-${work_arch[${work_recipes[$i]}]}.log"
-            [[ -e "$log" ]] || { printf '\n'; continue; }
-            if (( $(wc -l < "$log") > 10 )); then
-               { head -5 "$log"; printf '%s\n' "Skip middle..."; tail -5 "$log"; } | sed 's/^/  /'
-            else
-               sed 's/^/  /' "$log"
-            fi
+            _log_excerpt "$log" 1
             printf '\n'
          done
       fi
@@ -288,7 +346,6 @@ require_software() {
       printf '%s\n' "gawk grep git svn wget bzip2 hg jq"
       ;;
    esac
-   return 1
 }
 
 # Run sanity checks before starting build operations.
@@ -403,6 +460,29 @@ recipe_section_get() {
         /^\[$label\]/ { found=1;}" "$recipe" | grep -v "^#"
 }
 
+# Fetch a recipe section, trying "$base $distr $rel", "$base $distr", then the
+# bare "$base" (uses the global distr/rel set by parse_options).
+# With -q, a missing section is silent and the function returns 1 only if no
+# section exists (BUILD selection). Without -q, sections are optional and the
+# first found content (possibly empty) is printed (REQUIRED deps).
+# Parameters: [-q] recipe base_label
+recipe_section_lookup() {
+   local quiet=0
+   [[ "${1:-}" == "-q" ]] && { quiet=1; shift; }
+   local recipe="$1" base="$2"
+   if (( quiet == 1 )); then
+      recipe_section_get -q "$recipe" "$base $distr $rel" ||
+      recipe_section_get -q "$recipe" "$base $distr" ||
+      recipe_section_get -q "$recipe" "$base"
+   else
+      local content
+      content=$(recipe_section_get "$recipe" "$base $distr $rel" opt)
+      [[ -z "$content" ]] && content=$(recipe_section_get "$recipe" "$base $distr" opt)
+      [[ -z "$content" ]] && content=$(recipe_section_get "$recipe" "$base" opt)
+      printf '%s' "$content"
+   fi
+}
+
 # Run a sudo package command, surfacing errors always and full output when
 # VERBOSE=1. Used by the native build dependency path (the -S dev shell).
 # Parameters: command [args...]
@@ -411,7 +491,9 @@ _sudo_pkg() {
    logf=$(mktemp) || { "$@"; return $?; }
    local rc
    # Silence debconf warnings (e.g. "unable to initialize frontend: Dialog")
-   # during non-interactive package installs.
+   # during non-interactive package installs. The redirect intentionally
+   # captures sudo's own stdout/stderr; sudo is not meant to affect it.
+   # shellcheck disable=SC2024
    if [[ "${VERBOSE:-0}" == "1" ]]; then
       sudo DEBIAN_FRONTEND=noninteractive "$@" 2>&1 | tee "$logf"
       rc=${PIPESTATUS[0]}
@@ -486,8 +568,7 @@ build_require_remove() {
    for pkg in $pkgs; do
       list+=("${pkg/*@/}")
    done
-   sudo DEBIAN_FRONTEND=noninteractive apt-get -qq -y --purge remove "${list[@]}" > /dev/null
-   # TODO: Check return code
+   _sudo_pkg apt-get -qq -y --purge remove "${list[@]}"
 }
 
 # Build a recipe: install dependencies, set up environment, run build commands.
@@ -495,22 +576,9 @@ build_require_remove() {
 build() {
    B_NAME="$1"
    B_VERSION="$2"
-   local versiondir
-   if [[ -n "$B_INSTANCE" ]]; then
-      versiondir="$B_VERSION-$B_INSTANCE"
-   else
-      versiondir="$B_VERSION"
-   fi
-
    # Find recipe required section if available
    local pkgs
-   pkgs=$(recipe_section_get "$B_NAME" "REQUIRED $distr $rel" opt)
-   if [[ -z "$pkgs" ]]; then
-      pkgs=$(recipe_section_get "$B_NAME" "REQUIRED $distr" opt)
-      if [[ -z "$pkgs" ]]; then
-         pkgs=$(recipe_section_get "$B_NAME" "REQUIRED" opt)
-      fi
-   fi
+   pkgs=$(recipe_section_lookup "$B_NAME" REQUIRED)
 
    [[ -n "$PKGPOSTFIX" ]] && pkgs="${pkgs//B_PF/$PKGPOSTFIX}"
    # Reset the per-container dependency list so deps from previous recipes in
@@ -522,32 +590,20 @@ build() {
    BUILD_DEPS=""
    build_require "$pkgs" || return 1
 
-   if [[ -n "$B_INSTANCE" ]]; then
-      ID="${B_NAME}_${B_VERSION}-${B_INSTANCE}_${B_ARCH}"
-   else
-      ID="${B_NAME}_${B_VERSION}_${B_ARCH}"
-   fi
+   ID=$(_b_pkg_id)
    B_BUILDNR=$(package_buildnr_get "$ID")
 
    # Find BUILD section (add extensions for distribution and distribution version)
    local CMD
-   if ! CMD=$(recipe_section_get -q "$B_NAME" "BUILD $distr $rel"); then
-      if ! CMD=$(recipe_section_get -q "$B_NAME" "BUILD $distr"); then
-         if ! CMD=$(recipe_section_get -q "$B_NAME" "BUILD"); then
-            return 1
-         fi
-      fi
+   if ! CMD=$(recipe_section_lookup -q "$B_NAME" BUILD); then
+      return 1
    fi
 
    local TMP
    TMP=$(mktemp -p "$TMPDIR" -d)
    _BUILD_TMP="$TMP"
 
-   if [[ -n "$DESTSPLIT" ]]; then
-      B_INSTALLDIR="$DESTDIR/$B_DISTRODIR/$B_ARCH/$B_NAME/$versiondir"
-   else
-      B_INSTALLDIR="$DESTDIR/$B_DISTRODIR/$B_ARCH/$B_NAME-$versiondir"
-   fi
+   B_INSTALLDIR=$(_b_installdir "$B_NAME" "$B_VERSION" "$B_INSTANCE")
    (( B_FORCE == 1 )) && rm -rf "$B_INSTALLDIR"
    mkdir -p "$B_INSTALLDIR"
 
@@ -613,21 +669,10 @@ build() {
          if [[ ! -f "$target" ]]; then
             [[ -d "$targetdir" ]] || mkdir -p "$targetdir"
             printf '%s\n' "Http downloading files.."
-            local -a wopts=(-O "$target" --secure-protocol=TLSv1_2)
-            [[ "${B_ALLOW_INSECURE:-0}" != "1" ]] && wopts+=(--https-only)
-            flock -w 60 "$target" wget "${wopts[@]}" "$url" || { rm -f "$target"; ERR=1 output -f "Error downloading file."; return 1; }
+            _b_wget_fetch "$target" "$url" || return 1
          fi
          # A3: verify checksum of the asset (fresh or cached) when sha256 is set.
-         if [[ -n "${B_SHA256:-}" ]]; then
-            local digest
-            digest=$(sha256sum "$target" | cut -d' ' -f1) || { ERR=1 output -f "B_GET: cannot checksum $target"; return 1; }
-            if [[ "$digest" != "$B_SHA256" ]]; then
-               ERR=1 output -f "B_GET: sha256 mismatch for $fn (got ${digest}, want ${B_SHA256})"
-               return 1
-            fi
-            output "B_GET: sha256 verified for $fn"
-         fi
-         flock -w 60 "$target" cp "$target" "$fn"
+         _b_verify_copy "$target" "$fn" || return 1
          ;;
       "sf")
          if [[ ! -f "$target" ]]; then
@@ -639,20 +684,9 @@ build() {
             url="${url/http:\/\/https:\/\/}"
             [[ -d "$targetdir" ]] || mkdir -p "$targetdir"
             printf '%s\n' "Http sf downloading files.."
-            local -a wopts=(-O "$target" --secure-protocol=TLSv1_2)
-            [[ "${B_ALLOW_INSECURE:-0}" != "1" ]] && wopts+=(--https-only)
-            flock -w 60 "$target" wget "${wopts[@]}" "$url" || { rm -f "$target"; ERR=1 output -f "Error downloading file."; return 1; }
+            _b_wget_fetch "$target" "$url" || return 1
          fi
-         if [[ -n "${B_SHA256:-}" ]]; then
-            local digest
-            digest=$(sha256sum "$target" | cut -d' ' -f1) || { ERR=1 output -f "B_GET: cannot checksum $target"; return 1; }
-            if [[ "$digest" != "$B_SHA256" ]]; then
-               ERR=1 output -f "B_GET: sha256 mismatch for $fn (got ${digest}, want ${B_SHA256})"
-               return 1
-            fi
-            output "B_GET: sha256 verified for $fn"
-         fi
-         flock -w 60 "$target" cp "$target" "$fn"
+         _b_verify_copy "$target" "$fn" || return 1
          ;;
       "git")
          if [[ ! -f "$targetnover" ]]; then
@@ -717,7 +751,10 @@ build() {
          else
             flock -w 60 "$targetnover" tar xzf "$targetnover"
             cd "$fn" || return 1
-            if [[ "$(hg id | cut -d' ' -f 1)" != "$(hg id "$url")" ]]; then
+            local loc_id rem_id
+            loc_id=$(hg id | cut -d' ' -f 1)
+            rem_id=$(hg id "$url")
+            if [[ "$loc_id" != "$rem_id" ]]; then
                hg pull
                cd ..
                flock -w 60 "$targetnover" tar cfz "$targetnover" "$fn"
@@ -727,18 +764,22 @@ build() {
          fi
          ;;
       "svn")
+         local -a svn_opts=(--non-interactive --trust-server-cert)
          if [[ ! -f "$targetnover" ]]; then
             [[ -d "$targetdir" ]] || mkdir -p "$targetdir"
             printf '%s\n' "Subversion downloading files.."
-            if ! svn checkout --non-interactive --trust-server-cert -q "$url" "$fn"; then
+            if ! svn checkout "${svn_opts[@]}" -q "$url" "$fn"; then
                printf '%s\n' "Error checking out repository."; return 1
             fi
             flock -w 60 "$targetnover" tar cfz "$targetnover" "$fn"
          else
             flock -w 60 "$targetnover" tar xzf "$targetnover"
             cd "$fn" || return 1
-            if [[ "$(svn info --non-interactive --trust-server-cert "$url" | grep Revision | cut -d' ' -f2)" != "$(svn info --non-interactive --trust-server-cert | grep Revision | cut -d' ' -f 2)" ]]; then
-               svn update --non-interactive --trust-server-cert
+            local rem_rev loc_rev
+            rem_rev=$(svn info "${svn_opts[@]}" "$url" | grep Revision | cut -d' ' -f2)
+            loc_rev=$(svn info "${svn_opts[@]}" | grep Revision | cut -d' ' -f2)
+            if [[ "$rem_rev" != "$loc_rev" ]]; then
+               svn update "${svn_opts[@]}"
                cd ..
                flock -w 60 "$targetnover" tar cfz "$targetnover" "$fn"
             else
@@ -844,11 +885,7 @@ build() {
       local ID
       # shellcheck source=~/.buildrc
       [[ -f "$HOME/.buildrc" ]] && source "$HOME/.buildrc"
-      if [[ -n "$B_INSTANCE" ]]; then
-         ID="${B_NAME}_${B_VERSION}-${B_INSTANCE}_${B_ARCH}"
-      else
-         ID="${B_NAME}_${B_VERSION}_${B_ARCH}"
-      fi
+      ID=$(_b_pkg_id)
       grep "^$ID" "$PKGLIST" > /dev/null && sed -i "/^$ID/d" "$PKGLIST"
       printf '%s\t%s\n' "$ID" "$B_BUILDNR" >> "$PKGLIST"
    }
@@ -1048,18 +1085,9 @@ package() {
 
    recipe_section_get "$pkg" PKG > /dev/null || return 1
 
-   if [[ -n "$B_INSTANCE" ]]; then
-      ID="$version-$B_INSTANCE"
-   else
-      ID="$version"
-   fi
-   if [[ -n "$DESTSPLIT" ]]; then
-      ID="$pkg/$ID"
-   else
-      ID="$pkg-$ID"
-   fi
-
-   if [[ ! -d "$DESTDIR/$B_DISTRODIR/$B_ARCH/$ID" ]]; then
+   local pkgpath
+   pkgpath=$(_b_installdir "$pkg" "$version" "$B_INSTANCE")
+   if [[ ! -d "$pkgpath" ]]; then
       ERR=1 output "Version $version of $pkg is not available for packaging."
       return 1
    fi
@@ -1134,11 +1162,7 @@ package_deb() {
    pkgready=$(recipe_item_get "$pkg" PKG pkgready) || true
 
    local pkgdir
-   if [[ -n "$DESTSPLIT" ]]; then
-      pkgdir="$DESTDIR/$B_DISTRODIR/$B_ARCH/$pkg/$version"
-   else
-      pkgdir="$DESTDIR/$B_DISTRODIR/$B_ARCH/$pkg-$version"
-   fi
+   pkgdir=$(_b_installdir "$pkg" "$version" "")
 
    if [[ -z "$pkgready" ]]; then
       local P_PKGNAME="${pkg}_${ID}_${B_ARCH}"
@@ -1147,10 +1171,8 @@ package_deb() {
 
       # Find recipe package section
       local INFO
-      if ! INFO=$(recipe_section_get -q "$pkg" "DEB $rel"); then
-         if ! INFO=$(recipe_section_get "$pkg" DEB); then
-            return 1
-         fi
+      if ! INFO=$(recipe_section_get -q "$pkg" "DEB $rel" || recipe_section_get "$pkg" DEB); then
+         return 1
       fi
 
       local TMP
@@ -1351,13 +1373,7 @@ version_get() {
 recipe_select_build() {
    local recipe="$1"
 
-   if ! recipe_section_get -q "$recipe" "BUILD $distr $rel" > /dev/null; then
-      if ! recipe_section_get -q "$recipe" "BUILD $distr" > /dev/null; then
-         if ! recipe_section_get -q "$recipe" "BUILD" > /dev/null; then
-            return 1
-         fi
-      fi
-   fi
+   recipe_section_lookup -q "$recipe" BUILD > /dev/null || return 1
    return 0
 }
 
@@ -1386,7 +1402,7 @@ check_version_built() {
    local fver="${2:-}"
    local inst="${3:-}"
    local RET=0
-   local version versiondir pkgdir
+   local version pkgdir
 
    if [[ -n "$fver" ]]; then
       version="$fver"
@@ -1394,14 +1410,7 @@ check_version_built() {
       version=$(version_get "$pkg") || return 2
    fi
 
-   versiondir="$version"
-   [[ -n "$inst" ]] && versiondir="$version-$inst"
-
-   if [[ -n "$DESTSPLIT" ]]; then
-      pkgdir="$DESTDIR/$B_DISTRODIR/$B_ARCH/$pkg/$versiondir"
-   else
-      pkgdir="$DESTDIR/$B_DISTRODIR/$B_ARCH/$pkg-$versiondir"
-   fi
+   pkgdir=$(_b_installdir "$pkg" "$version" "$inst")
 
    if [[ -d "$pkgdir" ]]; then
       printf '%s\n' "$version"
@@ -1418,18 +1427,18 @@ check_version_built() {
 # can target. Single source of truth for the supported distro set; used by
 # is_debian_distro() and by the hidden --list-distros helper (for bash
 # completion).
+readonly -a KNOWN_DISTROS=(trixie bookworm sid bullseye buster stretch jessie)
+
 known_distros() {
-   printf '%s\n' \
-      trixie bookworm sid bullseye buster stretch jessie
+   printf '%s\n' "${KNOWN_DISTROS[@]}"
 }
 
 # Check if the given distro is a Debian-based distribution.
 # Parameters: distro_name
 # Returns 0 if Debian-based, 1 otherwise.
 is_debian_distro() {
-   local distro="$1"
-   local d
-   for d in $(known_distros); do
+   local distro="$1" d
+   for d in "${KNOWN_DISTROS[@]}"; do
       [[ "$d" == "$distro" ]] && return 0
    done
    return 1
@@ -1462,8 +1471,10 @@ distro_dir() {
          fi
       fi
    else
-      family=$(lsb_release -i -s 2>/dev/null | tr '[:upper:]' '[:lower:]')
-      codename=$(lsb_release -c -s 2>/dev/null | tr '[:upper:]' '[:lower:]')
+      # distr/rel were already derived from lsb_release in parse_options();
+      # reuse them (lowercased) instead of invoking lsb_release a second time.
+      family=$(printf '%s' "${distr:-}" | tr '[:upper:]' '[:lower:]')
+      codename=$(printf '%s' "${rel:-}" | tr '[:upper:]' '[:lower:]')
       [[ -z "$family" ]] && family="unknown"
       [[ -z "$codename" ]] && codename="$family"
    fi
@@ -1515,6 +1526,21 @@ repo() {
 # set PROXY (distro-specific generic proxy override), NO_DEFAULT_REPOS,
 # DEFAULT_REPOS and declare repositories via the `repo` helper.
 # Parameters: distro_codename
+
+# Print the path of the per-distro apt/repository config file if one exists
+# (trying <BUILD_REPOS_DIR>/<B_DISTRODIR> then <BUILD_REPOS_DIR>/<distro>),
+# otherwise print nothing and return 1. Single lookup used by both
+# distro_repos_load() (to source it) and distro_apt_generate() (to resolve
+# config-relative key/authfile paths).
+# Parameters: distro_codename
+_distro_cfgfile() {
+   local distro="${1:-}" f
+   for f in "${BUILD_REPOS_DIR}/${B_DISTRODIR}" "${BUILD_REPOS_DIR}/${distro}"; do
+      [[ -f "$f" ]] && { printf '%s' "$f"; return 0; }
+   done
+   return 1
+}
+
 distro_repos_load() {
    local distro="${1:-}"
    local cfgfile=""
@@ -1527,14 +1553,7 @@ distro_repos_load() {
 
    [[ -z "$distro" ]] && return 0
 
-   local f
-   for f in "${BUILD_REPOS_DIR}/${B_DISTRODIR}" "${BUILD_REPOS_DIR}/${distro}"; do
-      if [[ -f "$f" ]]; then
-         cfgfile="$f"
-         break
-      fi
-   done
-   [[ -z "$cfgfile" ]] && return 0
+   cfgfile=$(_distro_cfgfile "$distro") || return 0
 
    # Source the per-distro config. It may reference the `repo` helper and set
    # PROXY/NO_DEFAULT_REPOS/DEFAULT_REPOS. Paths in `key=`/`authfile=` are
@@ -1581,10 +1600,10 @@ distro_apt_generate() {
 
    # Resolve config-file-relative key/authfile paths against the config dir.
    local cfgdir_base=""
-   local f
-   for f in "${BUILD_REPOS_DIR}/${B_DISTRODIR}" "${BUILD_REPOS_DIR}/${distro}"; do
-      [[ -f "$f" ]] && { cfgdir_base=$(dirname "$f"); break; }
-   done
+   local cfgfile
+   if cfgfile=$(_distro_cfgfile "$distro"); then
+      cfgdir_base=$(dirname "$cfgfile")
+   fi
 
    # --- Sources: defaults ---
    if [[ "${NO_DEFAULT_REPOS:-0}" == "1" ]]; then
@@ -1596,7 +1615,7 @@ distro_apt_generate() {
    fi
 
    # --- Sources: custom repositories + per-repo proxy + keys + auth ---
-   local id url suite comps proxy key auth authfile arch signedby host opts
+   local id url suite comps proxy key auth authfile arch signedby host opts scheme
    local proxyconf="$cfgdir/apt.conf.d/99build-proxy"
    : > "$proxyconf"
    for id in "${REPO_ORDER[@]}"; do
@@ -1622,13 +1641,9 @@ distro_apt_generate() {
       # env for this host; DIRECT bypasses the generic proxy).
       proxy="${REPO_PROXY[$id]:-}"
       if [[ -n "$proxy" && -n "$host" ]]; then
-         if [[ "$proxy" == "DIRECT" ]]; then
-            printf 'Acquire::http::Proxy::%s "DIRECT";\n' "$host" >> "$proxyconf"
-            printf 'Acquire::https::Proxy::%s "DIRECT";\n' "$host" >> "$proxyconf"
-         else
-            printf 'Acquire::http::Proxy::%s "%s";\n' "$host" "$proxy" >> "$proxyconf"
-            printf 'Acquire::https::Proxy::%s "%s";\n' "$host" "$proxy" >> "$proxyconf"
-         fi
+         for scheme in http https; do
+            printf 'Acquire::%s::Proxy::%s "%s";\n' "$scheme" "$host" "$proxy" >> "$proxyconf"
+         done
       fi
       # signing key import -> keyrings/<id>.gpg
       key="${REPO_KEY[$id]:-}"
@@ -1902,6 +1917,8 @@ docker_prepare_env() {
 
       # Function definitions (exported from build() function scope)
       declare -f B_GET B_GITCHECKOUT B_LINKFILES B_LINKFILE B_UPDATEPKGBLD
+      # Helpers used by the containerized functions above
+      declare -f _b_wget_fetch _b_verify_copy _b_pkg_id _b_installdir
 
       # Utility functions needed by packaging
       declare -f output
@@ -2216,9 +2233,7 @@ _docker_run() {
    # Proxy settings
    [[ -n "$PROXY" ]] && docker_args+=("-e" "http_proxy=${PROXY}" "-e" "https_proxy=${PROXY}")
 
-   if [[ -n "$buildfile" && -n "$pkgcmdfile" ]]; then
-      output "Building ${B_NAME} (${image})..."
-   elif [[ -n "$buildfile" ]]; then
+   if [[ -n "$buildfile" ]]; then
       output "Building ${B_NAME} (${image})..."
    else
       output "Packaging ${B_NAME} (${image})..."
@@ -2799,10 +2814,7 @@ main() {
                # In quiet mode the live build output is suppressed, so surface a
                # short log excerpt to stderr so the failure reason (e.g. a failed
                # B_GET download) is visible instead of just "(build failed)".
-               if (( QUIET == 1 )); then
-                  printf '%s\n' "Log excerpt for failed build ${work_recipes[$i]} ${work_version[$i]}:" >&2
-                  _log_excerpt "$LOGDIR/${work_recipes[$i]}-${work_arch[${work_recipes[$i]}]}.log"
-               fi
+               _fail_excerpt "Log excerpt for failed build" "${work_recipes[$i]}" "${work_version[$i]}" "${work_arch[${work_recipes[$i]}]}"
                work_build[i]=0
                retval=1
             else
@@ -2842,19 +2854,11 @@ main() {
                # Package inside Docker container (package-only mode)
                B_NAME="${work_recipes[$i]}"
                B_VERSION="${work_version[$i]}"
-               if [[ -n "${B_INSTANCE:-}" ]]; then
-                  ID="${B_NAME}_${B_VERSION}-${B_INSTANCE}_${B_ARCH}"
-               else
-                  ID="${B_NAME}_${B_VERSION}_${B_ARCH}"
-               fi
+               ID=$(_b_pkg_id)
                B_BUILDNR=$(package_buildnr_get "$ID")
 
                # Compute B_INSTALLDIR (normally set in build(), but we skipped it)
-               if [[ -n "$DESTSPLIT" ]]; then
-                  B_INSTALLDIR="$DESTDIR/$B_DISTRODIR/$B_ARCH/$B_NAME/$B_VERSION"
-               else
-                  B_INSTALLDIR="$DESTDIR/$B_DISTRODIR/$B_ARCH/$B_NAME-$B_VERSION"
-               fi
+               B_INSTALLDIR=$(_b_installdir "$B_NAME" "$B_VERSION" "")
                B_CACHEDIR="$CACHEDIR"
                B_FILES=""
                B_FORCE=0
@@ -2891,10 +2895,7 @@ main() {
                else
                   work_packaged[i]=1
                   output -f "${work_recipes[$i]} ${work_version[$i]} (package create failed)"
-                  if (( QUIET == 1 )); then
-                     printf '%s\n' "Log excerpt for failed packaging ${work_recipes[$i]} ${work_version[$i]}:" >&2
-                     _log_excerpt "$LOGDIR/${work_recipes[$i]}-${work_arch[${work_recipes[$i]}]}.log"
-                  fi
+                  _fail_excerpt "Log excerpt for failed packaging" "${work_recipes[$i]}" "${work_version[$i]}" "${work_arch[${work_recipes[$i]}]}"
                   retval=1
                fi
             else
@@ -2904,10 +2905,7 @@ main() {
                   output "${work_recipes[$i]} ${work_version[$i]} (package created)"
                else
                   output -f "${work_recipes[$i]} ${work_version[$i]} (package create failed)"
-                  if (( QUIET == 1 )); then
-                     printf '%s\n' "Log excerpt for failed packaging ${work_recipes[$i]} ${work_version[$i]}:" >&2
-                     _log_excerpt "$LOGDIR/${work_recipes[$i]}-${work_arch[${work_recipes[$i]}]}.log"
-                  fi
+                  _fail_excerpt "Log excerpt for failed packaging" "${work_recipes[$i]}" "${work_version[$i]}" "${work_arch[${work_recipes[$i]}]}"
                   retval=1
                fi
             fi
