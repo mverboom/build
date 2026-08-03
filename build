@@ -104,6 +104,11 @@ B_DISTRODIR=""
 # Computed in main() alongside B_DISTRODIR by distro_dir().
 B_DISTRO=""
 
+# Out-parameter of docker_package_only(): on success (return 0) it holds the
+# package filename the container wrote; empty otherwise. Read by main()'s
+# package-only Docker branch.
+DOCKER_PKG_FILE=""
+
 # Initialize option variables (set by parse_options)
 B_FORCE=0
 DEBUG=""
@@ -222,9 +227,40 @@ _b_installdir() {
    fi
 }
 
-# Exported so they are available to B_GET / B_UPDATEPKGBLD in child shells
-# (native build path) and serialized into the Docker env script.
-export -f _b_wget_fetch _b_verify_copy _b_pkg_id
+# Exported so they are available to B_GET / B_UPDATEPKGBLD / B_GITCHECKOUT in
+# child shells (native build path) and serialized into the Docker env script.
+export -f _b_wget_fetch _b_verify_copy _b_pkg_id _b_gpg_ensure_key
+
+# Ensure the expected GPG key (B_GPGKEY) is in the keyring, for B_GITCHECKOUT's
+# tag-signature verification (SECURITY.md group A1). A local key file
+# (B_GPGKEYFILE) is preferred over keyserver fetch so verification works in
+# network-restricted build environments. Uses B_GPGKEY/B_GPGKEYFILE/B_FILES.
+# Returns 0 if the key is available, 1 on failure (with a message).
+_b_gpg_ensure_key() {
+   command -v gpg > /dev/null 2>&1 || { output "B_GITCHECKOUT: gpg not available but gpgkey is set"; return 1; }
+   gpg --list-keys "$B_GPGKEY" > /dev/null 2>&1 && return 0
+   if [[ -n "${B_GPGKEYFILE:-}" ]]; then
+      local keyfile="$B_GPGKEYFILE"
+      if [[ "$keyfile" != /* ]] && [[ -n "${B_FILES:-}" ]]; then
+         keyfile="$B_FILES/$keyfile"
+      fi
+      if [[ -f "$keyfile" ]]; then
+         gpg --import "$keyfile" 2>/dev/null || { output "B_GITCHECKOUT: could not import gpg key file ${B_GPGKEYFILE}"; return 1; }
+      else
+         output "B_GITCHECKOUT: gpgkeyfile not found: ${B_GPGKEYFILE}"; return 1
+      fi
+   else
+      # Try several keyservers; keys.openpgp.org returns some keys without
+      # user IDs (which gpg skips), so ubuntu/pgpkeys are used as fallbacks.
+      local ks
+      for ks in hkps://keys.openpgp.org hkps://keyserver.ubuntu.com hkps://pgpkeys.eu; do
+         gpg --keyserver "$ks" --recv-keys "$B_GPGKEY" 2>/dev/null
+         gpg --list-keys "$B_GPGKEY" > /dev/null 2>&1 && break
+      done
+   fi
+   gpg --list-keys "$B_GPGKEY" > /dev/null 2>&1 || { output "B_GITCHECKOUT: could not fetch gpg key ${B_GPGKEY}"; return 1; }
+   return 0
+}
 
 # Email a build-completion summary to the address given with -m.
 # Uses the work_* arrays populated by main(). Includes a per-recipe summary
@@ -443,7 +479,16 @@ recipe_section_get() {
       fi
    fi
 
-   if ! grep "^\[$label\]" "$recipe" > /dev/null 2>&1; then
+   # Single pass: locate the section, print its non-comment body, and report
+   # 2 = section absent, 1 = section present but empty, 0 = content printed.
+   # (Replaces a separate grep existence check + awk + `grep -v ^#` pipeline.)
+   awk "BEGIN {found=0; seen=0; printed=0}
+        /^\[/ {found=0}
+        /^\[$label\]/ {found=1; seen=1; next}
+        { if (found==1 && \$0 !~ /^#/) {print; printed++} }
+        END { if (!seen) exit 2; exit (printed>0 ? 0 : 1) }" "$recipe"
+   local rc=$?
+   if (( rc == 2 )); then
       if [[ -z "$opt" ]]; then
          (( quiet == 0 )) && \
             >&2 output "No section $label found in recipe $recipe"
@@ -452,12 +497,7 @@ recipe_section_get() {
          return 0
       fi
    fi
-
-   awk "BEGIN {found=0;} 
-        /^\[/ {found=0;} 
-        { if (found==1) { 
-             print \$0;} };
-        /^\[$label\]/ { found=1;}" "$recipe" | grep -v "^#"
+   return $rc
 }
 
 # Fetch a recipe section, trying "$base $distr $rel", "$base $distr", then the
@@ -829,36 +869,7 @@ build() {
 
       # A1: verify the git tag signature against the expected signer.
       if [[ -n "${B_GPGKEY:-}" ]]; then
-         if ! command -v gpg > /dev/null 2>&1; then
-            output "B_GITCHECKOUT: gpg not available but gpgkey is set"
-            return 1
-         fi
-         # Fetch the expected key if it is not already in the keyring.
-         # A local key file (gpgkeyfile) is preferred over keyserver fetch so
-         # verification works in network-restricted build environments.
-         if ! gpg --list-keys "$B_GPGKEY" > /dev/null 2>&1; then
-            if [[ -n "${B_GPGKEYFILE:-}" ]]; then
-               local keyfile="$B_GPGKEYFILE"
-               if [[ "$keyfile" != /* ]] && [[ -n "${B_FILES:-}" ]]; then
-                  keyfile="$B_FILES/$keyfile"
-               fi
-               if [[ -f "$keyfile" ]]; then
-                  gpg --import "$keyfile" 2>/dev/null || { output "B_GITCHECKOUT: could not import gpg key file ${B_GPGKEYFILE}"; return 1; }
-               else
-                  output "B_GITCHECKOUT: gpgkeyfile not found: ${B_GPGKEYFILE}"; return 1
-               fi
-            else
-               # Try several keyservers; keys.openpgp.org returns some keys
-               # without user IDs (which gpg skips), so ubuntu/pgpkeys are used
-               # as fallbacks.
-               local ks
-               for ks in hkps://keys.openpgp.org hkps://keyserver.ubuntu.com hkps://pgpkeys.eu; do
-                  gpg --keyserver "$ks" --recv-keys "$B_GPGKEY" 2>/dev/null
-                  gpg --list-keys "$B_GPGKEY" > /dev/null 2>&1 && break
-               done
-            fi
-            gpg --list-keys "$B_GPGKEY" > /dev/null 2>&1 || { output "B_GITCHECKOUT: could not fetch gpg key ${B_GPGKEY}"; return 1; }
-         fi
+         _b_gpg_ensure_key || return 1
          local raw
          if ! raw=$(git verify-tag --raw "$tag" 2>&1); then
             output "B_GITCHECKOUT: tag ${tag} signature invalid or missing"
@@ -1392,6 +1403,28 @@ recipe_select_arch() {
    return 1
 }
 
+# Try to select and register a recipe for building: verify it builds for this
+# system/arch, honour a required instance, then add it to the work_* arrays
+# (local to main(), visible via bash dynamic scoping). Returns 0 if added,
+# 1 if skipped (with a message). Used by both recipe-selection loops in
+# parse_options(). Parameters: recipe [forced_version] [instance]
+_recipe_register() {
+   local recipe="$1" fver="${2:-}" inst="${3:-}"
+   local instancereq
+   recipe_select_arch "$recipe" || { output "$recipe not for this architecture."; return 1; }
+   recipe_select_build "$recipe" || { output "$recipe has no build section for this system."; return 1; }
+   instancereq=$(recipe_item_get "$recipe" INFO instance)
+   if [[ -n "$instancereq" && -z "$inst" && -z "${B_INSTANCE:-}" ]]; then
+      output "Recipe $recipe requires an instance, but none specified."
+      return 1
+   fi
+   work_recipes+=("$recipe")
+   work_arch["$recipe"]="$B_ARCH"
+   [[ -n "$fver" ]] && work_forcever["$recipe"]="$fver"
+   [[ -n "$inst" ]] && work_instance["$recipe"]="$inst"
+   return 0
+}
+
 # Check if a recipe's version is already built.
 # Parameters: recipe_name [forced_version] [instance]
 # Returns 0 if not built, 1 if already built, 2 if version check failed.
@@ -1860,6 +1893,25 @@ _docker_autoprune() {
    return 0
 }
 
+# Names of the build-environment variables passed into every Docker build
+# container, in order. Single source of truth shared by docker_prepare_env()
+# (which writes `export` lines into the in-container env script) and
+# _docker_env_args() (which passes them as `docker run -e` flags), so the two
+# cannot drift. Entries are either a bare variable name (value taken from a
+# same-named shell variable) or NAME=literal (a fixed value). Not listed here:
+#   - B_FILES / B_FORCE / BUILD_DEPS / B_DOCKERTMP: build-run-only, added as
+#     -e by _docker_run (and exported by docker_prepare_env).
+#   - XDG_CACHE_HOME / YARN_CACHE_FOLDER / QUIET: env-script only.
+#   - HOST_UID / HOST_GID: -e only (the root entrypoint needs them to create
+#     builduser before the env script is sourced).
+#   - B_VERBOSE: derived from the host VERBOSE var, handled explicitly.
+readonly -a BUILD_ENV_VARS=(
+   B_VERSION B_INSTALLDIR B_DISTRODIR B_DISTRO B_ARCH B_NAME B_BUILDNR B_CACHEDIR
+   B_INSTANCE BUILDMODE=docker TMPDIR=/tmp HOME PKGLIST DESTDIR DESTSPLIT
+   RECIPEDIR LOGDIR PKGDIR PKGPOSTFIX PKGMAIL PKGORG
+   B_GPGKEY B_COMMIT B_SHA256 B_ALLOW_INSECURE B_GPGKEYFILE B_STRICT distr rel
+)
+
 # Prepare the build environment script for use inside a Docker container.
 # Writes all exported variables and function definitions to a script file
 # that will be sourced inside the container.
@@ -1872,53 +1924,31 @@ docker_prepare_env() {
       printf '#!/usr/bin/env bash\n'
       printf '# Build environment for %s\n\n' "${B_NAME}"
 
-      # Export all B_* variables
-      printf 'export B_VERSION="%s"\n' "$B_VERSION"
-      printf 'export B_INSTALLDIR="%s"\n' "$B_INSTALLDIR"
-      printf 'export B_DISTRODIR="%s"\n' "$B_DISTRODIR"
-      printf 'export B_DISTRO="%s"\n' "$B_DISTRO"
-      printf 'export B_ARCH="%s"\n' "$B_ARCH"
-      printf 'export B_NAME="%s"\n' "$B_NAME"
-      printf 'export B_BUILDNR="%s"\n' "$B_BUILDNR"
-      printf 'export B_CACHEDIR="%s"\n' "$B_CACHEDIR"
-      printf 'export B_FILES="%s"\n' "${B_FILES:-}"
-      printf 'export B_FORCE="%s"\n' "$B_FORCE"
-      printf 'export B_INSTANCE="%s"\n' "${B_INSTANCE:-}"
-      printf 'export BUILDMODE=docker\n'
-      printf 'export TMPDIR=/tmp\n'
-      printf 'export HOME="%s"\n' "$HOME"
-      printf 'export PKGLIST="%s"\n' "$PKGLIST"
-      printf 'export DESTDIR="%s"\n' "$DESTDIR"
-      printf 'export DESTSPLIT="%s"\n' "${DESTSPLIT:-}"
-      printf 'export RECIPEDIR="%s"\n' "$RECIPEDIR"
-      printf 'export LOGDIR="%s"\n' "$LOGDIR"
-      printf 'export XDG_CACHE_HOME="/tmp/.cache"\n'
-      printf 'export YARN_CACHE_FOLDER="/tmp/.cache/yarn"\n'
+      # Build-environment variables (single source: BUILD_ENV_VARS).
+      local _v
+      for _v in "${BUILD_ENV_VARS[@]}"; do
+         if [[ "$_v" == *=* ]]; then
+            printf 'export %s\n' "$_v"
+         else
+            printf 'export %s="%s"\n' "$_v" "${!_v:-}"
+         fi
+      done
 
-      # Packaging variables
-      printf 'export PKGDIR="%s"\n' "$PKGDIR"
-      printf 'export PKGPOSTFIX="%s"\n' "${PKGPOSTFIX:-}"
-      printf 'export PKGMAIL="%s"\n' "${PKGMAIL:-}"
-      printf 'export PKGORG="%s"\n' "${PKGORG:-}"
-      printf 'export QUIET=%s\n' "$QUIET"
+      # Build-only vars (always exported here; passed as -e only for build
+      # runs by _docker_run).
+      printf 'export B_FILES="%s"\n' "${B_FILES:-}"
+      printf 'export B_FORCE="%s"\n' "${B_FORCE:-}"
       printf 'export B_VERBOSE=%s\n' "${VERBOSE:-0}"
 
-      # Source-integrity variables (SECURITY.md group A)
-      printf 'export B_GPGKEY="%s"\n' "${B_GPGKEY:-}"
-      printf 'export B_COMMIT="%s"\n' "${B_COMMIT:-}"
-      printf 'export B_SHA256="%s"\n' "${B_SHA256:-}"
-      printf 'export B_ALLOW_INSECURE="%s"\n' "${B_ALLOW_INSECURE:-}"
-      printf 'export B_GPGKEYFILE="%s"\n' "${B_GPGKEYFILE:-}"
-      printf 'export B_STRICT="%s"\n' "${B_STRICT:-0}"
-
-      # Distribution variables (used by package_deb for section selection)
-      printf 'distr="%s"\n' "${distr:-}"
-      printf 'rel="%s"\n' "${rel:-}"
+      # Cache locations and quiet flag (env-script only; not passed as -e).
+      printf 'export XDG_CACHE_HOME="/tmp/.cache"\n'
+      printf 'export YARN_CACHE_FOLDER="/tmp/.cache/yarn"\n'
+      printf 'export QUIET=%s\n' "${QUIET:-0}"
 
       # Function definitions (exported from build() function scope)
       declare -f B_GET B_GITCHECKOUT B_LINKFILES B_LINKFILE B_UPDATEPKGBLD
       # Helpers used by the containerized functions above
-      declare -f _b_wget_fetch _b_verify_copy _b_pkg_id _b_installdir
+      declare -f _b_wget_fetch _b_verify_copy _b_pkg_id _b_installdir _b_gpg_ensure_key
 
       # Utility functions needed by packaging
       declare -f output
@@ -2004,45 +2034,38 @@ PKGSCRIPT
 }
 
 # Append the common environment (-e) flags to a docker args array.
-# Build-only vars (B_FILES, B_FORCE, BUILD_DEPS) are added by the caller when
-# running a build, so a package-only container never installs build deps.
+# Enumerates BUILD_ENV_VARS (the single source shared with docker_prepare_env)
+# plus HOST_UID/HOST_GID (the root entrypoint needs them to create builduser
+# before the env script is sourced) and B_VERBOSE (derived from VERBOSE).
+# Build-only vars (B_FILES, B_FORCE, BUILD_DEPS, B_DOCKERTMP) are added by the
+# caller (_docker_run) for build runs, so a package-only container never
+# installs build deps.
 # Parameters: array_name (nameref)
 _docker_env_args() {
    local -n _ea_ref="$1"
-   _ea_ref+=(
-      "-e" "B_VERSION=${B_VERSION}"
-      "-e" "B_INSTALLDIR=${B_INSTALLDIR:-}"
-      "-e" "B_DISTRODIR=${B_DISTRODIR:-}"
-      "-e" "B_DISTRO=${B_DISTRO:-}"
-      "-e" "B_ARCH=${B_ARCH}"
-      "-e" "B_NAME=${B_NAME}"
-      "-e" "B_BUILDNR=${B_BUILDNR:-1}"
-      "-e" "B_CACHEDIR=${CACHEDIR:-}"
-      "-e" "B_INSTANCE=${B_INSTANCE:-}"
-      "-e" "HOME=${HOME}"
-      "-e" "BUILDMODE=docker"
-      "-e" "HOST_UID=$(id -u)"
-      "-e" "HOST_GID=$(id -g)"
-      "-e" "TMPDIR=/tmp"
-      "-e" "DESTDIR=${DESTDIR}"
-      "-e" "DESTSPLIT=${DESTSPLIT:-}"
-      "-e" "RECIPEDIR=${RECIPEDIR}"
-      "-e" "LOGDIR=${LOGDIR}"
-      "-e" "PKGLIST=${PKGLIST}"
-      "-e" "PKGDIR=${PKGDIR}"
-      "-e" "PKGPOSTFIX=${PKGPOSTFIX:-}"
-      "-e" "PKGMAIL=${PKGMAIL:-}"
-      "-e" "PKGORG=${PKGORG:-}"
-      "-e" "B_GPGKEY=${B_GPGKEY:-}"
-      "-e" "B_COMMIT=${B_COMMIT:-}"
-      "-e" "B_SHA256=${B_SHA256:-}"
-      "-e" "B_ALLOW_INSECURE=${B_ALLOW_INSECURE:-}"
-      "-e" "B_GPGKEYFILE=${B_GPGKEYFILE:-}"
-      "-e" "B_STRICT=${B_STRICT:-0}"
-      "-e" "B_VERBOSE=${VERBOSE:-0}"
-      "-e" "distr=${distr:-}"
-      "-e" "rel=${rel:-}"
-   )
+   local _v
+   for _v in "${BUILD_ENV_VARS[@]}"; do
+      if [[ "$_v" == *=* ]]; then
+         _ea_ref+=("-e" "$_v")
+      else
+         _ea_ref+=("-e" "${_v}=${!_v:-}")
+      fi
+   done
+   _ea_ref+=("-e" "HOST_UID=$(id -u)" "-e" "HOST_GID=$(id -g)" "-e" "B_VERBOSE=${VERBOSE:-0}")
+}
+
+# Append a bind-mount of PKGDIR (if it exists) to a docker args array.
+# Shared by _docker_run() and docker_shell(). Parameters: array_name (nameref)
+_docker_mount_pkgdir() {
+   local -n _dmp_ref="$1"
+   [[ -d "$PKGDIR" ]] && _dmp_ref+=("-v" "${PKGDIR}:${PKGDIR}")
+}
+
+# Append http/https proxy -e flags to a docker args array when PROXY is set.
+# Shared by _docker_run() and docker_shell(). Parameters: array_name (nameref)
+_docker_add_proxy() {
+   local -n _dap_ref="$1"
+   [[ -n "$PROXY" ]] && _dap_ref+=("-e" "http_proxy=${PROXY}" "-e" "https_proxy=${PROXY}")
 }
 
 # Run a Docker container for a build and/or package phase.
@@ -2211,9 +2234,7 @@ _docker_run() {
    fi
 
    # Mount PKGDIR if it exists
-   if [[ -d "$PKGDIR" ]]; then
-      docker_args+=("-v" "${PKGDIR}:${PKGDIR}")
-   fi
+   _docker_mount_pkgdir docker_args
 
    # Mount generated apt configuration for Debian-based builds (defaults +
    # custom repos, per-repo proxy, keys, auth) -- never host /etc/apt.
@@ -2231,7 +2252,7 @@ _docker_run() {
    fi
 
    # Proxy settings
-   [[ -n "$PROXY" ]] && docker_args+=("-e" "http_proxy=${PROXY}" "-e" "https_proxy=${PROXY}")
+   _docker_add_proxy docker_args
 
    if [[ -n "$buildfile" ]]; then
       output "Building ${B_NAME} (${image})..."
@@ -2364,6 +2385,56 @@ docker_run_package() {
    _docker_run "$1" "$2" "" "$3"
 }
 
+# Package a built recipe inside a Docker container (package-only mode, used
+# when -p is given without -b in Docker mode). Sets up the build environment
+# (reusing docker_prepare_env / the BUILD_ENV_VARS list), runs the package
+# container, and reads the result file the container writes. On success
+# returns 0 and leaves the package filename in the global DOCKER_PKG_FILE; on
+# failure returns 1 (container failed) or 2 (container exited 0 but wrote no
+# result file). The caller prints the success/failure messages. Stdout of the
+# container (the "Packaging…" line and docker logs) is left on the terminal,
+# so the filename is NOT returned on stdout.
+# Parameters: recipe_name version
+docker_package_only() {
+   local pkg="$1" version="$2"
+   DOCKER_PKG_FILE=""
+   B_NAME="$pkg"
+   B_VERSION="$version"
+   ID=$(_b_pkg_id)
+   B_BUILDNR=$(package_buildnr_get "$ID")
+   # Compute B_INSTALLDIR (normally set in build(), but we skipped it).
+   B_INSTALLDIR=$(_b_installdir "$B_NAME" "$B_VERSION" "")
+   B_CACHEDIR="$CACHEDIR"
+   B_FILES=""
+   B_FORCE=0
+
+   local image
+   image=$(docker_image_select "$BUILDDISTRO")
+
+   local envfile
+   envfile=$(mktemp -p "$TMPDIR" build-env-"${B_NAME}"-XXXXXX.sh)
+   docker_prepare_env "$envfile"
+
+   local pkgcmdfile
+   pkgcmdfile=$(mktemp -p "$TMPDIR" pkg-cmd-"${B_NAME}"-XXXXXX.sh)
+   docker_prepare_package_cmd "$pkgcmdfile" "$B_NAME" "$B_VERSION"
+
+   docker_run_package "$image" "$envfile" "$pkgcmdfile"
+   local pkg_result=$?
+
+   rm -f "$envfile" "$pkgcmdfile"
+
+   (( pkg_result != 0 )) && return 1
+
+   local result_file="$LOGDIR/.package-result-${pkg}.txt"
+   if [[ ! -f "$result_file" ]]; then
+      return 2   # exited 0 but no result file
+   fi
+   DOCKER_PKG_FILE=$(cat "$result_file")
+   rm -f "$result_file"
+   return 0
+}
+
 # Start interactive development shell in a Docker container.
 # Mounts all build directories and provides the build environment so the user
 # can run builds, inspect files, and develop recipes interactively.
@@ -2405,9 +2476,7 @@ docker_shell() {
    )
 
    # Mount PKGDIR if it exists
-   if [[ -d "$PKGDIR" ]]; then
-      docker_args+=("-v" "${PKGDIR}:${PKGDIR}")
-   fi
+   _docker_mount_pkgdir docker_args
 
    # Mount generated apt configuration for Debian-based builds (defaults +
    # custom repos, per-repo proxy, keys, auth) -- never host /etc/apt.
@@ -2455,7 +2524,7 @@ docker_shell() {
    docker_args+=("-e" "B_VERBOSE=${VERBOSE:-0}")
 
    # Proxy settings
-   [[ -n "$PROXY" ]] && docker_args+=("-e" "http_proxy=${PROXY}" "-e" "https_proxy=${PROXY}")
+   _docker_add_proxy docker_args
 
    printf '## Build development shell for %s\n' "$distro"
    printf '## Image: %s\n' "$image"
@@ -2606,7 +2675,7 @@ parse_options() {
       rel=$(lsb_release -c -s | tr '[:lower:]' '[:upper:]')
    fi
 
-   local recipe base rest version instance instancereq
+   local recipe base rest version instance
    for recipe in "$@"; do
       # Recipe arguments may carry a forced version and/or instance suffix:
       #   recipe, recipe@version, recipe:instance, recipe@version:instance
@@ -2625,27 +2694,8 @@ parse_options() {
       fi
       recipe="$base"
 
-      if [[ ! -f "$RECIPEDIR/$recipe.recipe" ]]; then
-         output "recipe $recipe does not exist."
-         continue
-      fi
-      if recipe_select_arch "$recipe"; then
-         if recipe_select_build "$recipe"; then
-            instancereq=$(recipe_item_get "$recipe" INFO instance)
-            if [[ -n "$instancereq" && -z "$instance" && -z "${B_INSTANCE:-}" ]]; then
-               output "Recipe $recipe requires an instance, but none specified."
-               continue
-            fi
-            work_recipes+=("$recipe")
-            work_arch["$recipe"]="$B_ARCH"
-            [[ -n "$version" ]]  && work_forcever["$recipe"]="$version"
-            [[ -n "$instance" ]] && work_instance["$recipe"]="$instance"
-         else
-            output "$recipe has no build section for this system."
-         fi
-      else
-         output "$recipe not for this architecture."
-      fi
+      [[ ! -f "$RECIPEDIR/$recipe.recipe" ]] && { output "recipe $recipe does not exist."; continue; }
+      _recipe_register "$recipe" "$version" "$instance" || continue
    done
 
    if (( all == 1 )); then
@@ -2654,25 +2704,8 @@ parse_options() {
          recipe=$(basename -s .recipe "$recipe")
          local exclude
          exclude=$(recipe_item_get "$recipe" INFO excludefromall)
-         if [[ "$exclude" != "1" ]]; then
-            if recipe_select_arch "$recipe"; then
-               if recipe_select_build "$recipe"; then
-                  instancereq=$(recipe_item_get "$recipe" INFO instance)
-                  if [[ -n "$instancereq" && -z "${B_INSTANCE:-}" ]]; then
-                     output "Recipe $recipe requires an instance, skipping."
-                     continue
-                  fi
-                  work_recipes+=("$recipe")
-                  work_arch["$recipe"]="$B_ARCH"
-               else
-                  output "$recipe has no build section for this system."
-               fi
-            else
-               output "$recipe not for this architecture or no build section."
-            fi
-         else
-            output "$recipe excluded from building."
-         fi
+         [[ "$exclude" == "1" ]] && { output "$recipe excluded from building."; continue; }
+         _recipe_register "$recipe" || continue
       done
    fi
 
@@ -2852,50 +2885,19 @@ main() {
          if (( b == 1 )); then
             if [[ "$BUILDMODE" == "docker" ]]; then
                # Package inside Docker container (package-only mode)
-               B_NAME="${work_recipes[$i]}"
-               B_VERSION="${work_version[$i]}"
-               ID=$(_b_pkg_id)
-               B_BUILDNR=$(package_buildnr_get "$ID")
-
-               # Compute B_INSTALLDIR (normally set in build(), but we skipped it)
-               B_INSTALLDIR=$(_b_installdir "$B_NAME" "$B_VERSION" "")
-               B_CACHEDIR="$CACHEDIR"
-               B_FILES=""
-               B_FORCE=0
-
-               local image
-               image=$(docker_image_select "$BUILDDISTRO")
-
-               local envfile
-               envfile=$(mktemp -p "$TMPDIR" build-env-"${B_NAME}"-XXXXXX.sh)
-               docker_prepare_env "$envfile"
-
-               local pkgcmdfile
-               pkgcmdfile=$(mktemp -p "$TMPDIR" pkg-cmd-"${B_NAME}"-XXXXXX.sh)
-               docker_prepare_package_cmd "$pkgcmdfile" "$B_NAME" "$B_VERSION"
-
-               docker_run_package "$image" "$envfile" "$pkgcmdfile"
-               local pkg_result=$?
-
-               rm -f "$envfile" "$pkgcmdfile"
-
-               if (( pkg_result == 0 )); then
-                  local result_file="$LOGDIR/.package-result-${work_recipes[$i]}.txt"
-                  if [[ -f "$result_file" ]]; then
-                     work_package[i]=$(cat "$result_file")
-                     work_packaged[i]=0
-                     rm -f "$result_file"
-                     output "${work_recipes[$i]} ${work_version[$i]} (package created)"
-                  else
-                     # Container exited 0 but no result file — packaging may have failed silently
-                     work_packaged[i]=1
-                     output -f "${work_recipes[$i]} ${work_version[$i]} (package create failed)"
-                     retval=1
-                  fi
+               docker_package_only "${work_recipes[$i]}" "${work_version[$i]}"
+               local pkg_rc=$?
+               if (( pkg_rc == 0 )); then
+                  work_package[i]="$DOCKER_PKG_FILE"
+                  work_packaged[i]=0
+                  output "${work_recipes[$i]} ${work_version[$i]} (package created)"
                else
                   work_packaged[i]=1
                   output -f "${work_recipes[$i]} ${work_version[$i]} (package create failed)"
-                  _fail_excerpt "Log excerpt for failed packaging" "${work_recipes[$i]}" "${work_version[$i]}" "${work_arch[${work_recipes[$i]}]}"
+                  # Only the container-failure path (pkg_rc == 1) gets a log
+                  # excerpt; the no-result-file path (pkg_rc == 2) mirrors the
+                  # original, which excerpted only on a non-zero container exit.
+                  (( pkg_rc == 1 )) && _fail_excerpt "Log excerpt for failed packaging" "${work_recipes[$i]}" "${work_version[$i]}" "${work_arch[${work_recipes[$i]}]}"
                   retval=1
                fi
             else
