@@ -227,10 +227,6 @@ _b_installdir() {
    fi
 }
 
-# Exported so they are available to B_GET / B_UPDATEPKGBLD / B_GITCHECKOUT in
-# child shells (native build path) and serialized into the Docker env script.
-export -f _b_wget_fetch _b_verify_copy _b_pkg_id _b_gpg_ensure_key
-
 # Ensure the expected GPG key (B_GPGKEY) is in the keyring, for B_GITCHECKOUT's
 # tag-signature verification (SECURITY.md group A1). A local key file
 # (B_GPGKEYFILE) is preferred over keyserver fetch so verification works in
@@ -261,6 +257,10 @@ _b_gpg_ensure_key() {
    gpg --list-keys "$B_GPGKEY" > /dev/null 2>&1 || { output "B_GITCHECKOUT: could not fetch gpg key ${B_GPGKEY}"; return 1; }
    return 0
 }
+
+# Exported so they are available to B_GET / B_UPDATEPKGBLD / B_GITCHECKOUT in
+# child shells (native build path) and serialized into the Docker env script.
+export -f _b_wget_fetch _b_verify_copy _b_pkg_id _b_gpg_ensure_key
 
 # Email a build-completion summary to the address given with -m.
 # Uses the work_* arrays populated by main(). Includes a per-recipe summary
