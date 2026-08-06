@@ -894,10 +894,17 @@ build() {
    # shellcheck disable=SC2317
    B_UPDATEPKGBLD() {
       local ID
-      # shellcheck source=~/.buildrc
-      [[ -f "$HOME/.buildrc" ]] && source "$HOME/.buildrc"
+      # In Docker mode the host's PKGLIST/PKGORG/PKGMAIL are already exported
+      # via the environment script; re-sourcing ~/.buildrc here would recompute
+      # PKGLIST with the container hostname (build-<recipe>) and silently write
+      # the build count to a different pkglist file. Only re-source in native
+      # mode, where the recipe may run in a child shell.
+      if [[ "${BUILDMODE:-}" != "docker" && -f "$HOME/.buildrc" ]]; then
+         # shellcheck source=~/.buildrc
+         source "$HOME/.buildrc"
+      fi
       ID=$(_b_pkg_id)
-      grep "^$ID" "$PKGLIST" > /dev/null && sed -i "/^$ID/d" "$PKGLIST"
+      awk -F '\t' -v id="$ID" '$1 != id' "$PKGLIST" > "$PKGLIST.tmp" && mv "$PKGLIST.tmp" "$PKGLIST"
       printf '%s\t%s\n' "$ID" "$B_BUILDNR" >> "$PKGLIST"
    }
    export -f B_UPDATEPKGBLD
@@ -1040,7 +1047,11 @@ package_buildnr_get() {
    [[ -d "$(dirname "$PKGLIST")" ]] || mkdir -p "$(dirname "$PKGLIST")"
    [[ -f "$PKGLIST" ]] || touch "$PKGLIST"
    local BUILDNR
-   BUILDNR=$(grep "^$ID" "$PKGLIST" | cut -d'	' -f 2)
+   # Match the key exactly (tab-delimited field 1), never as a prefix: a
+   # doubled-arch key (pkg_1.0_amd64_amd64) must not count as pkg_1.0_amd64,
+   # and version strings containing regex metacharacters (+.() etc.) must
+   # match literally.
+   BUILDNR=$(awk -F '\t' -v id="$ID" '$1 == id { print $2 }' "$PKGLIST")
    [[ -z "$BUILDNR" ]] && BUILDNR=0
    printf '%s\n' "$(( BUILDNR + 1 ))"
 }
@@ -1241,8 +1252,14 @@ package_deb() {
          return 1
       fi
 
-      grep "^${P_PKGNAME}_${B_ARCH}" "$PKGLIST" > /dev/null && sed -i "/^${P_PKGNAME}_${B_ARCH}/d" "$PKGLIST"
-      printf '%s\t%s\n' "${P_PKGNAME}_${B_ARCH}" "$P_BUILDNR" >> "$PKGLIST"
+      # Record the package build number under the exact package key (single
+      # arch suffix). Also delete the legacy doubled-arch key
+      # (pkg_version_arch_arch) that older versions of this script wrote, so a
+      # stale doubled entry can never make package_buildnr_get() see two values
+      # for one package.
+      awk -F '\t' -v id="${P_PKGNAME}" '$1 != id' "$PKGLIST" > "$PKGLIST.tmp" && mv "$PKGLIST.tmp" "$PKGLIST"
+      awk -F '\t' -v id="${P_PKGNAME}_${B_ARCH}" '$1 != id' "$PKGLIST" > "$PKGLIST.tmp" && mv "$PKGLIST.tmp" "$PKGLIST"
+      printf '%s\t%s\n' "${P_PKGNAME}" "$P_BUILDNR" >> "$PKGLIST"
 
       mv "$TMP/$pkgfile" "$PKGDIR"
       rm -rf "$TMP"
