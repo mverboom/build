@@ -39,24 +39,16 @@ _build_recipe_names() {
    local buildrc="${BUILD_BUILDRC:-$HOME/.buildrc}"
    [[ -f "$buildrc" ]] || return 0
 
-   # Pull the last RECIPEDIR assignment out of the config without sourcing
-   # the whole file (sourcing would pollute the interactive shell).
-   local line value
-   line=$(grep -E '^[[:space:]]*RECIPEDIR=' "$buildrc" | tail -1) || return 0
-   [[ -n "$line" ]] || return 0
-
-   value="${line#*RECIPEDIR=}"
-   # Strip an optional surrounding pair of quotes.
-   value="${value#[\"\']}"
-   value="${value%[\"\']}"
-   # Expand a leading tilde and the common $HOME/$USER references that
-   # buildrc files use, without sourcing the config (which would leak its
-   # other variables into the interactive shell) or resorting to eval.
-   case "$value" in
-      '~'*) value="$HOME${value#\~}" ;;
-   esac
-   value="${value//\$HOME/$HOME}"
-   value="${value//\$USER/$USER}"
+   # Source the config in a subshell to read RECIPEDIR: tilde/$HOME/$USER
+   # expand at assignment time, so no manual parsing is needed, and the
+   # subshell keeps the config's other variables out of the interactive
+   # shell. (Side effect: any commands in .buildrc do run, per completion.)
+   local value
+   value=$(
+      # shellcheck source=~/.buildrc
+      source "$buildrc"
+      printf '%s' "${RECIPEDIR:-}"
+   )
 
    [[ -n "$value" && -d "$value" ]] || return 0
    find -L "$value" -maxdepth 1 -name '*.recipe' -printf '%f\n' 2>/dev/null \

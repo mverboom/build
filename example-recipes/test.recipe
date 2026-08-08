@@ -15,7 +15,7 @@ B_LINKFILES /opt/test/bin /usr/bin
 B_LINKFILES -r /opt/test/share /usr/share/icons/hicolor
 
 [PKG]
-type=deb,rpm
+type=deb
 torepo=y
 
 [DEB]
@@ -27,10 +27,3 @@ Architecture: B_ARCH
 Maintainer: unknown@example.org
 Homepage: http://www.example.org
 Description: Test package
-
-[RPM]
-Summary: Test package
-Name: testpkg
-Version: B_VERSION
-Release: B_BUILDNR
-BuildRoot: /var/tmp/%{name}-buildroot 

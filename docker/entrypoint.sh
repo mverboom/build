@@ -46,6 +46,41 @@ run_pkg() {
    return "$rc"
 }
 
+# Run a script in the build environment, as builduser when one is created
+# (HOST_UID set), appending output to the build log. In verbose mode stream
+# output live to stdout (picked up by `docker logs -f` on the host) via tee,
+# so progress is visible while the build runs; on failure in non-verbose
+# mode, surface the captured log so errors are visible (matching run_pkg
+# behaviour for dependency installs). Fixes the log file ownership when run
+# as builduser (the log is created/extended by root, should be builduser).
+# Parameters: script_path
+# Returns the script's exit status.
+run_builduser() {
+   local script="$1"
+   local rc
+   if [[ -n "${HOST_UID:-}" ]]; then
+      if [[ "${B_VERBOSE:-0}" == "1" ]]; then
+         su builduser -s /bin/bash "$script" 2>&1 | tee -a "${log_file}"
+         rc=${PIPESTATUS[0]}
+      else
+         su builduser -s /bin/bash "$script" >> "${log_file}" 2>&1
+         rc=$?
+         (( rc != 0 )) && cat "${log_file}"
+      fi
+      chown builduser:builduser "${log_file}" 2>/dev/null || true
+   else
+      if [[ "${B_VERBOSE:-0}" == "1" ]]; then
+         "$script" 2>&1 | tee -a "${log_file}"
+         rc=${PIPESTATUS[0]}
+      else
+         "$script" >> "${log_file}" 2>&1
+         rc=$?
+         (( rc != 0 )) && cat "${log_file}"
+      fi
+   fi
+   return "$rc"
+}
+
 # Build log file (defined early so dependency output can be appended to it).
 log_dir="${LOGDIR:-/tmp}"
 log_file="${log_dir}/${B_NAME:-build}-${B_ARCH:-all}.log"
@@ -165,35 +200,8 @@ if [[ -f "/opt/build/build-cmd.sh" ]]; then
 
    # Run the wrapper and capture its real exit code (previously the exit code
    # of `cat`/`tee` was used, masking build failures).
-   build_rc=0
-   if [[ -n "${HOST_UID:-}" ]]; then
-      # Run as builduser, appending output to the log file (so any
-      # dependency-setup output already written to the log is preserved).
-      # In verbose mode stream output live to stdout (picked up by
-      # `docker logs -f` on the host) via tee, so progress is visible while
-      # the build runs instead of only after it finishes. On failure in
-      # non-verbose mode, surface the captured log so errors are visible
-      # (matching run_pkg behaviour for dependency installs).
-      if [[ "${B_VERBOSE:-0}" == "1" ]]; then
-         su builduser -s /bin/bash /tmp/run-build.sh 2>&1 | tee -a "${log_file}"
-         build_rc=${PIPESTATUS[0]}
-      else
-         su builduser -s /bin/bash /tmp/run-build.sh >> "${log_file}" 2>&1
-         build_rc=$?
-         (( build_rc != 0 )) && cat "${log_file}"
-      fi
-      # Fix ownership of log file (created/extended by root, should be builduser)
-      chown builduser:builduser "${log_file}" 2>/dev/null || true
-   else
-      if [[ "${B_VERBOSE:-0}" == "1" ]]; then
-         /tmp/run-build.sh 2>&1 | tee -a "${log_file}"
-         build_rc=${PIPESTATUS[0]}
-      else
-         /tmp/run-build.sh >> "${log_file}" 2>&1
-         build_rc=$?
-         (( build_rc != 0 )) && cat "${log_file}"
-      fi
-   fi
+   run_builduser /tmp/run-build.sh
+   build_rc=$?
 
    # On failure with DEBUGSHELL enabled, keep the container alive so the user
    # can attach (docker exec -it) to inspect the build environment. A sentinel
@@ -216,27 +224,8 @@ elif [[ -f "/opt/build/package-cmd.sh" ]]; then
 	WRAPPER
    chmod +x /tmp/run-build.sh
 
-   pkg_rc=0
-   if [[ -n "${HOST_UID:-}" ]]; then
-      if [[ "${B_VERBOSE:-0}" == "1" ]]; then
-         su builduser -s /bin/bash /tmp/run-build.sh 2>&1 | tee -a "${log_file}"
-         pkg_rc=${PIPESTATUS[0]}
-      else
-         su builduser -s /bin/bash /tmp/run-build.sh >> "${log_file}" 2>&1
-         pkg_rc=$?
-         (( pkg_rc != 0 )) && cat "${log_file}"
-      fi
-      chown builduser:builduser "${log_file}" 2>/dev/null || true
-   else
-      if [[ "${B_VERBOSE:-0}" == "1" ]]; then
-         /tmp/run-build.sh 2>&1 | tee -a "${log_file}"
-         pkg_rc=${PIPESTATUS[0]}
-      else
-         /tmp/run-build.sh >> "${log_file}" 2>&1
-         pkg_rc=$?
-         (( pkg_rc != 0 )) && cat "${log_file}"
-      fi
-   fi
+   run_builduser /tmp/run-build.sh
+   pkg_rc=$?
    exit "${pkg_rc}"
 else
    # No build or package command provided, drop to interactive shell

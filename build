@@ -258,8 +258,8 @@ _b_gpg_ensure_key() {
    return 0
 }
 
-# Exported so they are available to B_GET / B_UPDATEPKGBLD / B_GITCHECKOUT in
-# child shells (native build path) and serialized into the Docker env script.
+# Exported so they are available to B_GET / B_GITCHECKOUT in child shells
+# (native build path) and serialized into the Docker env script.
 export -f _b_wget_fetch _b_verify_copy _b_pkg_id _b_gpg_ensure_key
 
 # Email a build-completion summary to the address given with -m.
@@ -374,14 +374,9 @@ usage() {
 # Outputs a space-separated list of required command names.
 # Always returns 1 (used in command substitution to generate a list).
 require_software() {
-   case "$OS" in
-   "Debian GNU/Linux")
-      printf '%s\n' "gawk grep git svn wget fakeroot bzip2 hg lsb_release jq xml2"
-      ;;
-   "CentOS Linux")
-      printf '%s\n' "gawk grep git svn wget bzip2 hg jq"
-      ;;
-   esac
+   # Native builds only run in Debian-based containers (the -S dev shell), so
+   # the requirement list is Debian-only.
+   printf '%s\n' "gawk grep git svn wget fakeroot bzip2 hg lsb_release jq xml2"
 }
 
 # Run sanity checks before starting build operations.
@@ -896,25 +891,6 @@ build() {
    }
    export -f B_GITCHECKOUT
 
-   # Update the package build number in PKGLIST
-   # shellcheck disable=SC2317
-   B_UPDATEPKGBLD() {
-      local ID
-      # In Docker mode the host's PKGLIST/PKGORG/PKGMAIL are already exported
-      # via the environment script; re-sourcing ~/.buildrc here would recompute
-      # PKGLIST with the container hostname (build-<recipe>) and silently write
-      # the build count to a different pkglist file. Only re-source in native
-      # mode, where the recipe may run in a child shell.
-      if [[ "${BUILDMODE:-}" != "docker" && -f "$HOME/.buildrc" ]]; then
-         # shellcheck source=~/.buildrc
-         source "$HOME/.buildrc"
-      fi
-      ID=$(_b_pkg_id)
-      awk -F '\t' -v id="$ID" '$1 != id' "$PKGLIST" > "$PKGLIST.tmp" && mv "$PKGLIST.tmp" "$PKGLIST"
-      printf '%s\t%s\n' "$ID" "$B_BUILDNR" >> "$PKGLIST"
-   }
-   export -f B_UPDATEPKGBLD
-
    # Create symlinks for all files in a source directory to a destination directory
    # Parameters: [-r] source_dir dest_dir
    #   -r  recurse into subdirectories
@@ -981,7 +957,7 @@ build() {
       fi
 
       # Run build (and optionally package) inside Docker container
-      docker_run_build "$image" "$envfile" "$buildfile" "$pkgcmdfile"
+      _docker_run "$image" "$envfile" "$buildfile" "$pkgcmdfile"
       local result=$?
 
       # Clean up temp files
@@ -1103,7 +1079,6 @@ package_torepo() {
 package() {
    local pkg="$1"
    local version="$2"
-   local pkgtype
    local ID
 
    # Ensure B_NAME is set (build() sets it, but a package-only run -p may skip
@@ -1127,57 +1102,22 @@ package() {
    fi
    local type
    type=$(recipe_item_get "$pkg" PKG type)
-   for pkgtype in ${type/,/ }; do
-      case "$pkgtype" in
-      "deb")
-         if [[ "$OS" == "Debian GNU/Linux" ]]; then
-            package_deb "$pkg" "$version" "$ID"
-            return $?
-         fi
-         ;;
-      "rpm")
-         if [[ "$OS" == "CentOS Linux" ]]; then
-            package_rpm "$pkg" "$version" "$ID"
-            return $?
-         fi
-         ;;
-      *)
-         ERR=1 output "Unknown package type ($pkgtype)."
-         return 1
-         ;;
-      esac
-   done
-}
-
-# TODO: Implement RPM package building (planned for Phase 3 of docker-implementation-plan.md)
-package_rpm() {
-   local pkg="$1"
-   local version="$2"
-
-   local pkgready
-   pkgready=$(recipe_item_get "$pkg" PKG pkgready) || true
-   local P_PKGDIR="${pkg}-${ID}"
-
-   if [[ -z "$pkgready" ]]; then
-      local P_PKGNAME="${pkg}_${ID}_${B_ARCH}"
-      local P_BUILDNR
-      P_BUILDNR=$(package_buildnr_get "${P_PKGNAME}")
-      local INFO
-      INFO=$(recipe_section_get "$pkg" DEB) || return 1
-      local TMP
-      TMP=$(mktemp -p "$TMPDIR" -d)
-
-      printf '%s\n' "P_PKGNAME $P_PKGNAME"
-      printf '%s\n' "P_BUILDNR $P_BUILDNR"
-
-      mkdir -p "$TMP/DEBIAN"
-
-      printf '%s\n' "Creating rpm packages is not implemented."
+   # Only the first declared package type is processed: every case above
+   # returned on the first iteration, so a "deb,rpm" type effectively meant
+   # deb. Keep that behaviour explicitly.
+   local pkgtype="${type%%[, ]*}"
+   case "$pkgtype" in
+   "deb")
+      if [[ "$OS" == "Debian GNU/Linux" ]]; then
+         package_deb "$pkg" "$version" "$ID"
+         return $?
+      fi
+      ;;
+   *)
+      ERR=1 output "Unknown package type ($pkgtype)."
       return 1
-   else
-      printf '%s\n' "pkgready not implemented for rpm."
-      return 1
-   fi
+      ;;
+   esac
 }
 
 # Build a Debian package from a built recipe.
@@ -1372,19 +1312,7 @@ version_get() {
       date -d "$(svn info --non-interactive --trust-server-cert "$1" | grep 'Last Changed Date:' | cut -d':' -f2-)" "+%Y%m%d"
    }
 
-   # Get the revision number for an SVN repository
-   # shellcheck disable=SC2317
-   B_SVNREV() {
-      svn info --non-interactive --trust-server-cert "$1" | grep Revision | cut -d' ' -f2
-   }
-
-   # Get the revision ID for a Mercurial repository
-   # shellcheck disable=SC2317
-   B_HGREV() {
-      hg id "$1"
-   }
-
-   export -f B_GITVER B_GITHUBVER B_SVNDATE B_SVNREV B_HGREV B_GITLABVER B_SFVER
+   export -f B_GITVER B_GITHUBVER B_SVNDATE B_GITLABVER B_SFVER
 
    if ! CMD=$(recipe_section_get "$pkg" VERSION); then
       output "$CMD"; return 1
@@ -1969,7 +1897,7 @@ docker_prepare_env() {
       printf 'export QUIET=%s\n' "${QUIET:-0}"
 
       # Function definitions (exported from build() function scope)
-      declare -f B_GET B_GITCHECKOUT B_LINKFILES B_LINKFILE B_UPDATEPKGBLD
+      declare -f B_GET B_GITCHECKOUT B_LINKFILES B_LINKFILE
       # Helpers used by the containerized functions above
       declare -f _b_wget_fetch _b_verify_copy _b_pkg_id _b_installdir _b_gpg_ensure_key
 
@@ -1980,7 +1908,7 @@ docker_prepare_env() {
       declare -f recipe_section_get recipe_item_get
 
       # Package functions
-      declare -f package_buildnr_get package_deb package_rpm
+      declare -f package_buildnr_get package_deb
 
    } > "$envfile"
 
@@ -1988,8 +1916,7 @@ docker_prepare_env() {
 }
 
 # Prepare the package command script for use inside a Docker container.
-# Writes a script that sets up packaging variables and calls the appropriate
-# packaging function (package_deb or package_rpm).
+# Writes a script that sets up packaging variables and calls package_deb.
 # Parameters: envfile_path recipe_name version
 # Returns the path to the package command script.
 docker_prepare_package_cmd() {
@@ -2024,32 +1951,23 @@ if [[ ! -d "\$pkgdir" ]]; then
 fi
 
 pkg_type=\$(recipe_item_get "\$pkg" PKG type) || true
-for pkgtype in \${pkg_type/,/ }; do
-   case "\$pkgtype" in
-      "deb")
-         pkgfile=\$(package_deb "\$pkg" "\$version") || exit 1
-         if [[ -n "\$pkgfile" ]]; then
-            printf '%s' "\$pkgfile" > "\${LOGDIR}/.package-result-\${pkg}.txt"
-         else
-            printf 'package_deb returned empty result\n' >&2
-            exit 1
-         fi
-         ;;
-      "rpm")
-         pkgfile=\$(package_rpm "\$pkg" "\$version") || exit 1
-         if [[ -n "\$pkgfile" ]]; then
-            printf '%s' "\$pkgfile" > "\${LOGDIR}/.package-result-\${pkg}.txt"
-         else
-            printf 'package_rpm returned empty result\n' >&2
-            exit 1
-         fi
-         ;;
-      *)
-         ERR=1 output "Unknown package type (\$pkgtype)."
+# Only the first declared type is packaged (matches package()).
+pkg_type="\${pkg_type%%[, ]*}"
+case "\$pkg_type" in
+   "deb")
+      pkgfile=\$(package_deb "\$pkg" "\$version") || exit 1
+      if [[ -n "\$pkgfile" ]]; then
+         printf '%s' "\$pkgfile" > "\${LOGDIR}/.package-result-\${pkg}.txt"
+      else
+         printf 'package_deb returned empty result\n' >&2
          exit 1
-         ;;
-   esac
-done
+      fi
+      ;;
+   *)
+      ERR=1 output "Unknown package type (\$pkg_type)."
+      exit 1
+      ;;
+esac
 PKGSCRIPT
 
    chmod +x "$pkgfile"
@@ -2092,7 +2010,6 @@ _docker_add_proxy() {
 }
 
 # Run a Docker container for a build and/or package phase.
-# Single implementation backing both docker_run_build and docker_run_package.
 # Parameters: image envfile [buildfile] [pkgcmdfile]
 #   buildfile  - if given, the build phase runs (with DEBUGSHELL sentinel
 #                support and the symlink-base mount loop); if absent, this is a
@@ -2132,13 +2049,11 @@ _docker_run() {
    # CACHEDIR is only needed for builds; package-only runs don't use it.
    [[ $build_mode == 1 ]] && docker_args+=("-v" "$(readlink -f "$CACHEDIR"):${CACHEDIR}")
    # ~/etc holds PKGLIST (build-number state), read and written in-container
-   # by B_UPDATEPKGBLD / package_deb, so it must persist and be writable.
+   # by package_deb, so it must persist and be writable.
    [[ -d "$HOME/etc" ]] && docker_args+=("-v" "$(readlink -f "$HOME/etc"):${HOME}/etc")
    # Credentials/config the build needs from $HOME (read-only):
-   #   .buildrc  - re-sourced by B_UPDATEPKGBLD for PKGLIST/PKGORG/PKGMAIL/...
    #   .ssh      - SSH keys/config/known_hosts for git clone over ssh://
    #   .gitconfig - safe even if unused (clone/verify need no commit identity)
-   [[ -f "$HOME/.buildrc" ]] && docker_args+=("-v" "$(readlink -f "$HOME/.buildrc"):${HOME}/.buildrc:ro")
    [[ -d "$HOME/.ssh" ]] && docker_args+=("-v" "$(readlink -f "$HOME/.ssh"):${HOME}/.ssh:ro")
    [[ -f "$HOME/.gitconfig" ]] && docker_args+=("-v" "$(readlink -f "$HOME/.gitconfig"):${HOME}/.gitconfig:ro")
    # ~/.gnupg: persistent GPG keyring cache for B_GITCHECKOUT source-integrity
@@ -2219,7 +2134,7 @@ _docker_run() {
    # current deployment.)
    if [[ $build_mode == 1 || -n "$pkgcmdfile" ]]; then
       local mount_real base_real
-      for mount_real in "$recipes_real" "$(readlink -f "$CACHEDIR")" "$(readlink -f "$DESTDIR")" "$(readlink -f "$LOGDIR")" "$(readlink -f "$HOME/etc")" "$(readlink -f "$HOME/.ssh")" "$(readlink -f "$HOME/.gnupg")" "$(readlink -f "$HOME/.buildrc")" "$(readlink -f "$HOME/.gitconfig")"; do
+      for mount_real in "$recipes_real" "$(readlink -f "$CACHEDIR")" "$(readlink -f "$DESTDIR")" "$(readlink -f "$LOGDIR")" "$(readlink -f "$HOME/etc")" "$(readlink -f "$HOME/.ssh")" "$(readlink -f "$HOME/.gnupg")" "$(readlink -f "$HOME/.gitconfig")"; do
          base_real=$(dirname "$mount_real")
          if [[ "$base_real" != "$HOME" && "$base_real" != "$RECIPEDIR" && "$base_real" != "$CACHEDIR" && "$base_real" != "$DESTDIR" && "$base_real" != "$LOGDIR" && "$home_real" != "$base_real" && "$home_real" != "${base_real}/"* ]]; then
             docker_args+=("-v" "${base_real}:${base_real}")
@@ -2389,25 +2304,6 @@ _docker_run() {
    return "$result"
 }
 
-# Run the build phase (and optionally package phase) inside a Docker container.
-# Parameters: image envfile buildfile [pkgcmdfile]
-#   pkgcmdfile - optional path to package command script; if provided,
-#               the container will also run the packaging phase after build.
-# Returns the exit status of the docker run command.
-docker_run_build() {
-   _docker_run "$1" "$2" "$3" "${4:-}"
-}
-
-# Run only the packaging phase inside a Docker container.
-# Used when BUILDMODE=docker and -p is specified without -b, so the host
-# doesn't need dpkg/fakeroot installed.
-# Parameters: image envfile pkgcmdfile
-# Returns the exit status of the docker run command.
-# After the container exits, reads the package result file to get the filename.
-docker_run_package() {
-   _docker_run "$1" "$2" "" "$3"
-}
-
 # Package a built recipe inside a Docker container (package-only mode, used
 # when -p is given without -b in Docker mode). Sets up the build environment
 # (reusing docker_prepare_env / the BUILD_ENV_VARS list), runs the package
@@ -2442,7 +2338,8 @@ docker_package_only() {
    pkgcmdfile=$(mktemp -p "$TMPDIR" pkg-cmd-"${B_NAME}"-XXXXXX.sh)
    docker_prepare_package_cmd "$pkgcmdfile" "$B_NAME" "$B_VERSION"
 
-   docker_run_package "$image" "$envfile" "$pkgcmdfile"
+   # Package-only run: no build command (the host does not need dpkg/fakeroot).
+   _docker_run "$image" "$envfile" "" "$pkgcmdfile"
    local pkg_result=$?
 
    rm -f "$envfile" "$pkgcmdfile"

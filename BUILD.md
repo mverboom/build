@@ -445,16 +445,6 @@ Example: `B_GITLABVER https://gitlab.com/user/repository`
 This function attempts to find the last date an update was done on an subversion
 repository.
 
-`B_SVNREV <svn repository>`
-
-This function attempts to find the last revision number for the subversion
-repository specified.
-
-`B_HGREV <mercurial repository>`
-
-This function attemts to find the last revision number for the mercurial
-repository specified.
-
 `B_SFVER <sourceforce project url>`
 
 This function attempts to find the latest version for a project hosted on
@@ -651,11 +641,6 @@ verify-tag` and must be made by the declared key (A1); otherwise the build
 fails. When `[INFO]` `commit=` is set, the resolved `HEAD` must match that
 SHA exactly (A2). In `STRICT` mode, a git checkout without a `gpgkey` is
 refused.
-
-`B_UPDATEPKGBLD`
-
-This will retrieve the current build number from the package administration file,
-and rewrite it using the `B_BUILDNR` variable information.
 
 `B_LINKFILES <source directory> <destination directory>`
 
