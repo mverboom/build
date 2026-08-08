@@ -739,7 +739,10 @@ build() {
             # releases on commits that no branch points at; git's default
             # tag auto-follow then skips them and `git checkout v$B_VERSION`
             # fails. --tags forces all tags (and their objects) down.
-            (cd "$fn" || exit 1; git fetch --tags origin)
+            # A rejected tag (upstream force-moved a tag) makes fetch exit
+            # non-zero; that is a warning, not a fatal error. Tolerate it so
+            # set -e in the build wrapper does not abort the build.
+            (cd "$fn" || exit 1; git fetch --tags origin || true)
             if [[ "$option" == "-s" ]]; then
                (cd "$fn" || exit; git submodule update --init --recursive)
             fi
@@ -747,9 +750,12 @@ build() {
          else
             flock -w 60 "$targetnover" tar xzf "$targetnover"
             cd "$fn" || return 1
-            git fetch --tags origin
+            git fetch --tags origin || true
             if [[ "$(git rev-parse @)" != "$(git rev-parse '@{u}')" ]]; then
-               git pull --tags
+               # The fetch above already updated origin refs and tags; a plain
+               # fast-forward merge updates the branch without re-fetching tags
+               # (which would fail on a force-moved upstream tag).
+               git merge --ff-only "@{u}"
                if [[ "$option" == "-s" ]]; then
                   git submodule update --init --recursive
                fi
