@@ -4,6 +4,14 @@ DESTDIR=~/build
 DESTSPLIT=y
 # Download cache directory
 CACHEDIR=~/cache
+# Number of versioned download versions to keep per package (0 disables)
+MAXCACHEKEEP=3
+# Number of built versions to keep per package in the build output (0 disables)
+MAXBUILDKEEP=1
+# Keep build output only for builds taking at least this many seconds (so it can
+# be re-packaged without a rebuild); faster builds are pruned after packaging
+# (0 = keep all)
+#BUILDKEEPTIME=60
 # Temporary build directory
 TMPDIR=~/temp
 # Log directory

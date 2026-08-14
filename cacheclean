@@ -1,0 +1,406 @@
+#!/usr/bin/env bash
+#
+# cacheclean - report on and manage the build download cache (~/cache)
+#
+# The cache holds two kinds of entries:
+#   * versioned downloads (B_GET http/sf) - one file per version, e.g.
+#     freecad-1.0.2, freecad-1.1.0, ... These accumulate without bound.
+#   * single-file caches (B_GET git/go/hg/svn) - a tarball per package that is
+#     updated in place. These are the efficiency cache that avoids re-cloning
+#     on every build and must be kept.
+#
+# This script reports usage, prunes stale versioned downloads (keeping the
+# newest N per package), optionally compacts the git tarballs, and optionally
+# removes caches for packages that no longer have a recipe.
+#
+# Copyright 2025 Mark Verboom
+#
+# This file is part of Build.
+#
+#     Build is free software: you can redistribute it and/or modify
+#     it under the terms of the GNU General Public License as published by
+#     the Free Software Foundation, either version 3 of the License, or
+#     (at your option) any later version.
+#
+#     Build is distributed in the hope that it will be useful,
+#     but WITHOUT ANY WARRANTY; without even the implied warranty of
+#     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#     GNU General Public License for more details.
+#
+#     You should have received a copy of the GNU General Public License
+#     along with Build.  If not, see <http://www.gnu.org/licenses/>.
+
+set -u
+
+# Global configuration (overridden by ~/.buildrc)
+CACHEDIR="$HOME/cache"
+RECIPEDIR="$HOME/recipes"
+MAXCACHEKEEP=3
+
+# Action flags
+DO_REPORT=1
+DO_PRUNE=0
+DO_COMPACT=0
+DO_ORPHANS=0
+DO_RECLONE=0
+DRY_RUN=0
+PRUNE_KEEP=0
+RECLONE_LIMIT=0
+
+# Source configuration (same file the build script uses)
+# shellcheck source=~/.buildrc
+[[ -f "$HOME/.buildrc" ]] && source "$HOME/.buildrc"
+MAXCACHEKEEP="${MAXCACHEKEEP:-3}"
+
+# Print a byte count as a human-readable size (e.g. 1.5G, 234M).
+# Parameters: bytes
+_human() {
+   local bytes="$1"
+   if (( bytes >= 1073741824 )); then
+      printf '%.1fG' "$(echo "scale=1; $bytes/1073741824" | bc 2>/dev/null || awk "BEGIN{printf \"%.1f\", $bytes/1073741824}")"
+   elif (( bytes >= 1048576 )); then
+      printf '%.1fM' "$(echo "scale=1; $bytes/1048576" | bc 2>/dev/null || awk "BEGIN{printf \"%.1f\", $bytes/1048576}")"
+   elif (( bytes >= 1024 )); then
+      printf '%.1fK' "$(echo "scale=1; $bytes/1024" | bc 2>/dev/null || awk "BEGIN{printf \"%.1f\", $bytes/1024}")"
+   else
+      printf '%dB' "$bytes"
+   fi
+}
+
+# Compute the "stem" of a cached download filename: the part before the first
+# '-' whose remainder starts with a digit (the version suffix). Versioned
+# B_GET http/sf downloads are stored as <name>-<version>; single-file caches
+# (git/go/hg/svn tarballs) have no such suffix and their stem equals the whole
+# filename. A file whose stem equals its filename is therefore a single-file
+# cache and must never be pruned. Prints the stem (no trailing newline).
+# Parameters: filename
+_stem() {
+   local f="$1"
+   local rest="$f" tail
+   while [[ "$rest" == *-* ]]; do
+      tail="${rest#*-}"
+      if [[ "$tail" =~ ^[0-9] ]]; then
+         printf '%s' "${f%-$tail}"
+         return 0
+      fi
+      rest="$tail"
+   done
+   printf '%s' "$f"
+}
+
+# Print a usage report: total size, breakdown by cache type, top consumers and
+# how much a prune would free.
+report() {
+   [[ -d "$CACHEDIR" ]] || { printf '%s\n' "Cache directory not found: $CACHEDIR"; return 1; }
+   local total=0 versioned=0 single=0 stale=0 pkg_count=0
+   local pkg f base stem
+   for pkg in "$CACHEDIR"/*/; do
+      [[ -d "$pkg" ]] || continue
+      (( pkg_count++ ))
+      declare -A stems=()
+      for f in "$pkg"*; do
+         [[ -f "$f" ]] || continue
+         local sz
+         sz=$(stat -c %s "$f" 2>/dev/null) || continue
+         total=$((total + sz))
+         base="${f##*/}"
+         stem=$(_stem "$base")
+         if [[ "$stem" == "$base" ]]; then
+            single=$((single + sz))
+         else
+            versioned=$((versioned + sz))
+            stems["$stem"]+="$f"$'\n'
+         fi
+      done
+      # stale = versioned files beyond the newest MAXCACHEKEEP per stem
+      local s files
+      for s in "${!stems[@]}"; do
+         mapfile -t files <<< "${stems[$s]}"
+         (( ${#files[@]} > MAXCACHEKEEP )) || continue
+         mapfile -t files < <(printf '%s\n' "${files[@]}" | xargs -d '\n' ls -t 2>/dev/null)
+         local drop
+         for drop in "${files[@]:MAXCACHEKEEP}"; do
+            [[ -n "$drop" ]] || continue
+            stale=$((stale + $(stat -c %s "$drop" 2>/dev/null || echo 0)))
+         done
+      done
+      unset stems
+   done
+
+   printf '%s\n' "Cache: $CACHEDIR"
+   printf '%s\n' "Total: $(_human "$total") across $pkg_count packages"
+   printf '%s\n' "  versioned downloads (prunable): $(_human "$versioned")"
+   printf '%s\n' "  single-file caches (git tarballs, kept): $(_human "$single")"
+   printf '%s\n' "  stale versions a --prune $MAXCACHEKEEP would free: $(_human "$stale")"
+   printf '%s\n' ""
+   printf '%s\n' "Top 10 packages by size:"
+   local -a sizes=()
+   for pkg in "$CACHEDIR"/*/; do
+      [[ -d "$pkg" ]] || continue
+      local psz
+      psz=$(du -s --block-size=1 "$pkg" 2>/dev/null | awk '{print $1}')
+      sizes+=("$psz $pkg")
+   done
+   printf '%s\n' "${sizes[@]}" | sort -rn | head -10 | while read -r sz p; do
+      printf '  %6s  %s\n' "$(_human "$sz")" "$p"
+   done
+   return 0
+}
+
+# Prune stale versioned downloads, keeping the newest PRUNE_KEEP per package
+# (per distinct download stem). Single-file caches (git tarballs) are never
+# removed. With DRY_RUN set, only report what would be removed.
+prune() {
+   local keep="$PRUNE_KEEP"
+   (( keep > 0 )) || keep="$MAXCACHEKEEP"
+   (( keep > 0 )) || { printf '%s\n' "Prune disabled (MAXCACHEKEEP=0)."; return 0; }
+   [[ -d "$CACHEDIR" ]] || { printf '%s\n' "Cache directory not found: $CACHEDIR"; return 1; }
+   local freed=0 removed=0
+   local pkg f base stem
+   for pkg in "$CACHEDIR"/*/; do
+      [[ -d "$pkg" ]] || continue
+      declare -A stems=()
+      for f in "$pkg"*; do
+         [[ -f "$f" ]] || continue
+         base="${f##*/}"
+         stem=$(_stem "$base")
+         [[ "$stem" == "$base" ]] && continue
+         stems["$stem"]+="$f"$'\n'
+      done
+      local s files
+      for s in "${!stems[@]}"; do
+         mapfile -t files <<< "${stems[$s]}"
+         (( ${#files[@]} > keep )) || continue
+         mapfile -t files < <(printf '%s\n' "${files[@]}" | xargs -d '\n' ls -t 2>/dev/null)
+         local drop
+         for drop in "${files[@]:keep}"; do
+            [[ -n "$drop" ]] || continue
+            local sz
+            sz=$(stat -c %s "$drop" 2>/dev/null || echo 0)
+            if (( DRY_RUN == 1 )); then
+               printf '%s\n' "would remove $drop ($(_human "$sz"))"
+            else
+               printf '%s\n' "removed $drop ($(_human "$sz"))"
+               rm -f "$drop"
+            fi
+            freed=$((freed + sz))
+            removed=$((removed + 1))
+         done
+      done
+      unset stems
+   done
+   printf '%s\n' "Pruned $removed file(s), freed $(_human "$freed")."
+   return 0
+}
+
+# Compact single-file git tarballs by extracting, running git gc and re-tarring.
+# Reclaims space from unreachable objects (e.g. force-moved tags). Only touches
+# files that are actually git repositories. Slow on large caches; run sparingly.
+compact() {
+   [[ -d "$CACHEDIR" ]] || { printf '%s\n' "Cache directory not found: $CACHEDIR"; return 1; }
+   command -v git > /dev/null 2>&1 || { printf '%s\n' "git not found."; return 1; }
+   local pkg f base stem
+   for pkg in "$CACHEDIR"/*/; do
+      [[ -d "$pkg" ]] || continue
+      for f in "$pkg"*; do
+         [[ -f "$f" ]] || continue
+         base="${f##*/}"
+         stem=$(_stem "$base")
+         # Only single-file caches (git tarballs) are candidates.
+         [[ "$stem" == "$base" ]] || continue
+         local tmp
+         tmp=$(mktemp -d) || continue
+         if tar xzf "$f" -C "$tmp" 2>/dev/null; then
+            local repo
+            repo=$(find "$tmp" -maxdepth 2 -name .git -type d 2>/dev/null | head -1)
+            if [[ -n "$repo" ]]; then
+               local before after
+               before=$(stat -c %s "$f")
+               (cd "${repo%/.git}" && git gc --prune=now > /dev/null 2>&1)
+               if tar czf "$f.tmp" -C "$tmp" . 2>/dev/null; then
+                  after=$(stat -c %s "$f.tmp")
+                  if (( after < before )); then
+                     mv -f "$f.tmp" "$f"
+                     printf '%s\n' "compacted $f ($(_human "$before") -> $(_human "$after"))"
+                  else
+                     rm -f "$f.tmp"
+                     printf '%s\n' "no gain, skipped $f"
+                  fi
+               fi
+            fi
+         fi
+         rm -rf "$tmp"
+      done
+   done
+   return 0
+}
+
+# Re-clone single-file git tarballs as shallow clones (git clone --depth 1) to
+# reclaim the space taken by full repository history. Reads the origin URL from
+# the cached clone's .git/config, replaces the tarball with a shallow clone of
+# the default-branch tip (the version tag is fetched on the next build by
+# B_GET). Processes largest first so an interrupted run still reclaims the most
+# space. With RECLONE_LIMIT set, only the N largest are re-cloned. With DRY_RUN
+# set, only reports what would be re-cloned. Never fatal.
+reclone() {
+   [[ -d "$CACHEDIR" ]] || { printf '%s\n' "Cache directory not found: $CACHEDIR"; return 1; }
+   command -v git > /dev/null 2>&1 || { printf '%s\n' "git not found."; return 1; }
+   local -a targets=()
+   local pkg f base stem
+   for pkg in "$CACHEDIR"/*/; do
+      [[ -d "$pkg" ]] || continue
+      for f in "$pkg"*; do
+         [[ -f "$f" ]] || continue
+         base="${f##*/}"
+         stem=$(_stem "$base")
+         # Only single-file caches (git tarballs) are candidates.
+         [[ "$stem" == "$base" ]] || continue
+         targets+=("$(stat -c %s "$f" 2>/dev/null || echo 0) $f")
+      done
+   done
+   # Largest first.
+   mapfile -t targets < <(printf '%s\n' "${targets[@]}" | sort -rn)
+   local count=0
+   local sz f name tmp url
+   for entry in "${targets[@]}"; do
+      sz="${entry%% *}"
+      f="${entry#* }"
+      name="${f##*/}"
+      if (( RECLONE_LIMIT > 0 )) && (( count >= RECLONE_LIMIT )); then
+         break
+      fi
+      tmp=$(mktemp -d) || continue
+      # Extract only the git config to read the origin URL.
+      if tar xzf "$f" -C "$tmp" "$name/.git/config" 2>/dev/null \
+         && [[ -f "$tmp/$name/.git/config" ]]; then
+         url=$(awk '/\[remote "origin"\]/{f=1} f&&/url =/{print $3; exit}' "$tmp/$name/.git/config")
+         if [[ -n "$url" ]]; then
+            if (( DRY_RUN == 1 )); then
+               printf '%s\n' "would re-clone $f ($(_human "$sz"))"
+            else
+               printf '%s\n' "re-cloning $f ($(_human "$sz"))"
+               rm -f "$f"
+               rm -rf "${tmp:?}/${name:?}"
+               if git clone --depth 1 "$url" "$tmp/$name" > /dev/null 2>&1; then
+                  tar czf "$f" -C "$tmp" "$name" 2>/dev/null
+               else
+                  printf '%s\n' "  re-clone failed; will re-clone on next build"
+               fi
+            fi
+            count=$((count + 1))
+         fi
+      fi
+      rm -rf "$tmp"
+   done
+   printf '%s\n' "Re-cloned $count git cache(s)."
+   return 0
+}
+
+# Remove cache directories for packages that no longer have a recipe.
+orphans() {
+   [[ -d "$CACHEDIR" ]] || { printf '%s\n' "Cache directory not found: $CACHEDIR"; return 1; }
+   local pkg name
+   for pkg in "$CACHEDIR"/*/; do
+      [[ -d "$pkg" ]] || continue
+      name="${pkg%/}"
+      name="${name##*/}"
+      if [[ ! -f "$RECIPEDIR/$name.recipe" ]]; then
+         local sz
+         sz=$(du -s --block-size=1 "$pkg" 2>/dev/null | awk '{print $1}')
+         if (( DRY_RUN == 1 )); then
+            printf '%s\n' "would remove orphan cache $pkg ($(_human "$sz"))"
+         else
+            printf '%s\n' "removed orphan cache $pkg ($(_human "$sz"))"
+            rm -rf "$pkg"
+         fi
+      fi
+   done
+   return 0
+}
+
+usage() {
+   cat <<-EOF
+	Usage: cacheclean [OPTION]
+
+	Report on and manage the build download cache ($CACHEDIR).
+
+	Options:
+	  --prune [N]   prune stale versioned downloads, keeping the N newest per
+	                package (default: MAXCACHEKEEP from ~/.buildrc, or 3).
+	                Single-file git tarballs are never removed.
+	  --compact     compact single-file git tarballs with git gc (slow).
+	  --reclone [N] re-clone single-file git tarballs as shallow clones (git
+	                clone --depth 1) to reclaim full-history space. Largest
+	                first; with N, only the N largest. Requires network.
+	  --orphans     remove cache directories for packages with no recipe.
+	  --dry-run     report what would be done without changing anything.
+	  --help        show this help.
+
+	With no options, prints a usage report.
+	EOF
+}
+
+main() {
+   local arg
+   while (( $# > 0 )); do
+      arg="$1"
+      shift
+      case "$arg" in
+      "--prune")
+         DO_PRUNE=1
+         DO_REPORT=0
+         if (( $# > 0 )) && [[ "$1" =~ ^[0-9]+$ ]]; then
+            PRUNE_KEEP="$1"
+            shift
+         fi
+         ;;
+      "--compact")
+         DO_COMPACT=1
+         DO_REPORT=0
+         ;;
+      "--reclone")
+         DO_RECLONE=1
+         DO_REPORT=0
+         if (( $# > 0 )) && [[ "$1" =~ ^[0-9]+$ ]]; then
+            RECLONE_LIMIT="$1"
+            shift
+         fi
+         ;;
+      "--orphans")
+         DO_ORPHANS=1
+         DO_REPORT=0
+         ;;
+      "--dry-run")
+         DRY_RUN=1
+         ;;
+      "--help"|"-h")
+         usage
+         return 0
+         ;;
+      *)
+         printf '%s\n' "Unknown option: $arg" >&2
+         usage >&2
+         return 1
+         ;;
+      esac
+   done
+
+   if (( DO_REPORT == 1 )); then
+      report
+   fi
+   if (( DO_PRUNE == 1 )); then
+      prune
+   fi
+   if (( DO_COMPACT == 1 )); then
+      compact
+   fi
+   if (( DO_RECLONE == 1 )); then
+      reclone
+   fi
+   if (( DO_ORPHANS == 1 )); then
+      orphans
+   fi
+   return 0
+}
+
+main "$@"

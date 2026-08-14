@@ -95,6 +95,25 @@ BUILDDOCKERTMP="${BUILDDOCKERTMP:-}"
 # Defaults to "yes" so the script self-cleans without ~/.buildrc config; set
 # DOCKERAUTOPRUNE=off in ~/.buildrc to disable.
 DOCKERAUTOPRUNE="${DOCKERAUTOPRUNE:-yes}"
+# Number of versioned download versions to keep per package in CACHEDIR after a
+# build session. Versioned B_GET http/sf downloads accumulate one file per
+# version (e.g. freecad-1.0.2, freecad-1.1.0, ...); this prunes the oldest so
+# the cache does not grow without bound. Single-file caches (git/go/hg/svn
+# tarballs, which are the efficiency cache that avoids re-cloning) are never
+# touched. Set to 0 or empty to disable pruning.
+MAXCACHEKEEP="${MAXCACHEKEEP:-3}"
+# Number of built versions to keep per package in DESTDIR after a build session.
+# Build output accumulates one directory per version (e.g. act_runner/2.0.1,
+# act_runner/2.1.0, ...); this prunes the oldest so the build output does not
+# grow without bound. Set to 0 or empty to disable pruning.
+MAXBUILDKEEP="${MAXBUILDKEEP:-1}"
+# Build-time cutoff (seconds) for keeping build output after packaging. Builds
+# that take at least this long keep their full output in DESTDIR (so a
+# packaging-only recipe change can be re-packaged without a full rebuild);
+# faster builds have their output replaced with an empty marker directory (the
+# version is still recorded as built, but a rebuild is cheap). Set to 0 or
+# empty to keep all build output (default behaviour).
+BUILDKEEPTIME="${BUILDKEEPTIME:-0}"
 # Distribution segment for the output directory (e.g. "debian-trixie").
 # Computed in main() from BUILDDISTRO (docker mode) or lsb_release (native).
 B_DISTRODIR=""
@@ -201,6 +220,33 @@ _b_verify_copy() {
       output "B_GET: sha256 verified for $fn"
    fi
    flock -w 60 "$target" cp "$target" "$fn"
+}
+
+# Refresh a shallow git clone in the build tree so it is ready to build from.
+# Moves to the default branch and shallow-fetches its tip (so date-based recipes
+# that build the default-branch head get the latest code), then shallow-fetches
+# the current version tag (with and without a leading 'v') so tag-based recipes
+# can `git checkout v$B_VERSION`. Used by the B_GET git method to keep the cache
+# small (only the needed history, not the full clone). Never fatal. Parameters:
+# repo_dir
+_b_git_refresh() {
+   local repo="$1" branch
+   (cd "$repo" || exit 1
+      branch=$(git symbolic-ref --short -q HEAD 2>/dev/null)
+      if [[ -z "$branch" ]]; then
+         branch=$(git rev-parse --abbrev-ref origin/HEAD 2>/dev/null | sed 's#origin/##')
+         [[ "$branch" == "HEAD" ]] && branch=""
+      fi
+      if [[ -n "$branch" ]]; then
+         git checkout -f "$branch" > /dev/null 2>&1
+         git fetch --depth 1 origin > /dev/null 2>&1 || true
+         git reset --hard "origin/$branch" > /dev/null 2>&1 || true
+      fi
+      if [[ -n "${B_VERSION:-}" ]]; then
+         git fetch --depth 1 origin tag "v$B_VERSION" > /dev/null 2>&1 || true
+         git fetch --depth 1 origin tag "$B_VERSION" > /dev/null 2>&1 || true
+      fi
+   )
 }
 
 # Compose the package identity string used in PKGLIST and build-number lookups.
@@ -611,6 +657,10 @@ build_require_remove() {
 build() {
    B_NAME="$1"
    B_VERSION="$2"
+   # Start of this recipe's build wall-clock time, used by BUILDKEEPTIME to
+   # decide whether to keep the build output for re-packaging.
+   B_BUILDTIME=0
+   local build_start=$SECONDS
    # Find recipe required section if available
    local pkgs
    pkgs=$(recipe_section_lookup "$B_NAME" REQUIRED)
@@ -727,38 +777,27 @@ build() {
          if [[ ! -f "$targetnover" ]]; then
             [[ -d "$targetdir" ]] || mkdir -p "$targetdir"
             printf '%s\n' "Git downloading files.."
-            if ! git clone "$url" "$fn"; then
+            # Shallow clone keeps the cache small: only the default-branch tip and
+            # the version tag (via _b_git_refresh), not the full repository history.
+            # Tag-based recipes checkout the version tag; date-based recipes build
+            # the default-branch head; both work from the shallow clone.
+            if ! git clone --depth 1 "$url" "$fn"; then
                printf '%s\n' "Error cloning repository."; return 1
             fi
-            # Fetch every tag explicitly. Some upstreams (e.g. influxdb) tag
-            # releases on commits that no branch points at; git's default
-            # tag auto-follow then skips them and `git checkout v$B_VERSION`
-            # fails. --tags forces all tags (and their objects) down.
-            # A rejected tag (upstream force-moved a tag) makes fetch exit
-            # non-zero; that is a warning, not a fatal error. Tolerate it so
-            # set -e in the build wrapper does not abort the build.
-            (cd "$fn" || exit 1; git fetch --tags origin || true)
+            _b_git_refresh "$fn"
             if [[ "$option" == "-s" ]]; then
-               (cd "$fn" || exit; git submodule update --init --recursive)
+               (cd "$fn" || exit; git submodule update --init --recursive --depth 1)
             fi
             flock -w 60 "$targetnover" tar cfz "$targetnover" "$fn"
          else
             flock -w 60 "$targetnover" tar xzf "$targetnover"
-            cd "$fn" || return 1
-            git fetch --tags origin || true
-            if [[ "$(git rev-parse @)" != "$(git rev-parse '@{u}')" ]]; then
-               # The fetch above already updated origin refs and tags; a plain
-               # fast-forward merge updates the branch without re-fetching tags
-               # (which would fail on a force-moved upstream tag).
-               git merge --ff-only "@{u}"
-               if [[ "$option" == "-s" ]]; then
-                  git submodule update --init --recursive
-               fi
-               cd ..
-               flock -w 60 "$targetnover" tar cfz "$targetnover" "$fn"
-            else
-               cd ..
+            _b_git_refresh "$fn"
+            if [[ "$option" == "-s" ]]; then
+               (cd "$fn" || exit; git submodule update --init --recursive --depth 1)
             fi
+            cd "$fn" || return 1
+            cd ..
+            flock -w 60 "$targetnover" tar cfz "$targetnover" "$fn"
          fi
          ;;
       "go")
@@ -967,6 +1006,7 @@ build() {
          rm -rf "$B_INSTALLDIR"
          return 1
       fi
+      B_BUILDTIME=$((SECONDS - build_start))
       return 0
    fi
 
@@ -1019,6 +1059,7 @@ build() {
       rm -rf "$B_INSTALLDIR"
       return 1
    fi
+   B_BUILDTIME=$((SECONDS - build_start))
    return 0
 }
 
@@ -1092,6 +1133,13 @@ package() {
    pkgpath=$(_b_installdir "$pkg" "$version" "$B_INSTANCE")
    if [[ ! -d "$pkgpath" ]]; then
       ERR=1 output "Version $version of $pkg is not available for packaging."
+      return 1
+   fi
+   # The build output may have been pruned (BUILDKEEPTIME: a fast build's
+   # output was replaced with an empty marker dir). Re-packaging then needs a
+   # full rebuild first.
+   if [[ -f "$pkgpath/.build-pruned" ]]; then
+      ERR=1 output "Version $version of $pkg was pruned as a fast build (BUILDKEEPTIME); rebuild required to re-package."
       return 1
    fi
 
@@ -1842,6 +1890,121 @@ _docker_autoprune() {
       docker image prune -a -f > /dev/null 2>&1 || true
    fi
    return 0
+}
+
+# Compute the "stem" of a cached download filename: the part before the first
+# '-' whose remainder starts with a digit (the version suffix). Versioned
+# B_GET http/sf downloads are stored as <name>-<version>; single-file caches
+# (git/go/hg/svn tarballs) have no such suffix and their stem equals the whole
+# filename. A file whose stem equals its filename is therefore a single-file
+# cache and must never be pruned. Prints the stem (no trailing newline).
+# Parameters: filename
+_cache_stem() {
+   local f="$1"
+   local rest="$f" head tail
+   while [[ "$rest" == *-* ]]; do
+      head="${rest%%-*}"
+      tail="${rest#*-}"
+      if [[ "$tail" =~ ^[0-9] ]]; then
+         printf '%s' "${f%-$tail}"
+         return 0
+      fi
+      rest="$tail"
+   done
+   printf '%s' "$f"
+}
+
+# Prune stale versioned downloads from CACHEDIR, keeping the MAXCACHEKEEP most
+# recently downloaded versions per package (per distinct download stem).
+# Single-file caches (git/go/hg/svn tarballs) are never removed, so build
+# efficiency (avoiding re-clones) is preserved. No-op when MAXCACHEKEEP is 0 or
+# empty, or when CACHEDIR does not exist. Never fatal.
+_cache_prune() {
+   local keep="${MAXCACHEKEEP:-3}"
+   (( keep > 0 )) || return 0
+   [[ -d "$CACHEDIR" ]] || return 0
+   local pkg f base stem
+   for pkg in "$CACHEDIR"/*/; do
+      [[ -d "$pkg" ]] || continue
+      declare -A stems=()
+      for f in "$pkg"*; do
+         [[ -f "$f" ]] || continue
+         base="${f##*/}"
+         stem=$(_cache_stem "$base")
+         # Single-file cache (git tarball etc.): never prune.
+         [[ "$stem" == "$base" ]] && continue
+         stems["$stem"]+="$f"$'\n'
+      done
+      local stem files
+      for stem in "${!stems[@]}"; do
+         mapfile -t files <<< "${stems[$stem]}"
+         (( ${#files[@]} > keep )) || continue
+         # Newest first by mtime; keep the first $keep, drop the rest.
+         mapfile -t files < <(printf '%s\n' "${files[@]}" | xargs -d '\n' ls -t 2>/dev/null)
+         local drop
+         for drop in "${files[@]:keep}"; do
+            [[ -n "$drop" ]] || continue
+            output "cache: pruning $drop"
+            rm -f "$drop"
+         done
+      done
+      unset stems
+   done
+   return 0
+}
+
+# Prune old build output from DESTDIR, keeping the MAXBUILDKEEP most recently
+# built versions per package (per distro/arch). Build output accumulates one
+# directory per version (e.g. act_runner/2.0.1, act_runner/2.1.0, ...); this
+# removes the oldest so the build output does not grow without bound. No-op when
+# MAXBUILDKEEP is 0 or empty, or when DESTDIR does not exist. Never fatal.
+_build_prune() {
+   local keep="${MAXBUILDKEEP:-2}"
+   (( keep > 0 )) || return 0
+   [[ -d "$DESTDIR" ]] || return 0
+   local distro arch name
+   for distro in "$DESTDIR"/*/; do
+      [[ -d "$distro" ]] || continue
+      for arch in "$distro"*/; do
+         [[ -d "$arch" ]] || continue
+         for name in "$arch"*/; do
+            [[ -d "$name" ]] || continue
+            # Version subdirectories, newest built first by mtime.
+            local -a versions=()
+            mapfile -t versions < <(find "$name" -maxdepth 1 -mindepth 1 -type d \
+               -printf '%T@ %p\n' 2>/dev/null | sort -rn | awk '{print $2}')
+            (( ${#versions[@]} > keep )) || continue
+            local v
+            for v in "${versions[@]:keep}"; do
+               output "build: pruning $v"
+               rm -rf "$v"
+            done
+         done
+      done
+   done
+   return 0
+}
+
+# Replace the build output of a fast build (one that took less than
+# BUILDKEEPTIME seconds) with an empty marker directory, so the version is still
+# recorded as built but no disk is wasted on a cheap-to-rebuild staging tree.
+# The marker file lets a re-packaging attempt report that a rebuild is required.
+# No-op when BUILDKEEPTIME is 0, the build was not under the cutoff, or the
+# install dir does not exist. Parameters: name version instance buildtime
+_build_time_prune() {
+   local name="$1" version="$2" inst="$3" buildtime="$4"
+   local keep="${BUILDKEEPTIME:-0}"
+   (( keep > 0 )) || return 0
+   (( buildtime < keep )) || return 0
+   local installpath
+   installpath=$(_b_installdir "$name" "$version" "$inst")
+   [[ -d "$installpath" ]] || return 0
+   # Remove the staged build output, leaving an empty marker dir so the version
+   # is still recognised as built.
+   find "$installpath" -mindepth 1 -delete 2>/dev/null || rm -rf "$installpath"
+   mkdir -p "$installpath"
+   touch "$installpath/.build-pruned"
+   output "build: pruned output of $name $version (built in ${buildtime}s, under BUILDKEEPTIME=${keep}s)"
 }
 
 # Names of the build-environment variables passed into every Docker build
@@ -2651,6 +2814,7 @@ main() {
    declare -a work_build=()
    declare -a work_package=()
    declare -a work_packaged=()
+   declare -a work_buildtime=()
 
    # Hidden helper: print the known target distributions and exit. Used by
    # bash completion (build-completion) as the single source of truth, so the
@@ -2772,6 +2936,7 @@ main() {
                retval=1
             else
                work_build[i]=1
+               work_buildtime[i]=$B_BUILDTIME
                output -f "${work_recipes[$i]} ${work_version[$i]} (build succeeded)"
 
                # In Docker mode, build+package was combined. Read result file.
@@ -2787,6 +2952,13 @@ main() {
             fi
          fi
       done
+      # Prune stale versioned downloads now that the build session is done, so
+      # the cache does not grow without bound. Runs while the build lock is
+      # still held to avoid racing a concurrent build's B_GET.
+      _cache_prune
+      # Prune old build output now that the build session is done, so the build
+      # directory does not grow without bound.
+      _build_prune
       lock_free
    fi
 
@@ -2853,6 +3025,19 @@ main() {
          fi
       fi
       lock_free
+   fi
+
+   # After packaging, replace the build output of fast builds (under
+   # BUILDKEEPTIME) with an empty marker dir so the version stays recorded as
+   # built but cheap-to-rebuild trees do not waste disk. Runs only for builds
+   # that were actually built and successfully packaged this session.
+   if (( BUILDKEEPTIME > 0 )); then
+      for i in "${!work_recipes[@]}"; do
+         [[ "${work_build[$i]:-0}" == "1" ]] || continue
+         [[ "${work_packaged[$i]:-1}" == "0" ]] || continue
+         _build_time_prune "${work_recipes[$i]}" "${work_version[$i]}" \
+            "${work_instance[$i]:-$global_instance}" "${work_buildtime[$i]:-0}"
+      done
    fi
 
    # Format the elapsed build time as HH:MM:SS for the email summary.

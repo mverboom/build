@@ -152,6 +152,28 @@ name and version will be concatenated and used as directory name.
 `CACHEDIR` (defaults to ~/cache)
 Download cache directory where downloaded files are placed.
 
+`MAXCACHEKEEP` (defaults to 3)
+Number of versioned download versions to keep per package in the cache. After
+each build session the oldest versioned downloads (B_GET http/sf) are pruned so
+the cache does not grow without bound. Single-file caches (git/go/hg/svn
+tarballs, which avoid re-cloning on every build) are never removed. Set to 0 or
+empty to disable pruning. See also the `cacheclean` script for on-demand
+reporting and management of the cache.
+
+`MAXBUILDKEEP` (defaults to 1)
+Number of built versions to keep per package in the build output directory
+(DESTDIR). After each build session the oldest build output directories are
+pruned so the build output does not grow without bound. Set to 0 or empty to
+disable pruning.
+
+`BUILDKEEPTIME` (defaults to 0, keep all)
+Build-time cutoff in seconds for keeping build output after packaging. Builds
+that take at least this long keep their full output in the build directory, so
+a packaging-only recipe change can be re-packaged without a full rebuild.
+Faster builds have their output replaced with an empty marker directory (the
+version is still recorded as built, but a rebuild is cheap and re-packaging of
+that output requires a rebuild). Set to 0 or empty to keep all build output.
+
 `TMPDIR` (defaults to ~/temp)
 Temporary directory where the software building takes place.
 
@@ -594,6 +616,14 @@ git repository. The update will be stored back in the cache.
 If `B_GET` completes successfully, a folder called `name` will be available with
 the repository content.
 
+The clone is **shallow** (`git clone --depth 1`): only the default-branch tip and
+the current version tag are fetched, not the full repository history. This keeps
+the cache small (the full history is typically ~90% of a clone's size). Tag-based
+recipes (`git checkout v$B_VERSION`) and date-based recipes (which build the
+default-branch head) both work from the shallow clone. On each build the cached
+clone is refreshed shallowly to the latest default-branch tip and the current
+version tag.
+
 This method has the following extra options:
 
 `-s`: Also get submodules for repository.
@@ -762,6 +792,44 @@ repository.
 `~/.buildrc`
 
 Configuration file
+
+# CACHE MANAGEMENT
+
+The download cache (`CACHEDIR`, default `~/cache`) holds two kinds of entries:
+
+* **versioned downloads** (B_GET http/sf) - one file per version, e.g.
+  `freecad-1.0.2`, `freecad-1.1.0`, ... These accumulate without bound.
+* **single-file caches** (B_GET git/go/hg/svn) - a tarball per package that is
+  updated in place. These are the efficiency cache that avoids re-cloning on
+  every build and must be kept.
+
+`build` prunes stale versioned downloads automatically after each build session,
+keeping the `MAXCACHEKEEP` most recently downloaded versions per package. The
+single-file git tarballs are never touched, so build efficiency is preserved.
+
+For on-demand reporting and management, use the `cacheclean` script:
+
+`cacheclean`
+
+Print a usage report: total cache size, breakdown by cache type, top
+consumers, and how much a prune would free.
+
+`cacheclean --prune [N]`
+
+Prune stale versioned downloads, keeping the N newest per package (default:
+`MAXCACHEKEEP` from `~/.buildrc`, or 3). Single-file git tarballs are never
+removed. Add `--dry-run` to preview without deleting.
+
+`cacheclean --compact`
+
+Compact single-file git tarballs with `git gc` to reclaim space from
+unreachable objects (e.g. force-moved tags). Slow on large caches; run
+sparingly.
+
+`cacheclean --orphans`
+
+Remove cache directories for packages that no longer have a recipe. Add
+`--dry-run` to preview.
 
 # EXAMPLES
 
