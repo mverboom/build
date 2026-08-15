@@ -306,7 +306,7 @@ _b_gpg_ensure_key() {
 
 # Exported so they are available to B_GET / B_GITCHECKOUT in child shells
 # (native build path) and serialized into the Docker env script.
-export -f _b_wget_fetch _b_verify_copy _b_pkg_id _b_gpg_ensure_key
+export -f _b_wget_fetch _b_verify_copy _b_pkg_id _b_gpg_ensure_key _b_git_refresh
 
 # Email a build-completion summary to the address given with -m.
 # Uses the work_* arrays populated by main(). Includes a per-recipe summary
@@ -2062,7 +2062,7 @@ docker_prepare_env() {
       # Function definitions (exported from build() function scope)
       declare -f B_GET B_GITCHECKOUT B_LINKFILES B_LINKFILE
       # Helpers used by the containerized functions above
-      declare -f _b_wget_fetch _b_verify_copy _b_pkg_id _b_installdir _b_gpg_ensure_key
+      declare -f _b_wget_fetch _b_verify_copy _b_pkg_id _b_installdir _b_gpg_ensure_key _b_git_refresh
 
       # Utility functions needed by packaging
       declare -f output
