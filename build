@@ -856,7 +856,9 @@ build() {
             flock -w 60 "$targetnover" tar cfz "$targetnover" .
          else
             flock -w 60 "$targetnover" tar xzf "$targetnover"
-            if ! go get -u "$url"; then
+            # No -u: never upgrade dependencies on cache refresh. A silent
+            # upgrade could pull in a compromised version (supply-chain risk).
+            if ! go get "$url"; then
                printf '%s\n' "Error updating repository."; return 1
             fi
             flock -w 60 "$targetnover" tar cfz "$targetnover" .
