@@ -48,6 +48,9 @@ PKGMAIL=""
 PKGORG=""
 POSTBUILD=""
 PROXY=""
+# Real build host name (captured on the host, passed to containers so
+# provenance records the actual build server, not the container hostname).
+BUILD_HOST="$(hostname 2>/dev/null)"
 # Source-integrity strict mode (SECURITY.md group A). When 1, git-based
 # recipes must declare a gpgkey and plain-http fetches are refused even with
 # allow_insecure.
@@ -1328,15 +1331,19 @@ package() {
 # Generate a SLSA-style provenance sidecar for a built package (SECURITY.md
 # group D1). Writes <pkgfile>.provenance.json next to the .deb in $PKGDIR,
 # recording what was built from what (recipe, version, source-integrity pins,
-# build number, package checksum). Best-effort: never fails the build.
+# build number, package checksum, image digest, build-deps snapshot).
+# Best-effort: never fails the build.
 # Parameters: pkgfile
 _b_provenance() {
    local pkgfile="$1"
    command -v jq > /dev/null 2>&1 || return 0
 
-   local recipe_head="" pkg_sha256=""
+   local recipe_head="" pkg_sha256="" deps=""
    [[ -d "$RECIPEDIR/.git" ]] && recipe_head=$(git -C "$RECIPEDIR" rev-parse HEAD 2>/dev/null)
    pkg_sha256=$(sha256sum "$PKGDIR/$pkgfile" 2>/dev/null | cut -d' ' -f1)
+   # Snapshot of installed packages (base image + build deps) for
+   # reproducibility (SECURITY.md B2). Sorted, one "pkg=version" per line.
+   deps=$(dpkg-query -W -f='${Package}=${Version}\n' 2>/dev/null | sort)
 
    jq -n \
       --arg recipe "${pkg:-}" \
@@ -1350,7 +1357,9 @@ _b_provenance() {
       --arg commit "${B_COMMIT:-}" \
       --arg gpgkey "${B_GPGKEY:-}" \
       --arg sha256 "${B_SHA256:-}" \
-      --arg host "$(hostname 2>/dev/null)" \
+      --arg image_digest "${B_IMAGE_DIGEST:-}" \
+      --arg host "${BUILD_HOST:-$(hostname 2>/dev/null)}" \
+      --arg deps "$deps" \
       --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
       '{
          schema_version: "1.0",
@@ -1363,7 +1372,9 @@ _b_provenance() {
          build_number: $buildnr,
          recipe_git_head: $recipe_head,
          source: { commit: $commit, gpgkey: $gpgkey, sha256: $sha256 },
+         image_digest: $image_digest,
          build_host: $host,
+         build_deps: ($deps | split("\n") | map(select(length > 0))),
          timestamp: $timestamp
       }' > "$PKGDIR/${pkgfile}.provenance.json" 2>/dev/null
    return 0
@@ -2228,6 +2239,7 @@ readonly -a BUILD_ENV_VARS=(
    RECIPEDIR LOGDIR PKGDIR PKGPOSTFIX PKGMAIL PKGORG
    B_GPGKEY B_COMMIT B_SHA256 B_ALLOW_INSECURE B_GPGKEYFILE B_STRICT distr rel
    B_VULNSCAN_POLICY B_BUILDROOT B_SRCGUARD_POLICY
+   BUILD_HOST B_IMAGE_DIGEST
 )
 
 # Prepare the build environment script for use inside a Docker container.
@@ -2586,6 +2598,11 @@ _docker_run() {
    # appends across runs and verbose mode replays stale output from previous
    # builds, making failures hard to read.
    : > "$LOGDIR/${B_NAME}-${B_ARCH}.log" 2>/dev/null || true
+
+   # Capture the image ID (content digest) for provenance (SECURITY.md D1).
+   # RepoDigests is empty for locally-built images, so use the image ID.
+   docker_args+=("-e" "B_IMAGE_DIGEST=$(docker inspect --format='{{.Id}}' "$image" 2>/dev/null)")
+
    container_id=$(docker run -d "${docker_args[@]}" "$image")
    if [[ -z "$container_id" ]]; then
       ERR=1 output "Failed to start Docker container."
