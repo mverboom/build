@@ -333,6 +333,14 @@ that only forwards to the allow-list).
 
 **F4. Vulnerability scanning of resolved dependencies (block on
 known-bad).**
+
+**Status: implemented.** The `[INFO]` `vulnscan=` key (`advisory` or
+`enforce`) enables an automatic post-build scan of the build tree with
+`osv-scanner` (baked into the Docker base image, pinned version + SHA-256
+verified). `enforce` fails the build on any HIGH/CRITICAL vulnerability;
+`advisory` reports but continues. See `BUILD.md` for the recipe-facing
+documentation. The `ignore` exception list is not yet implemented.
+
 After resolving dependencies (and before packaging), generate an SBOM
 of the resolved dependency set and scan it against a vulnerability
 database. Suitable tools that cover many ecosystems in one pass:

@@ -704,11 +704,28 @@ build() {
    B_GPGKEYFILE=$(recipe_item_get "$B_NAME" INFO gpgkeyfile) || true
    B_STRICT="${STRICT:-0}"
 
+   # Vulnerability scanning (SECURITY.md group F4): read optional recipe [INFO]
+   # key. advisory = warn but continue; enforce = fail the build on any
+   # HIGH/CRITICAL vulnerability in the resolved build-time dependencies.
+   # Unset = no scan. The scan runs automatically after the BUILD section
+   # (B_VULNSCAN is appended to the build command below).
+   B_VULNSCAN_POLICY=$(recipe_item_get "$B_NAME" INFO vulnscan) || true
+
+   # Build root: where the recipe's BUILD section runs and sources are checked
+   # out. Docker: /tmp (the entrypoint cd's there). Native: the per-build temp
+   # dir. B_VULNSCAN scans this tree for lockfiles/manifests.
+   if [[ "$BUILDMODE" == "docker" ]]; then
+      B_BUILDROOT="/tmp"
+   else
+      B_BUILDROOT="$TMP"
+   fi
+
    # Define build environment variables and functions
    B_CACHEDIR="$CACHEDIR"
    [[ -d "$RECIPEDIR/$B_NAME.files/B_BUILD" ]] && B_FILES="$RECIPEDIR/$B_NAME.files/B_BUILD"
    export B_VERSION B_INSTALLDIR B_ARCH B_INSTANCE B_CACHEDIR B_NAME B_BUILDNR B_FILES B_FORCE B_DISTRODIR B_DISTRO
    export B_GPGKEY B_COMMIT B_SHA256 B_ALLOW_INSECURE B_GPGKEYFILE B_STRICT
+   export B_VULNSCAN_POLICY B_BUILDROOT
 
    # Define build environment functions (used in both native and Docker modes)
    # These are exported for native mode and dumped to env script for Docker mode.
@@ -969,6 +986,65 @@ build() {
       ln -s "$src" "$B_INSTALLDIR/$dst"
    }
    export -f B_LINKFILE
+
+   # Scan the build tree for known vulnerabilities in resolved build-time
+   # dependencies (SECURITY.md group F4). Uses osv-scanner (baked into the
+   # Docker base image). Policy from B_VULNSCAN_POLICY: advisory (warn but
+   # continue) or enforce (fail on any HIGH/CRITICAL vulnerability). Scans
+   # $B_BUILDROOT by default, or a path given as the first argument.
+   # shellcheck disable=SC2317
+   B_VULNSCAN() {
+      local target="${1:-${B_BUILDROOT:-.}}"
+      local policy="${B_VULNSCAN_POLICY:-}"
+      [[ -n "$policy" ]] || return 0
+
+      command -v osv-scanner > /dev/null 2>&1 || {
+         output "B_VULNSCAN: osv-scanner not available in build environment"
+         [[ "$policy" == "enforce" ]] && return 1
+         return 0
+      }
+      command -v jq > /dev/null 2>&1 || {
+         output "B_VULNSCAN: jq not available in build environment"
+         [[ "$policy" == "enforce" ]] && return 1
+         return 0
+      }
+
+      local json total highcrit
+      json=$(osv-scanner scan --format=json --recursive --allow-no-lockfiles "$target" 2>/dev/null) || true
+      total=$(printf '%s\n' "$json" | jq '[.results[]?.packages[]?.vulnerabilities[]?] | length' 2>/dev/null)
+      total="${total:-0}"
+      highcrit=$(printf '%s\n' "$json" | jq '[.results[]?.packages[]?.vulnerabilities[]?.database_specific.severity? | select(. == "HIGH" or . == "CRITICAL")] | length' 2>/dev/null)
+      highcrit="${highcrit:-0}"
+
+      if (( total == 0 )); then
+         output "B_VULNSCAN: no known vulnerabilities found"
+         return 0
+      fi
+
+      # Print a concise per-vulnerability summary to the build log.
+      printf '%s\n' "$json" | jq -r '.results[]?.packages[]? | .package.name as $p | .vulnerabilities[]? | "  \(.id)  \(.database_specific.severity // "UNKNOWN")  \($p)"' 2>/dev/null
+
+      if (( highcrit > 0 )); then
+         output "B_VULNSCAN: $highcrit HIGH/CRITICAL vulnerability(ies) found ($total total)"
+         if [[ "$policy" == "enforce" ]]; then
+            output "B_VULNSCAN: enforce mode - failing build"
+            return 1
+         fi
+         output "B_VULNSCAN: advisory mode - continuing"
+      else
+         output "B_VULNSCAN: $total vulnerability(ies) found, none HIGH/CRITICAL - continuing"
+      fi
+      return 0
+   }
+   export -f B_VULNSCAN
+
+   # Append the vulnerability scan to the build command so it runs after the
+   # recipe's BUILD section (post-build, pre-package) when a policy is set.
+   # B_VULNSCAN scans $B_BUILDROOT (the build tree) for lockfiles/manifests.
+   if [[ -n "$B_VULNSCAN_POLICY" ]]; then
+      CMD="$CMD
+B_VULNSCAN"
+   fi
 
    # --- Docker mode: run build inside container ---
    if [[ "$BUILDMODE" == "docker" ]]; then
@@ -2024,6 +2100,7 @@ readonly -a BUILD_ENV_VARS=(
    B_INSTANCE BUILDMODE=docker TMPDIR=/tmp HOME PKGLIST DESTDIR DESTSPLIT
    RECIPEDIR LOGDIR PKGDIR PKGPOSTFIX PKGMAIL PKGORG
    B_GPGKEY B_COMMIT B_SHA256 B_ALLOW_INSECURE B_GPGKEYFILE B_STRICT distr rel
+   B_VULNSCAN_POLICY B_BUILDROOT
 )
 
 # Prepare the build environment script for use inside a Docker container.
@@ -2060,7 +2137,7 @@ docker_prepare_env() {
       printf 'export QUIET=%s\n' "${QUIET:-0}"
 
       # Function definitions (exported from build() function scope)
-      declare -f B_GET B_GITCHECKOUT B_LINKFILES B_LINKFILE
+      declare -f B_GET B_GITCHECKOUT B_LINKFILES B_LINKFILE B_VULNSCAN
       # Helpers used by the containerized functions above
       declare -f _b_wget_fetch _b_verify_copy _b_pkg_id _b_installdir _b_gpg_ensure_key _b_git_refresh
 

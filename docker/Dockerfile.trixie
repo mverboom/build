@@ -6,6 +6,15 @@ RUN apt-get update && apt-get -y install \
     gawk grep git subversion wget fakeroot bzip2 mercurial lsb-release jq xml2 dpkg-dev sudo gnupg \
     && apt-get clean
 
+# osv-scanner: build-time dependency vulnerability scanner (SECURITY.md group F4).
+# Pinned version + SHA-256 verified. amd64 binary (the build host is amd64).
+ARG OSV_SCANNER_VERSION=v2.5.0
+ARG OSV_SCANNER_SHA256=edcfc41d257db36148f065055655fe3fcfc434b0b423ea67468a84c207524e0c
+RUN wget -q -O /usr/local/bin/osv-scanner \
+        "https://github.com/google/osv-scanner/releases/download/${OSV_SCANNER_VERSION}/osv-scanner_linux_amd64" \
+    && echo "${OSV_SCANNER_SHA256}  /usr/local/bin/osv-scanner" | sha256sum -c - \
+    && chmod +x /usr/local/bin/osv-scanner
+
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

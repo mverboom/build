@@ -384,6 +384,21 @@ Set to 1 to explicitly allow plain `http://`, `git://` or `svn://` fetches
 that would otherwise be rejected by the HTTPS-only enforcement (A4). Use only
 for sources that have no encrypted transport available.
 
+vulnscan
+
+Enables automatic vulnerability scanning of the resolved build-time
+dependencies (see `SECURITY.md` group F4). After the `[BUILD]` section runs,
+the build tree is scanned with `osv-scanner` (baked into the Docker base
+image) for known vulnerabilities in lockfiles/manifests (npm, pip, cargo, go,
+maven, etc.). Supported values:
+
+- `advisory` — report findings but never fail the build.
+- `enforce` — fail the build if any HIGH or CRITICAL severity vulnerability
+  is found.
+
+Unset (the default) disables scanning. The scan runs automatically via
+`B_VULNSCAN` (see below); recipes do not need to call it themselves.
+
 ## CHECK VERSION
 
 For checking of the current version of the software available the following section
@@ -671,6 +686,15 @@ verify-tag` and must be made by the declared key (A1); otherwise the build
 fails. When `[INFO]` `commit=` is set, the resolved `HEAD` must match that
 SHA exactly (A2). In `STRICT` mode, a git checkout without a `gpgkey` is
 refused.
+
+`B_VULNSCAN [path]`
+
+Scans the build tree for known vulnerabilities in resolved build-time
+dependencies (SECURITY.md group F4) using `osv-scanner`. It is run
+automatically after the `[BUILD]` section when the `[INFO]` `vulnscan=` key is
+set, so recipes normally do not need to call it. The optional `path` argument
+overrides the default scan target (the build root). Behaviour is controlled by
+`vulnscan=advisory` (warn only) or `vulnscan=enforce` (fail on HIGH/CRITICAL).
 
 `B_LINKFILES <source directory> <destination directory>`
 
