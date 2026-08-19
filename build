@@ -1325,6 +1325,50 @@ package() {
    esac
 }
 
+# Generate a SLSA-style provenance sidecar for a built package (SECURITY.md
+# group D1). Writes <pkgfile>.provenance.json next to the .deb in $PKGDIR,
+# recording what was built from what (recipe, version, source-integrity pins,
+# build number, package checksum). Best-effort: never fails the build.
+# Parameters: pkgfile
+_b_provenance() {
+   local pkgfile="$1"
+   command -v jq > /dev/null 2>&1 || return 0
+
+   local recipe_head="" pkg_sha256=""
+   [[ -d "$RECIPEDIR/.git" ]] && recipe_head=$(git -C "$RECIPEDIR" rev-parse HEAD 2>/dev/null)
+   pkg_sha256=$(sha256sum "$PKGDIR/$pkgfile" 2>/dev/null | cut -d' ' -f1)
+
+   jq -n \
+      --arg recipe "${pkg:-}" \
+      --arg version "${version:-}" \
+      --arg arch "${B_ARCH:-}" \
+      --arg distro "${B_DISTRO:-}" \
+      --arg package "$pkgfile" \
+      --arg pkg_sha256 "$pkg_sha256" \
+      --arg buildnr "${P_BUILDNR:-}" \
+      --arg recipe_head "$recipe_head" \
+      --arg commit "${B_COMMIT:-}" \
+      --arg gpgkey "${B_GPGKEY:-}" \
+      --arg sha256 "${B_SHA256:-}" \
+      --arg host "$(hostname 2>/dev/null)" \
+      --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      '{
+         schema_version: "1.0",
+         recipe: $recipe,
+         version: $version,
+         arch: $arch,
+         distro: $distro,
+         package: $package,
+         package_sha256: $pkg_sha256,
+         build_number: $buildnr,
+         recipe_git_head: $recipe_head,
+         source: { commit: $commit, gpgkey: $gpgkey, sha256: $sha256 },
+         build_host: $host,
+         timestamp: $timestamp
+      }' > "$PKGDIR/${pkgfile}.provenance.json" 2>/dev/null
+   return 0
+}
+
 # Build a Debian package from a built recipe.
 # Parameters: recipe_name version package_id
 package_deb() {
@@ -1424,6 +1468,8 @@ package_deb() {
          pkgfile=$(basename "${deb_files[0]}")
       fi
    fi
+   # Write a provenance sidecar next to the package (SECURITY.md group D1).
+   _b_provenance "$pkgfile"
    printf '%s\n' "$pkgfile"
 }
 
@@ -2229,7 +2275,7 @@ docker_prepare_env() {
       declare -f recipe_section_get recipe_item_get
 
       # Package functions
-      declare -f package_buildnr_get package_deb
+      declare -f package_buildnr_get package_deb _b_provenance
 
    } > "$envfile"
 

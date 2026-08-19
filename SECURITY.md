@@ -205,6 +205,15 @@ network except to a pinned allow-list of hosts and denies writes outside
 ### D. Output integrity & provenance — medium-high effort, big consumer benefit
 
 **D1. Generate SLSA-style build provenance.**
+
+**Status: implemented (partial).** After a successful package build, a
+`<pkgfile>.provenance.json` sidecar is written next to the `.deb` in
+`$PKGDIR`, recording: recipe name, version, arch, distro, package filename
+and SHA-256, build number, recipe-dir `git rev-parse HEAD`, the
+source-integrity pins (`commit`/`gpgkey`/`sha256`), build host, and a UTC
+timestamp. The Docker image digest (B1) and `dpkg -l` snapshot (B2) are not
+yet recorded. See `BUILD.md` for details.
+
 This project is a self-contained build service — exactly what SLSA's
 Build track targets. After a successful build, write a JSON sidecar next
 to each `.deb` recording:
