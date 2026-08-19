@@ -1087,7 +1087,7 @@ build() {
          --exclude-dir='.git' --exclude-dir='node_modules' --exclude-dir='vendor' \
          --exclude-dir='target' --exclude-dir='.venv' --exclude-dir='venv' \
          'curl|wget|git clone|git fetch|go get|svn checkout|hg clone|base64 -d|base64 --decode|xxd -r|uudecode' \
-         "$target" 2>/dev/null)
+         "$target" 2>/dev/null) || true
 
       if [[ -z "$hits" ]]; then
          output "B_SRCGUARD: no suspicious build-script patterns found"
