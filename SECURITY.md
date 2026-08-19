@@ -206,13 +206,13 @@ network except to a pinned allow-list of hosts and denies writes outside
 
 **D1. Generate SLSA-style build provenance.**
 
-**Status: implemented (partial).** After a successful package build, a
+**Status: implemented.** After a successful package build, a
 `<pkgfile>.provenance.json` sidecar is written next to the `.deb` in
 `$PKGDIR`, recording: recipe name, version, arch, distro, package filename
 and SHA-256, build number, recipe-dir `git rev-parse HEAD`, the
-source-integrity pins (`commit`/`gpgkey`/`sha256`), build host, and a UTC
-timestamp. The Docker image digest (B1) and `dpkg -l` snapshot (B2) are not
-yet recorded. See `BUILD.md` for details.
+source-integrity pins (`commit`/`gpgkey`/`sha256`), the Docker image ID
+(content digest), the real build host, a sorted `dpkg-query` snapshot of
+installed packages (B2), and a UTC timestamp. See `BUILD.md` for details.
 
 This project is a self-contained build service — exactly what SLSA's
 Build track targets. After a successful build, write a JSON sidecar next

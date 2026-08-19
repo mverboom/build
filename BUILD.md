@@ -754,7 +754,8 @@ in `~/.buildrc`.
 A SLSA-style provenance sidecar (see `SECURITY.md` group D1) is written next
 to each package as `<pkgfile>.provenance.json`, recording the recipe name,
 version, arch, distro, package SHA-256, build number, recipe-dir git HEAD,
-source-integrity pins (`commit`/`gpgkey`/`sha256`), build host, and a UTC
+source-integrity pins (`commit`/`gpgkey`/`sha256`), Docker image ID, real
+build host, a sorted `dpkg-query` snapshot of installed packages, and a UTC
 timestamp. It is best-effort and never fails the build.
 
 For creating a package the following sections are used:
