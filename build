@@ -59,6 +59,13 @@ STRICT=0
 # sets its own vulnscan= key. A recipe's [INFO] vulnscan= overrides this.
 VULNSCAN=""
 
+# Static build-script guard default (SECURITY.md group F6). Global default for
+# the [INFO] srcguard= recipe key: advisory (warn but continue) or enforce
+# (fail on any suspicious build-script pattern). Empty = no scan unless a
+# recipe sets its own srcguard= key. A recipe's [INFO] srcguard= overrides
+# this. Heuristic; may produce false positives, so advisory is recommended.
+SRCGUARD=""
+
 # Per-distro apt/repository configuration.
 # Builds must not inherit apt config (repositories, proxies, keys, credentials)
 # from the host OS. Instead, each target distro's apt configuration is declared
@@ -719,9 +726,18 @@ build() {
    B_VULNSCAN_POLICY=$(recipe_item_get "$B_NAME" INFO vulnscan) || true
    [[ -z "$B_VULNSCAN_POLICY" ]] && B_VULNSCAN_POLICY="${VULNSCAN:-}"
 
+   # Static build-script guard (SECURITY.md group F6): read optional recipe
+   # [INFO] key. advisory = warn but continue; enforce = fail the build on any
+   # suspicious build-script pattern (network access or embedded-blob decoding
+   # in configure/m4/cmake/Makefile/etc.). Unset = no scan. Runs automatically
+   # after the BUILD section (B_SRCGUARD is appended to the build command
+   # below). A recipe's [INFO] srcguard= overrides the global SRCGUARD default.
+   B_SRCGUARD_POLICY=$(recipe_item_get "$B_NAME" INFO srcguard) || true
+   [[ -z "$B_SRCGUARD_POLICY" ]] && B_SRCGUARD_POLICY="${SRCGUARD:-}"
+
    # Build root: where the recipe's BUILD section runs and sources are checked
    # out. Docker: /tmp (the entrypoint cd's there). Native: the per-build temp
-   # dir. B_VULNSCAN scans this tree for lockfiles/manifests.
+   # dir. B_VULNSCAN/B_SRCGUARD scan this tree.
    if [[ "$BUILDMODE" == "docker" ]]; then
       B_BUILDROOT="/tmp"
    else
@@ -734,6 +750,7 @@ build() {
    export B_VERSION B_INSTALLDIR B_ARCH B_INSTANCE B_CACHEDIR B_NAME B_BUILDNR B_FILES B_FORCE B_DISTRODIR B_DISTRO
    export B_GPGKEY B_COMMIT B_SHA256 B_ALLOW_INSECURE B_GPGKEYFILE B_STRICT
    export B_VULNSCAN_POLICY B_BUILDROOT
+   export B_SRCGUARD_POLICY
 
    # Define build environment functions (used in both native and Docker modes)
    # These are exported for native mode and dumped to env script for Docker mode.
@@ -1046,12 +1063,66 @@ build() {
    }
    export -f B_VULNSCAN
 
+   # Scan the build tree for suspicious build-script patterns (SECURITY.md
+   # group F6): network access or embedded-blob decoding inside configure/m4/
+   # cmake/Makefile/package.json scripts -- the XZ/liblzma signature. Policy
+   # from B_SRCGUARD_POLICY: advisory (warn but continue) or enforce (fail on
+   # any hit). Scans $B_BUILDROOT by default, or a path given as the first
+   # argument. Heuristic; may produce false positives (advisory recommended).
+   # shellcheck disable=SC2317
+   B_SRCGUARD() {
+      local target="${1:-${B_BUILDROOT:-.}}"
+      local policy="${B_SRCGUARD_POLICY:-}"
+      [[ -n "$policy" ]] || return 0
+
+      # Suspicious patterns: network access or embedded-blob decoding in build
+      # scripts. Heuristic; may produce false positives.
+      local hits
+      hits=$(grep -rnIE \
+         --include='configure' --include='configure.ac' --include='configure.in' \
+         --include='*.m4' --include='CMakeLists.txt' --include='*.cmake' \
+         --include='Makefile' --include='Makefile.*' --include='*.mk' \
+         --include='package.json' --include='setup.py' --include='pyproject.toml' \
+         --include='*.spec' --include='meson.build' --include='build.rs' \
+         --exclude-dir='.git' --exclude-dir='node_modules' --exclude-dir='vendor' \
+         --exclude-dir='target' --exclude-dir='.venv' --exclude-dir='venv' \
+         'curl|wget|git clone|git fetch|go get|svn checkout|hg clone|base64 -d|base64 --decode|xxd -r|uudecode' \
+         "$target" 2>/dev/null)
+
+      if [[ -z "$hits" ]]; then
+         output "B_SRCGUARD: no suspicious build-script patterns found"
+         return 0
+      fi
+
+      # Print findings to the build log.
+      printf '%s\n' "$hits" | sed 's/^/  /'
+
+      local count
+      count=$(printf '%s\n' "$hits" | wc -l)
+      output "B_SRCGUARD: $count suspicious build-script pattern(s) found"
+      if [[ "$policy" == "enforce" ]]; then
+         output "B_SRCGUARD: enforce mode - failing build"
+         return 1
+      fi
+      output "B_SRCGUARD: advisory mode - continuing"
+      return 0
+   }
+   export -f B_SRCGUARD
+
    # Append the vulnerability scan to the build command so it runs after the
    # recipe's BUILD section (post-build, pre-package) when a policy is set.
    # B_VULNSCAN scans $B_BUILDROOT (the build tree) for lockfiles/manifests.
    if [[ -n "$B_VULNSCAN_POLICY" ]]; then
       CMD="$CMD
 B_VULNSCAN"
+   fi
+
+   # Append the static build-script guard to the build command (post-build,
+   # pre-package) when a policy is set. B_SRCGUARD scans $B_BUILDROOT for
+   # suspicious build-script patterns.
+   if [[ -n "$B_SRCGUARD_POLICY" ]]; then
+      CMD="$CMD
+B_SRCGUARD"
    fi
 
    # --- Docker mode: run build inside container ---
@@ -2108,7 +2179,7 @@ readonly -a BUILD_ENV_VARS=(
    B_INSTANCE BUILDMODE=docker TMPDIR=/tmp HOME PKGLIST DESTDIR DESTSPLIT
    RECIPEDIR LOGDIR PKGDIR PKGPOSTFIX PKGMAIL PKGORG
    B_GPGKEY B_COMMIT B_SHA256 B_ALLOW_INSECURE B_GPGKEYFILE B_STRICT distr rel
-   B_VULNSCAN_POLICY B_BUILDROOT
+   B_VULNSCAN_POLICY B_BUILDROOT B_SRCGUARD_POLICY
 )
 
 # Prepare the build environment script for use inside a Docker container.
@@ -2145,7 +2216,7 @@ docker_prepare_env() {
       printf 'export QUIET=%s\n' "${QUIET:-0}"
 
       # Function definitions (exported from build() function scope)
-      declare -f B_GET B_GITCHECKOUT B_LINKFILES B_LINKFILE B_VULNSCAN
+      declare -f B_GET B_GITCHECKOUT B_LINKFILES B_LINKFILE B_VULNSCAN B_SRCGUARD
       # Helpers used by the containerized functions above
       declare -f _b_wget_fetch _b_verify_copy _b_pkg_id _b_installdir _b_gpg_ensure_key _b_git_refresh
 

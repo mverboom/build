@@ -403,6 +403,24 @@ A global default can be set with the `VULNSCAN` option in `~/.buildrc`
 (e.g. `VULNSCAN=enforce`). A recipe's `[INFO]` `vulnscan=` value overrides the
 global default; if neither is set, no scan runs.
 
+srcguard
+
+Enables a static guard that scans the fetched source tree for suspicious
+build-script patterns (see `SECURITY.md` group F6): network access or
+embedded-blob decoding inside `configure`/`*.m4`/`CMakeLists.txt`/`Makefile`/
+`package.json` scripts — the XZ/liblzma signature. Supported values:
+
+- `advisory` — report findings but never fail the build.
+- `enforce` — fail the build if any suspicious pattern is found.
+
+Unset (the default) disables the guard. It is heuristic and may produce false
+positives, so `advisory` is recommended. The guard runs automatically via
+`B_SRCGUARD` (see below); recipes do not need to call it themselves.
+
+A global default can be set with the `SRCGUARD` option in `~/.buildrc`
+(e.g. `SRCGUARD=advisory`). A recipe's `[INFO]` `srcguard=` value overrides the
+global default; if neither is set, no guard runs.
+
 ## CHECK VERSION
 
 For checking of the current version of the software available the following section
@@ -699,6 +717,17 @@ automatically after the `[BUILD]` section when the `[INFO]` `vulnscan=` key is
 set, so recipes normally do not need to call it. The optional `path` argument
 overrides the default scan target (the build root). Behaviour is controlled by
 `vulnscan=advisory` (warn only) or `vulnscan=enforce` (fail on HIGH/CRITICAL).
+
+`B_SRCGUARD [path]`
+
+Scans the build tree for suspicious build-script patterns (SECURITY.md group
+F6): network access or embedded-blob decoding inside `configure`/`*.m4`/
+`CMakeLists.txt`/`Makefile`/`package.json` scripts. It is run automatically
+after the `[BUILD]` section when the `[INFO]` `srcguard=` key is set, so
+recipes normally do not need to call it. The optional `path` argument
+overrides the default scan target (the build root). Behaviour is controlled by
+`srcguard=advisory` (warn only) or `srcguard=enforce` (fail on any hit).
+Heuristic; may produce false positives.
 
 `B_LINKFILES <source directory> <destination directory>`
 

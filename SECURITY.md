@@ -375,6 +375,16 @@ reference. Full reproducibility is hard, so this is the highest-effort
 item and best applied to a curated subset.
 
 **F6. Detect suspicious in-tree build scripts (static guard).**
+
+**Status: implemented.** The `[INFO]` `srcguard=` key (`advisory` or
+`enforce`) enables an automatic post-build scan of the build tree for
+suspicious build-script patterns (network access or embedded-blob decoding
+in `configure`/`*.m4`/`CMakeLists.txt`/`Makefile`/`package.json` scripts).
+`enforce` fails the build on any hit; `advisory` reports but continues. A
+global `SRCGUARD` default in `~/.buildrc` is also supported. See `BUILD.md`
+for the recipe-facing documentation. The allow-list for expected patterns is
+not yet implemented.
+
 A lightweight, high-signal pre-build check: scan the fetched source
 tree for build scripts that perform network access or decode embedded
 payloads — exactly the XZ signature (`build-to-host.m4` calling
