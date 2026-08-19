@@ -53,6 +53,12 @@ PROXY=""
 # allow_insecure.
 STRICT=0
 
+# Vulnerability scanning default (SECURITY.md group F4). Global default for
+# the [INFO] vulnscan= recipe key: advisory (warn but continue) or enforce
+# (fail on any HIGH/CRITICAL vulnerability). Empty = no scan unless a recipe
+# sets its own vulnscan= key. A recipe's [INFO] vulnscan= overrides this.
+VULNSCAN=""
+
 # Per-distro apt/repository configuration.
 # Builds must not inherit apt config (repositories, proxies, keys, credentials)
 # from the host OS. Instead, each target distro's apt configuration is declared
@@ -708,8 +714,10 @@ build() {
    # key. advisory = warn but continue; enforce = fail the build on any
    # HIGH/CRITICAL vulnerability in the resolved build-time dependencies.
    # Unset = no scan. The scan runs automatically after the BUILD section
-   # (B_VULNSCAN is appended to the build command below).
+   # (B_VULNSCAN is appended to the build command below). A recipe's [INFO]
+   # vulnscan= overrides the global VULNSCAN default from ~/.buildrc.
    B_VULNSCAN_POLICY=$(recipe_item_get "$B_NAME" INFO vulnscan) || true
+   [[ -z "$B_VULNSCAN_POLICY" ]] && B_VULNSCAN_POLICY="${VULNSCAN:-}"
 
    # Build root: where the recipe's BUILD section runs and sources are checked
    # out. Docker: /tmp (the entrypoint cd's there). Native: the per-build temp

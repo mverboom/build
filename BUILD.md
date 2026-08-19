@@ -399,6 +399,10 @@ maven, etc.). Supported values:
 Unset (the default) disables scanning. The scan runs automatically via
 `B_VULNSCAN` (see below); recipes do not need to call it themselves.
 
+A global default can be set with the `VULNSCAN` option in `~/.buildrc`
+(e.g. `VULNSCAN=enforce`). A recipe's `[INFO]` `vulnscan=` value overrides the
+global default; if neither is set, no scan runs.
+
 ## CHECK VERSION
 
 For checking of the current version of the software available the following section
