@@ -262,6 +262,16 @@ _b_git_refresh() {
          git fetch --depth 1 origin tag "v$B_VERSION" > /dev/null 2>&1 || true
          git fetch --depth 1 origin tag "$B_VERSION" > /dev/null 2>&1 || true
       fi
+      # A recipe may name its version tag differently from v$B_VERSION/$B_VERSION
+      # (e.g. termix uses release-$B_VERSION-tag). The [INFO] gittag= key lets it
+      # specify the exact tag to shallow-fetch. The value may reference $B_VERSION
+      # (and other exported build vars); eval is safe here because the recipe is
+      # trusted input (its BUILD section already runs arbitrary shell).
+      if [[ -n "${B_GITTAG:-}" ]]; then
+         local tag
+         tag=$(eval "printf '%s' \"$B_GITTAG\"")
+         git fetch --depth 1 origin tag "$tag" > /dev/null 2>&1 || true
+      fi
    )
 }
 
@@ -713,11 +723,14 @@ build() {
    #   commit         - A2: pinned commit SHA the resolved git ref must match.
    #   sha256         - A3: expected SHA-256 of an http/sf downloaded asset.
    #   allow_insecure - A4: explicitly allow plain http:// / git:// fetches.
+   #   gittag         - exact git tag to shallow-fetch for checkout (for recipes
+   #                    whose version tag is not v$B_VERSION / $B_VERSION).
    B_GPGKEY=$(recipe_item_get "$B_NAME" INFO gpgkey) || true
    B_COMMIT=$(recipe_item_get "$B_NAME" INFO commit) || true
    B_SHA256=$(recipe_item_get "$B_NAME" INFO sha256) || true
    B_ALLOW_INSECURE=$(recipe_item_get "$B_NAME" INFO allow_insecure) || true
    B_GPGKEYFILE=$(recipe_item_get "$B_NAME" INFO gpgkeyfile) || true
+   B_GITTAG=$(recipe_item_get "$B_NAME" INFO gittag) || true
    B_STRICT="${STRICT:-0}"
 
    # Vulnerability scanning (SECURITY.md group F4): read optional recipe [INFO]
@@ -752,6 +765,7 @@ build() {
    [[ -d "$RECIPEDIR/$B_NAME.files/B_BUILD" ]] && B_FILES="$RECIPEDIR/$B_NAME.files/B_BUILD"
    export B_VERSION B_INSTALLDIR B_ARCH B_INSTANCE B_CACHEDIR B_NAME B_BUILDNR B_FILES B_FORCE B_DISTRODIR B_DISTRO
    export B_GPGKEY B_COMMIT B_SHA256 B_ALLOW_INSECURE B_GPGKEYFILE B_STRICT
+   export B_GITTAG
    export B_VULNSCAN_POLICY B_BUILDROOT
    export B_SRCGUARD_POLICY
 
@@ -2238,6 +2252,7 @@ readonly -a BUILD_ENV_VARS=(
    B_INSTANCE BUILDMODE=docker TMPDIR=/tmp HOME PKGLIST DESTDIR DESTSPLIT
    RECIPEDIR LOGDIR PKGDIR PKGPOSTFIX PKGMAIL PKGORG
    B_GPGKEY B_COMMIT B_SHA256 B_ALLOW_INSECURE B_GPGKEYFILE B_STRICT distr rel
+   B_GITTAG
    B_VULNSCAN_POLICY B_BUILDROOT B_SRCGUARD_POLICY
    BUILD_HOST
 )
