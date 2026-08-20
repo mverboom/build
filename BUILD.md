@@ -384,6 +384,16 @@ Set to 1 to explicitly allow plain `http://`, `git://` or `svn://` fetches
 that would otherwise be rejected by the HTTPS-only enforcement (A4). Use only
 for sources that have no encrypted transport available.
 
+gittag
+
+The exact git tag to shallow-fetch for a `B_GET git` recipe whose version tag
+is not named `v$B_VERSION` or `$B_VERSION` (e.g. termix uses
+`release-$B_VERSION-tag`). The value may reference `$B_VERSION` (and other
+exported build variables); it is expanded at fetch time. Without this key,
+`_b_git_refresh` only fetches `v$B_VERSION`/`$B_VERSION`, so a recipe that
+checks out a differently-named tag would fail with a "pathspec did not match"
+error.
+
 vulnscan
 
 Enables automatic vulnerability scanning of the resolved build-time
