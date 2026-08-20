@@ -1848,12 +1848,16 @@ _distro_default_sources() {
 distro_apt_generate() {
    local distro="${1:-}"
    local cfgdir
+   # Reduce a family-codename ("debian-trixie") to its bare codename ("trixie")
+   # for Debian detection and default-source generation; bare codenames are
+   # unchanged by the parameter expansion.
+   local codename="${distro#*-}"
    cfgdir=$(mktemp -d -t build-apt-XXXXXX) || { ERR=1 output "mktemp failed"; return 1; }
    mkdir -p "$cfgdir/sources.list.d" "$cfgdir/apt.conf.d" "$cfgdir/keyrings" "$cfgdir/auth.conf.d"
    : > "$cfgdir/sources.list"   # neutralise any image /etc/apt/sources.list
 
    # Only generate apt config for Debian-based distros (others have no apt).
-   if [[ -n "$distro" ]] && ! is_debian_distro "$distro"; then
+   if [[ -n "$codename" ]] && ! is_debian_distro "$codename"; then
       printf '%s' "$cfgdir"
       return 0
    fi
@@ -1871,7 +1875,7 @@ distro_apt_generate() {
    elif [[ -n "${DEFAULT_REPOS:-}" ]]; then
       printf '%s\n' "$DEFAULT_REPOS" > "$cfgdir/sources.list.d/00-default.list"
    else
-      _distro_default_sources "$cfgdir/sources.list.d/00-default.list" "$distro"
+      _distro_default_sources "$cfgdir/sources.list.d/00-default.list" "$codename"
    fi
 
    # --- Sources: custom repositories + per-repo proxy + keys + auth ---
@@ -1993,20 +1997,25 @@ docker_image_select() {
    local distro="$1"
    local image
 
-   # Check for custom image config (e.g., DOCKER_IMAGE_TRIXIE)
+   # Family-codename (e.g. "debian-trixie") or bare codename ("trixie") may be
+   # passed; reduce to the codename for image selection and config lookup.
+   local codename="${distro#*-}"
+
+   # Check for custom image config (e.g., DOCKER_IMAGE_TRIXIE). Sanitize the
+   # codename to a valid variable name (hyphens -> underscores).
    local config_var
-   config_var="DOCKER_IMAGE_$(printf '%s' "$distro" | tr '[:lower:]' '[:upper:]')"
+   config_var="DOCKER_IMAGE_$(printf '%s' "$codename" | tr '[:lower:]' '[:upper:]' | tr -- - _)"
    if [[ -n "${!config_var:-}" ]]; then
       image="${!config_var}"
    elif [[ -n "$DOCKER_IMAGE_PREFIX" ]]; then
-      image="${DOCKER_IMAGE_PREFIX}${distro}"
+      image="${DOCKER_IMAGE_PREFIX}${codename}"
    else
       # Default mapping (uses custom build images with entrypoint)
-      case "$distro" in
+      case "$codename" in
          trixie)    image="build-trixie:latest" ;;
          bookworm)  image="build-bookworm:latest" ;;
          sid)       image="build-sid:latest" ;;
-         *)         image="debian:$distro" ;;
+         *)         image="debian:$codename" ;;
       esac
    fi
    printf '%s' "$image"
