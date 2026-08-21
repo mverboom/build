@@ -166,9 +166,10 @@ _scan_recipe() {
    ignore_vuln=$(_sec_item "$recipe" vulnscan-ignore)
    ignore_src=$(_sec_item "$recipe" srcguard-ignore)
 
-   tree=$(mktemp -p "$TMPDIR" -d "security-scan-$recipe-XXXXXX") || return 2
+   tree=$(mktemp -p "$TMPDIR" -d "security-scan-$recipe-XXXXXX") || { (( QUIET == 0 )) && printf '%s\n' "== $recipe: no scannable source in cache"; return 2; }
    if ! _extract_cache "$recipe" "$tree"; then
       rm -rf "$tree"
+      (( QUIET == 0 )) && printf '%s\n' "== $recipe: no scannable source in cache"
       return 2
    fi
 
@@ -197,7 +198,7 @@ _scan_recipe() {
             findings=1
             if (( QUIET == 0 )); then
                printf '%s\n' "  B_SRCGUARD: suspicious build-script pattern(s) found:"
-               printf '%s\n' "$hits" | sed 's/^/    /'
+               while IFS= read -r _h; do printf '    %s\n' "$_h"; done <<< "$hits"
                local files
                files=$(printf '%s\n' "$hits" | sed 's/:.*//' | sed "s#^$tree/##" | sort -u | paste -sd, -)
                printf '%s\n' "  B_SRCGUARD: to suppress these, add to the recipe:"
@@ -234,7 +235,7 @@ _scan_recipe() {
             findings=1
             if (( QUIET == 0 )); then
                printf '%s\n' "  B_VULNSCAN: vulnerability(ies) found:"
-               printf '%s\n' "${lines%$'\n'}" | sed 's/^/    /'
+               while IFS= read -r _l; do printf '    %s\n' "$_l"; done <<< "${lines%$'\n'}"
                local ids
                ids=$(printf '%s' "$lines" | awk '{print $1}' | sort -u | paste -sd, -)
                printf '%s\n' "  B_VULNSCAN: to suppress these, add to the recipe:"
@@ -249,7 +250,12 @@ _scan_recipe() {
    # make the tree writable so it can be removed.
    chmod -R u+w "$tree" 2>/dev/null
    rm -rf "$tree"
-   (( findings == 1 ))
+   if (( findings == 1 )); then
+      printf '%s\n' "== $recipe: NEW FINDINGS"
+      return 0
+   fi
+   (( QUIET == 0 )) && printf '%s\n' "== $recipe: clean"
+   return 1
 }
 
 # --- main ---
@@ -278,12 +284,8 @@ for recipe in "${recipes[@]}"; do
    rc=$?
    if (( rc == 0 )); then
       withfindings=$((withfindings + 1))
-      printf '%s\n' "== $recipe: NEW FINDINGS"
-   elif (( rc == 1 )); then
-      (( QUIET == 0 )) && printf '%s\n' "== $recipe: clean"
-   else
+   elif (( rc == 2 )); then
       unscannable=$((unscannable + 1))
-      (( QUIET == 0 )) && printf '%s\n' "== $recipe: no scannable source in cache"
    fi
 done
 
