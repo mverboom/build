@@ -741,6 +741,9 @@ build() {
    # vulnscan= overrides the global VULNSCAN default from ~/.buildrc.
    B_VULNSCAN_POLICY=$(recipe_item_get "$B_NAME" INFO vulnscan) || true
    [[ -z "$B_VULNSCAN_POLICY" ]] && B_VULNSCAN_POLICY="${VULNSCAN:-}"
+   # Per-issue vulnerability exceptions ([SECURITY] vulnscan-ignore=ID1,ID2).
+   # B_VULNSCAN turns this into an osv-scanner config applied to the whole scan.
+   B_VULNSCAN_IGNORE=$(recipe_item_get "$B_NAME" SECURITY vulnscan-ignore) || true
 
    # Static build-script guard (SECURITY.md group F6): read optional recipe
    # [INFO] key. advisory = warn but continue; enforce = fail the build on any
@@ -766,7 +769,7 @@ build() {
    export B_VERSION B_INSTALLDIR B_ARCH B_INSTANCE B_CACHEDIR B_NAME B_BUILDNR B_FILES B_FORCE B_DISTRODIR B_DISTRO
    export B_GPGKEY B_COMMIT B_SHA256 B_ALLOW_INSECURE B_GPGKEYFILE B_STRICT
    export B_GITTAG
-   export B_VULNSCAN_POLICY B_BUILDROOT
+   export B_VULNSCAN_POLICY B_BUILDROOT B_VULNSCAN_IGNORE
    export B_SRCGUARD_POLICY
 
    # Define build environment functions (used in both native and Docker modes)
@@ -1036,6 +1039,11 @@ build() {
    # Docker base image). Policy from B_VULNSCAN_POLICY: advisory (warn but
    # continue) or enforce (fail on any HIGH/CRITICAL vulnerability). Scans
    # $B_BUILDROOT by default, or a path given as the first argument.
+   # Per-issue exceptions come from the recipe's [SECURITY] section
+   # (B_VULNSCAN_IGNORE, comma-separated IDs); they are turned into an
+   # osv-scanner config passed via --config so they apply to every
+   # lockfile/manifest in the scan (an in-tree osv-scanner.toml would only
+   # apply to the directory it sits in).
    # shellcheck disable=SC2317
    B_VULNSCAN() {
       local target="${1:-${B_BUILDROOT:-.}}"
@@ -1053,8 +1061,25 @@ build() {
          return 0
       }
 
+      # Generate the osv-scanner config from the recipe's [SECURITY]
+      # vulnscan-ignore list (if any) and apply it to the whole scan.
+      local config_args=() cfg=""
+      if [[ -n "${B_VULNSCAN_IGNORE:-}" ]]; then
+         cfg="${B_BUILDROOT:-.}/.osv-scanner-recipe.toml"
+         : > "$cfg"
+         local _id
+         IFS=',' read -ra _ids <<< "$B_VULNSCAN_IGNORE" || true
+         for _id in "${_ids[@]}"; do
+            _id="${_id//[[:space:]]/}"
+            [[ -n "$_id" ]] || continue
+            printf '[[IgnoredVulns]]\nid = "%s"\nreason = "ignored via [SECURITY] vulnscan-ignore in recipe"\n\n' "$_id" >> "$cfg"
+         done
+         config_args=(--config="$cfg")
+         output "B_VULNSCAN: applying recipe exception(s) from [SECURITY] vulnscan-ignore"
+      fi
+
       local json total highcrit
-      json=$(osv-scanner scan --format=json --recursive --allow-no-lockfiles "$target" 2>/dev/null) || true
+      json=$(osv-scanner scan --format=json --recursive --allow-no-lockfiles "${config_args[@]}" "$target" 2>/dev/null) || true
       total=$(printf '%s\n' "$json" | jq '[.results[]?.packages[]?.vulnerabilities[]?] | length' 2>/dev/null)
       total="${total:-0}"
       highcrit=$(printf '%s\n' "$json" | jq '[.results[]?.packages[]?.vulnerabilities[]?.database_specific.severity? | select(. == "HIGH" or . == "CRITICAL")] | length' 2>/dev/null)
@@ -1065,8 +1090,17 @@ build() {
          return 0
       fi
 
-      # Print a concise per-vulnerability summary to the build log.
+      # Print a concise per-vulnerability summary to the build log, plus a
+      # copy-pasteable [SECURITY] block so the recipe author can suppress
+      # reviewed findings (lists every reported ID; trim as needed).
       printf '%s\n' "$json" | jq -r '.results[]?.packages[]? | .package.name as $p | .vulnerabilities[]? | "  \(.id)  \(.database_specific.severity // "UNKNOWN")  \($p)"' 2>/dev/null
+      local ids
+      ids=$(printf '%s\n' "$json" | jq -r '[.results[]?.packages[]?.vulnerabilities[]?.id] | unique | join(",")' 2>/dev/null)
+      if [[ -n "$ids" ]]; then
+         printf '%s\n' "B_VULNSCAN: to suppress these, add to the recipe:"
+         printf '%s\n' "[SECURITY]"
+         printf '%s\n' "vulnscan-ignore=$ids"
+      fi
 
       if (( highcrit > 0 )); then
          output "B_VULNSCAN: $highcrit HIGH/CRITICAL vulnerability(ies) found ($total total)"
@@ -2262,7 +2296,7 @@ readonly -a BUILD_ENV_VARS=(
    RECIPEDIR LOGDIR PKGDIR PKGPOSTFIX PKGMAIL PKGORG
    B_GPGKEY B_COMMIT B_SHA256 B_ALLOW_INSECURE B_GPGKEYFILE B_STRICT distr rel
    B_GITTAG
-   B_VULNSCAN_POLICY B_BUILDROOT B_SRCGUARD_POLICY
+   B_VULNSCAN_POLICY B_BUILDROOT B_SRCGUARD_POLICY B_VULNSCAN_IGNORE
    BUILD_HOST
 )
 

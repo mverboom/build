@@ -413,6 +413,26 @@ A global default can be set with the `VULNSCAN` option in `~/.buildrc`
 (e.g. `VULNSCAN=enforce`). A recipe's `[INFO]` `vulnscan=` value overrides the
 global default; if neither is set, no scan runs.
 
+Per-issue exceptions can be declared in a `[SECURITY]` section instead of
+relaxing the whole scan:
+
+```
+[SECURITY]
+# cryptography 48.0.1 is Darwin-only; Linux installs the fixed version
+vulnscan-ignore=GHSA-g6cj-pr64-35w5,GHSA-jwv3-5hgf-82ww
+```
+
+`vulnscan-ignore` is a comma-separated list of vulnerability IDs to suppress
+(any ID osv-scanner reports: `GHSA-*`, `CVE-*`, `PYSEC-*`, `GO-*`, ...). The
+build script turns this list into an osv-scanner config that is applied to the
+whole scan, so `vulnscan=enforce` stays active for everything else. Use
+comment lines above the key to document why each exception exists.
+
+When a scan finds vulnerabilities, the build log always prints a
+copy-pasteable `[SECURITY]` block listing the reported IDs, so exceptions are
+easy to add straight from the log output (trim the list to the findings you
+have reviewed).
+
 srcguard
 
 Enables a static guard that scans the fetched source tree for suspicious
@@ -727,6 +747,8 @@ automatically after the `[BUILD]` section when the `[INFO]` `vulnscan=` key is
 set, so recipes normally do not need to call it. The optional `path` argument
 overrides the default scan target (the build root). Behaviour is controlled by
 `vulnscan=advisory` (warn only) or `vulnscan=enforce` (fail on HIGH/CRITICAL).
+Per-issue exceptions from the recipe's `[SECURITY]` `vulnscan-ignore=` key are
+applied to the scan automatically (see the `vulnscan` section above).
 
 `B_SRCGUARD [path]`
 

@@ -347,8 +347,12 @@ known-bad).**
 `enforce`) enables an automatic post-build scan of the build tree with
 `osv-scanner` (baked into the Docker base image, pinned version + SHA-256
 verified). `enforce` fails the build on any HIGH/CRITICAL vulnerability;
-`advisory` reports but continues. See `BUILD.md` for the recipe-facing
-documentation. The `ignore` exception list is not yet implemented.
+`advisory` reports but continues. Per-issue exceptions can be declared in a
+recipe `[SECURITY]` section (`vulnscan-ignore=ID1,ID2`); the build script
+generates the osv-scanner config from that list and applies it to the whole
+scan, so `enforce` stays active for everything else. Findings are always
+logged in a copy-pasteable `[SECURITY]` format. See `BUILD.md` for the
+recipe-facing documentation.
 
 After resolving dependencies (and before packaging), generate an SBOM
 of the resolved dependency set and scan it against a vulnerability
@@ -363,12 +367,6 @@ database. Suitable tools that cover many ecosystems in one pass:
 - Per-language: `pip-audit`, `npm audit`/`pnpm audit`, `cargo audit`,
   `govulncheck`, `bundle-audit`.
 
-A new `[INFO]` recipe key could set policy:
-```
-vulnscan=advisory      # warn but continue
-vulnscan=enforce       # fail build if any HIGH/CRITICAL fixable vuln
-vulnscan=ignore CVE-2024-XXXX   # documented exceptions
-```
 For frequent-update software this is especially valuable: it surfaces a
 newly-disclosed vulnerable transitive dependency before it ships.
 
