@@ -510,16 +510,18 @@ lock_free() {
 # Get a specific item from a recipe section.
 # Parameters: recipe label item [default]
 # Returns 0 if value is empty, 1 if value was found.
+# Repeated keys are supported: all matching lines are joined with commas
+# (e.g. multiple vulnscan-ignore= lines in a [SECURITY] section).
 recipe_item_get() {
    local recipe="$RECIPEDIR/$1.recipe"
    local label="$2"
    local item="$3"
    local value
-   value=$(recipe_section_get "$1" "$label" optional | grep "^${item}=")
+   value=$(recipe_section_get "$1" "$label" optional | grep "^${item}=" | sed 's/^[^=]*=//' | paste -sd, -)
    if [[ -z "$value" ]] && (( $# == 4 )); then
       printf '%s\n' "$4"
    else
-      printf '%s\n' "${value/*=/}"
+      printf '%s\n' "$value"
    fi
    [[ -z "$value" ]] && return 0 || return 1
 }

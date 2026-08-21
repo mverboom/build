@@ -424,9 +424,18 @@ vulnscan-ignore=GHSA-g6cj-pr64-35w5,GHSA-jwv3-5hgf-82ww
 
 `vulnscan-ignore` is a comma-separated list of vulnerability IDs to suppress
 (any ID osv-scanner reports: `GHSA-*`, `CVE-*`, `PYSEC-*`, `GO-*`, ...). The
-build script turns this list into an osv-scanner config that is applied to the
-whole scan, so `vulnscan=enforce` stays active for everything else. Use
-comment lines above the key to document why each exception exists.
+key may be repeated to split the list over multiple lines; all lines are
+merged. The build script turns the list into an osv-scanner config that is
+applied to the whole scan, so `vulnscan=enforce` stays active for everything
+else. Use comment lines above the key to document why each exception exists.
+
+```
+[SECURITY]
+# cryptography 48.0.1 is Darwin-only; Linux installs the fixed version
+vulnscan-ignore=GHSA-g6cj-pr64-35w5,GHSA-jwv3-5hgf-82ww
+# starlette DoS; platformio 6.1.19 requires starlette<0.53
+vulnscan-ignore=GHSA-82w8-qh3p-5jfq,GHSA-wqp7-x3pw-xc5r
+```
 
 When a scan finds vulnerabilities, the build log always prints a
 copy-pasteable `[SECURITY]` block listing the reported IDs, so exceptions are
