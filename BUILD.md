@@ -394,6 +394,18 @@ exported build variables); it is expanded at fetch time. Without this key,
 checks out a differently-named tag would fail with a "pathspec did not match"
 error.
 
+Security-scan policy and exceptions (vulnscan, vulnscan-ignore, srcguard,
+srcguard-ignore) live in the `[SECURITY]` section — see below.
+
+## SECURITY
+
+All security-scan policy and per-issue/per-file exceptions live in the
+optional `[SECURITY]` section. The two scans (vulnerability scan and static
+build-script guard) run automatically after the `[BUILD]` section; recipes do
+not need to call them themselves. Global defaults can be set in `~/.buildrc`
+(`VULNSCAN=`, `SRCGUARD=`); a recipe's `[SECURITY]` value overrides the global
+default; if neither is set, the scan does not run.
+
 vulnscan
 
 Enables automatic vulnerability scanning of the resolved build-time
@@ -406,41 +418,14 @@ maven, etc.). Supported values:
 - `enforce` — fail the build if any HIGH or CRITICAL severity vulnerability
   is found.
 
-Unset (the default) disables scanning. The scan runs automatically via
-`B_VULNSCAN` (see below); recipes do not need to call it themselves.
+vulnscan-ignore
 
-A global default can be set with the `VULNSCAN` option in `~/.buildrc`
-(e.g. `VULNSCAN=enforce`). A recipe's `[INFO]` `vulnscan=` value overrides the
-global default; if neither is set, no scan runs.
-
-Per-issue exceptions can be declared in a `[SECURITY]` section instead of
-relaxing the whole scan:
-
-```
-[SECURITY]
-# cryptography 48.0.1 is Darwin-only; Linux installs the fixed version
-vulnscan-ignore=GHSA-g6cj-pr64-35w5,GHSA-jwv3-5hgf-82ww
-```
-
-`vulnscan-ignore` is a comma-separated list of vulnerability IDs to suppress
-(any ID osv-scanner reports: `GHSA-*`, `CVE-*`, `PYSEC-*`, `GO-*`, ...). The
-key may be repeated to split the list over multiple lines; all lines are
-merged. The build script turns the list into an osv-scanner config that is
-applied to the whole scan, so `vulnscan=enforce` stays active for everything
-else. Use comment lines above the key to document why each exception exists.
-
-```
-[SECURITY]
-# cryptography 48.0.1 is Darwin-only; Linux installs the fixed version
-vulnscan-ignore=GHSA-g6cj-pr64-35w5,GHSA-jwv3-5hgf-82ww
-# starlette DoS; platformio 6.1.19 requires starlette<0.53
-vulnscan-ignore=GHSA-82w8-qh3p-5jfq,GHSA-wqp7-x3pw-xc5r
-```
-
-When a scan finds vulnerabilities, the build log always prints a
-copy-pasteable `[SECURITY]` block listing the reported IDs, so exceptions are
-easy to add straight from the log output (trim the list to the findings you
-have reviewed).
+Comma-separated list of vulnerability IDs to suppress (any ID osv-scanner
+reports: `GHSA-*`, `CVE-*`, `PYSEC-*`, `GO-*`, ...). The key may be repeated
+to split the list over multiple lines; all lines are merged. The build script
+turns the list into an osv-scanner config that is applied to the whole scan,
+so `vulnscan=enforce` stays active for everything else. Use comment lines
+above the key to document why each exception exists.
 
 srcguard
 
@@ -452,13 +437,35 @@ embedded-blob decoding inside `configure`/`*.m4`/`CMakeLists.txt`/`Makefile`/
 - `advisory` — report findings but never fail the build.
 - `enforce` — fail the build if any suspicious pattern is found.
 
-Unset (the default) disables the guard. It is heuristic and may produce false
-positives, so `advisory` is recommended. The guard runs automatically via
-`B_SRCGUARD` (see below); recipes do not need to call it themselves.
+It is heuristic and may produce false positives, so `advisory` is
+recommended when a recipe cannot allow-list its expected hits.
 
-A global default can be set with the `SRCGUARD` option in `~/.buildrc`
-(e.g. `SRCGUARD=advisory`). A recipe's `[INFO]` `srcguard=` value overrides the
-global default; if neither is set, no guard runs.
+srcguard-ignore
+
+Comma-separated list of file paths (relative to the build root) to suppress
+from the srcguard scan. All hits in an ignored file are skipped, so
+`srcguard=enforce` stays active for everything else. The key may be repeated
+to split the list over multiple lines; all lines are merged. Use comment
+lines above the key to document why each exception exists.
+
+Example:
+
+```
+[SECURITY]
+# framework_uefi/Makefile (not built) downloads UEFI shell/OVMF firmware via
+# curl from official sources. Legitimate build-time downloads, not the XZ
+# pattern.
+srcguard=enforce
+srcguard-ignore=framework-system/framework_uefi/Makefile
+# proc-macro-error2 (transitive build-time dep via clap_derive) is
+# unmaintained; informational advisory, no patched version exists.
+vulnscan-ignore=RUSTSEC-2026-0173
+```
+
+When a scan finds findings, the build log always prints a copy-pasteable
+`[SECURITY]` block listing the reported IDs/files, so exceptions are easy to
+add straight from the log output (trim the list to the findings you have
+reviewed).
 
 ## CHECK VERSION
 
@@ -752,23 +759,26 @@ refused.
 
 Scans the build tree for known vulnerabilities in resolved build-time
 dependencies (SECURITY.md group F4) using `osv-scanner`. It is run
-automatically after the `[BUILD]` section when the `[INFO]` `vulnscan=` key is
-set, so recipes normally do not need to call it. The optional `path` argument
-overrides the default scan target (the build root). Behaviour is controlled by
-`vulnscan=advisory` (warn only) or `vulnscan=enforce` (fail on HIGH/CRITICAL).
-Per-issue exceptions from the recipe's `[SECURITY]` `vulnscan-ignore=` key are
-applied to the scan automatically (see the `vulnscan` section above).
+automatically after the `[BUILD]` section when the `[SECURITY]` `vulnscan=`
+key is set, so recipes normally do not need to call it. The optional `path`
+argument overrides the default scan target (the build root). Behaviour is
+controlled by `vulnscan=advisory` (warn only) or `vulnscan=enforce` (fail on
+HIGH/CRITICAL). Per-issue exceptions from the recipe's `[SECURITY]`
+`vulnscan-ignore=` key are applied to the scan automatically (see the
+`vulnscan` section above).
 
 `B_SRCGUARD [path]`
 
 Scans the build tree for suspicious build-script patterns (SECURITY.md group
 F6): network access or embedded-blob decoding inside `configure`/`*.m4`/
 `CMakeLists.txt`/`Makefile`/`package.json` scripts. It is run automatically
-after the `[BUILD]` section when the `[INFO]` `srcguard=` key is set, so
+after the `[BUILD]` section when the `[SECURITY]` `srcguard=` key is set, so
 recipes normally do not need to call it. The optional `path` argument
 overrides the default scan target (the build root). Behaviour is controlled by
 `srcguard=advisory` (warn only) or `srcguard=enforce` (fail on any hit).
-Heuristic; may produce false positives.
+Per-file exceptions from the recipe's `[SECURITY]` `srcguard-ignore=` key
+(paths relative to the build root) are filtered out automatically (see the
+`srcguard` section above). Heuristic; may produce false positives.
 
 `B_LINKFILES <source directory> <destination directory>`
 

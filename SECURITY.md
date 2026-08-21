@@ -343,12 +343,12 @@ that only forwards to the allow-list).
 **F4. Vulnerability scanning of resolved dependencies (block on
 known-bad).**
 
-**Status: implemented.** The `[INFO]` `vulnscan=` key (`advisory` or
+**Status: implemented.** The `[SECURITY]` `vulnscan=` key (`advisory` or
 `enforce`) enables an automatic post-build scan of the build tree with
 `osv-scanner` (baked into the Docker base image, pinned version + SHA-256
 verified). `enforce` fails the build on any HIGH/CRITICAL vulnerability;
-`advisory` reports but continues. Per-issue exceptions can be declared in a
-recipe `[SECURITY]` section (`vulnscan-ignore=ID1,ID2`); the build script
+`advisory` reports but continues. Per-issue exceptions can be declared in the
+same `[SECURITY]` section (`vulnscan-ignore=ID1,ID2`); the build script
 generates the osv-scanner config from that list and applies it to the whole
 scan, so `enforce` stays active for everything else. Findings are always
 logged in a copy-pasteable `[SECURITY]` format. See `BUILD.md` for the
@@ -383,14 +383,17 @@ item and best applied to a curated subset.
 
 **F6. Detect suspicious in-tree build scripts (static guard).**
 
-**Status: implemented.** The `[INFO]` `srcguard=` key (`advisory` or
+**Status: implemented.** The `[SECURITY]` `srcguard=` key (`advisory` or
 `enforce`) enables an automatic post-build scan of the build tree for
 suspicious build-script patterns (network access or embedded-blob decoding
 in `configure`/`*.m4`/`CMakeLists.txt`/`Makefile`/`package.json` scripts).
 `enforce` fails the build on any hit; `advisory` reports but continues. A
-global `SRCGUARD` default in `~/.buildrc` is also supported. See `BUILD.md`
-for the recipe-facing documentation. The allow-list for expected patterns is
-not yet implemented.
+global `SRCGUARD` default in `~/.buildrc` is also supported. Per-file
+exceptions can be declared in the same `[SECURITY]` section
+(`srcguard-ignore=path/to/file`, paths relative to the build root); all hits
+in an ignored file are suppressed, so `enforce` stays active for everything
+else. Findings are always logged in a copy-pasteable `[SECURITY]` format. See
+`BUILD.md` for the recipe-facing documentation.
 
 A lightweight, high-signal pre-build check: scan the fetched source
 tree for build scripts that perform network access or decode embedded

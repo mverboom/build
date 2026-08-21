@@ -72,13 +72,13 @@ BUILDDISTRO=bookworm
 # recipe sets allow_insecure=1.
 #STRICT=1
 # Vulnerability scanning default (SECURITY.md group F4). Global default for
-# the [INFO] vulnscan= recipe key: advisory (warn but continue) or enforce
+# the [SECURITY] vulnscan= recipe key: advisory (warn but continue) or enforce
 # (fail on any HIGH/CRITICAL vulnerability). Empty = no scan unless a recipe
-# sets its own vulnscan= key. A recipe's [INFO] vulnscan= overrides this.
+# sets its own vulnscan= key. A recipe's [SECURITY] vulnscan= overrides this.
 #VULNSCAN=enforce
 # Static build-script guard default (SECURITY.md group F6). Global default for
-# the [INFO] srcguard= recipe key: advisory (warn but continue) or enforce
+# the [SECURITY] srcguard= recipe key: advisory (warn but continue) or enforce
 # (fail on any suspicious build-script pattern). Empty = no guard unless a
-# recipe sets its own srcguard= key. A recipe's [INFO] srcguard= overrides
+# recipe sets its own srcguard= key. A recipe's [SECURITY] srcguard= overrides
 # this. Heuristic; may produce false positives, so advisory is recommended.
 #SRCGUARD=advisory
