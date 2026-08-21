@@ -1,0 +1,283 @@
+#!/usr/bin/env bash
+#
+# security-scan - check cached sources of all recipes for security findings
+# without rebuilding (SECURITY.md groups F4/F6).
+#
+# For each recipe with a cache entry, extracts the cached source archives and
+# runs the same scans the build script runs post-build:
+#   * B_SRCGUARD - static grep for suspicious build-script patterns
+#   * B_VULNSCAN - osv-scanner over lockfiles/manifests (via the Docker base
+#     image, which is the only place osv-scanner is installed)
+#
+# Findings are filtered against the recipe's existing [SECURITY] section
+# (vulnscan-ignore= / srcguard-ignore=), so only *new* findings are reported,
+# in the same copy-pasteable [SECURITY] format the build script logs.
+#
+# Caveats:
+#   * The cache holds the downloaded source, not the full build tree; findings
+#     generated during the build (node_modules, generated Makefiles, lockfiles
+#     created by npm install/go get/cargo when not committed) are not covered.
+#   * Recipes without a cache entry (never built) are skipped and reported.
+#   * The cache holds the last fetched version, which may differ from the
+#     current recipe version.
+#
+# Copyright 2025 Mark Verboom
+#
+# This file is part of Build.
+#
+#     Build is free software: you can redistribute it and/or modify
+#     it under the terms of the GNU General Public License as published by
+#     the Free Software Foundation, either version 3 of the License, or
+#     (at your option) any later version.
+#
+#     Build is distributed in the hope that it will be useful,
+#     but WITHOUT ANY WARRANTY; without even the implied warranty of
+#     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#     GNU General Public License for more details.
+#
+#     You should have received a copy of the GNU General Public License
+#     along with Build.  If not, see <http://www.gnu.org/licenses/>.
+
+set -u
+
+# Global configuration (overridden by ~/.buildrc)
+CACHEDIR="$HOME/cache"
+RECIPEDIR="$HOME/recipes"
+TMPDIR="$HOME/temp"
+DOCKER_IMAGE="build-bookworm:latest"
+
+# Action flags
+DO_SRCGUARD=1
+DO_VULNSCAN=1
+QUIET=0
+ONLY_RECIPE=""
+
+# Source configuration (same file the build script uses)
+# shellcheck source=~/.buildrc
+[[ -f "$HOME/.buildrc" ]] && source "$HOME/.buildrc"
+CACHEDIR="${CACHEDIR:-$HOME/cache}"
+RECIPEDIR="${RECIPEDIR:-$HOME/recipes}"
+TMPDIR="${TMPDIR:-$HOME/temp}"
+
+usage() {
+   cat <<EOF
+Usage: security-scan [options]
+
+Check the cached sources of all recipes for security findings without
+rebuilding. Runs the same scans the build script runs post-build:
+
+  * srcguard - static grep for suspicious build-script patterns (F6)
+  * vulnscan - osv-scanner over lockfiles/manifests (F4, via Docker image)
+
+Findings already suppressed by a recipe's [SECURITY] vulnscan-ignore= /
+srcguard-ignore= keys are not reported.
+
+Options:
+  -s            only run the srcguard scan (no Docker needed)
+  -v            only run the vulnscan scan (needs Docker)
+  -q            quiet: only print recipes with new findings
+  -r <recipe>   scan a single recipe
+  -d <image>    Docker image to run osv-scanner in (default: build-bookworm:latest)
+  -h            show this help
+EOF
+}
+
+while getopts "svqr:d:h" opt; do
+   case "$opt" in
+   s) DO_VULNSCAN=0 ;;
+   v) DO_SRCGUARD=0 ;;
+   q) QUIET=1 ;;
+   r) ONLY_RECIPE="$OPTARG" ;;
+   d) DOCKER_IMAGE="$OPTARG" ;;
+   h) usage; exit 0 ;;
+   *) usage; exit 1 ;;
+   esac
+done
+
+# Read a recipe [SECURITY] item (same semantics as the build script's
+# recipe_item_get: repeated keys are joined with commas).
+# Parameters: recipe item
+_sec_item() {
+   local recipe="$RECIPEDIR/$1.recipe" item="$2"
+   awk "/^\[SECURITY\]/ {found=1; next}
+        /^\[/ {found=0}
+        found && \$0 ~ /^$item=/ {sub(/^[^=]*=/, \"\"); printf \"%s,\", \$0}" "$recipe" |
+      sed 's/,$//'
+}
+
+# Extract a recipe's cached sources into a scan tree.
+# Parameters: recipe scan_tree
+# Returns 0 if anything was extracted, 1 if the cache is empty/unusable.
+_extract_cache() {
+   local recipe="$1" tree="$2" cachedir="$CACHEDIR/$1" f
+   [[ -d "$cachedir" ]] || return 1
+   local any=0
+   for f in "$cachedir"/*; do
+      [[ -e "$f" ]] || continue
+      if [[ -d "$f" ]]; then
+         # Already-extracted source (e.g. termix/src)
+         cp -a "$f" "$tree/" 2>/dev/null && any=1
+         continue
+      fi
+      case "$f" in
+      *.deb) continue ;; # binary package, nothing to scan
+      esac
+      if tar xf "$f" -C "$tree" 2>/dev/null; then
+         any=1
+      elif unzip -q -o "$f" -d "$tree" 2>/dev/null; then
+         any=1
+      fi
+   done
+   (( any == 1 ))
+}
+
+# Run the srcguard grep (identical to the build script's B_SRCGUARD) on a scan
+# tree. Prints hits (one per line) to stdout.
+# Parameters: scan_tree
+_srcguard_scan() {
+   local tree="$1"
+   grep -rnIE \
+      --include='configure' --include='configure.ac' --include='configure.in' \
+      --include='*.m4' --include='CMakeLists.txt' --include='*.cmake' \
+      --include='Makefile' --include='Makefile.*' --include='*.mk' \
+      --include='package.json' --include='setup.py' --include='pyproject.toml' \
+      --include='*.spec' --include='meson.build' --include='build.rs' \
+      --exclude-dir='.git' --exclude-dir='node_modules' --exclude-dir='vendor' \
+      --exclude-dir='target' --exclude-dir='.venv' --exclude-dir='venv' \
+      'curl|wget|git clone|git fetch|go get|svn checkout|hg clone|base64 -d|base64 --decode|xxd -r|uudecode' \
+      "$tree" 2>/dev/null
+}
+
+# Run osv-scanner (via the Docker base image) on a scan tree. Prints the raw
+# JSON to stdout.
+# Parameters: scan_tree
+_vulnscan_scan() {
+   local tree="$1"
+   docker run --rm --entrypoint /bin/sh -v "$tree:/scan:ro" "$DOCKER_IMAGE" -c \
+      'osv-scanner scan --format=json --recursive --allow-no-lockfiles /scan 2>/dev/null' 2>/dev/null
+}
+
+# Report findings for one recipe. Returns 0 if no new findings, 1 otherwise.
+# Parameters: recipe
+_scan_recipe() {
+   local recipe="$1" tree=""
+   local ignore_vuln ignore_src
+   ignore_vuln=$(_sec_item "$recipe" vulnscan-ignore)
+   ignore_src=$(_sec_item "$recipe" srcguard-ignore)
+
+   tree=$(mktemp -p "$TMPDIR" -d "security-scan-$recipe-XXXXXX") || return 0
+   if ! _extract_cache "$recipe" "$tree"; then
+      rm -rf "$tree"
+      return 0
+   fi
+
+   local findings=0
+   if (( DO_SRCGUARD == 1 )); then
+      local hits="" kept="" hit file rel p suppressed
+      hits=$(_srcguard_scan "$tree")
+      if [[ -n "$hits" ]]; then
+         # Filter against the recipe's srcguard-ignore list (paths relative to
+         # the scan tree root, same semantics as B_SRCGUARD).
+         while IFS= read -r hit; do
+            file="${hit%%:*}"
+            rel="${file#"$tree"/}"
+            suppressed=0
+            if [[ -n "$ignore_src" ]]; then
+               IFS=',' read -ra ps <<< "$ignore_src"
+               for p in "${ps[@]}"; do
+                  p="${p//[[:space:]]/}"
+                  [[ -n "$p" && "$rel" == "$p" ]] && { suppressed=1; break; }
+               done
+            fi
+            (( suppressed == 0 )) && kept+="$hit"$'\n'
+         done <<< "$hits"
+         hits="${kept%$'\n'}"
+         if [[ -n "$hits" ]]; then
+            findings=1
+            if (( QUIET == 0 )); then
+               printf '%s\n' "  B_SRCGUARD: suspicious build-script pattern(s) found:"
+               printf '%s\n' "$hits" | sed 's/^/    /'
+               local files
+               files=$(printf '%s\n' "$hits" | sed 's/:.*//' | sed "s#^$tree/##" | sort -u | paste -sd, -)
+               printf '%s\n' "  B_SRCGUARD: to suppress these, add to the recipe:"
+               printf '%s\n' "  [SECURITY]"
+               printf '%s\n' "  srcguard-ignore=$files"
+            fi
+         fi
+      fi
+   fi
+
+   if (( DO_VULNSCAN == 1 )); then
+      local json total
+      json=$(_vulnscan_scan "$tree")
+      total=$(printf '%s\n' "$json" | jq '[.results[]?.packages[]?.vulnerabilities[]?] | length' 2>/dev/null)
+      total="${total:-0}"
+      if (( total > 0 )); then
+         # Filter against the recipe's vulnscan-ignore list (vuln IDs); only
+         # unignored findings are reported and suggested.
+         local lines="" line id suppressed2 p2
+         while IFS= read -r line; do
+            [[ -n "$line" ]] || continue
+            id="${line%% *}"
+            suppressed2=0
+            if [[ -n "$ignore_vuln" ]]; then
+               IFS=',' read -ra ids2 <<< "$ignore_vuln"
+               for p2 in "${ids2[@]}"; do
+                  p2="${p2//[[:space:]]/}"
+                  [[ -n "$p2" && "$id" == "$p2" ]] && { suppressed2=1; break; }
+               done
+            fi
+            (( suppressed2 == 0 )) && lines+="$line"$'\n'
+         done <<< "$(printf '%s\n' "$json" | jq -r '.results[]?.packages[]? | .package.name as $p | .vulnerabilities[]? | "\(.id)  \(.database_specific.severity // "UNKNOWN")  \($p)"' 2>/dev/null)"
+         if [[ -n "$lines" ]]; then
+            findings=1
+            if (( QUIET == 0 )); then
+               printf '%s\n' "  B_VULNSCAN: vulnerability(ies) found:"
+               printf '%s\n' "${lines%$'\n'}" | sed 's/^/    /'
+               local ids
+               ids=$(printf '%s' "$lines" | awk '{print $1}' | sort -u | paste -sd, -)
+               printf '%s\n' "  B_VULNSCAN: to suppress these, add to the recipe:"
+               printf '%s\n' "  [SECURITY]"
+               printf '%s\n' "  vulnscan-ignore=$ids"
+            fi
+         fi
+      fi
+   fi
+
+   rm -rf "$tree"
+   (( findings == 1 ))
+}
+
+# --- main ---
+command -v jq > /dev/null 2>&1 || { printf '%s\n' "security-scan: jq not available"; exit 1; }
+if (( DO_VULNSCAN == 1 )); then
+   command -v docker > /dev/null 2>&1 || { printf '%s\n' "security-scan: docker not available (needed for vulnscan)"; exit 1; }
+fi
+[[ -d "$CACHEDIR" ]] || { printf '%s\n' "security-scan: cache directory not found: $CACHEDIR"; exit 1; }
+
+recipes=()
+if [[ -n "$ONLY_RECIPE" ]]; then
+   [[ -f "$RECIPEDIR/$ONLY_RECIPE.recipe" ]] || { printf '%s\n' "security-scan: recipe not found: $ONLY_RECIPE"; exit 1; }
+   recipes=("$ONLY_RECIPE")
+else
+   mapfile -t recipes < <(ls "$RECIPEDIR"/*.recipe 2>/dev/null | xargs -n1 basename | sed 's/\.recipe$//' | sort)
+fi
+
+total=0 withfindings=0 nocache=0
+for recipe in "${recipes[@]}"; do
+   if [[ ! -d "$CACHEDIR/$recipe" ]] || [[ -z "$(ls -A "$CACHEDIR/$recipe" 2>/dev/null)" ]]; then
+      (( nocache++ ))
+      continue
+   fi
+   total=$((total + 1))
+   if _scan_recipe "$recipe"; then
+      withfindings=$((withfindings + 1))
+      printf '%s\n' "== $recipe: NEW FINDINGS"
+   elif (( QUIET == 0 )); then
+      printf '%s\n' "== $recipe: clean"
+   fi
+done
+
+printf '%s\n' "---"
+printf '%s\n' "Scanned $total recipe(s) with cache entries: $withfindings with new findings, $((total - withfindings)) clean."
+printf '%s\n' "$nocache recipe(s) skipped (no cache entry, never built)."
