@@ -157,7 +157,8 @@ _vulnscan_scan() {
       'osv-scanner scan --format=json --recursive --allow-no-lockfiles /scan 2>/dev/null' 2>/dev/null
 }
 
-# Report findings for one recipe. Returns 0 if no new findings, 1 otherwise.
+# Report findings for one recipe. Returns 0 if new findings, 1 if clean,
+# 2 if the cache holds no scannable source (extraction failed).
 # Parameters: recipe
 _scan_recipe() {
    local recipe="$1" tree=""
@@ -165,10 +166,10 @@ _scan_recipe() {
    ignore_vuln=$(_sec_item "$recipe" vulnscan-ignore)
    ignore_src=$(_sec_item "$recipe" srcguard-ignore)
 
-   tree=$(mktemp -p "$TMPDIR" -d "security-scan-$recipe-XXXXXX") || return 0
+   tree=$(mktemp -p "$TMPDIR" -d "security-scan-$recipe-XXXXXX") || return 2
    if ! _extract_cache "$recipe" "$tree"; then
       rm -rf "$tree"
-      return 0
+      return 2
    fi
 
    local findings=0
@@ -244,6 +245,9 @@ _scan_recipe() {
       fi
    fi
 
+   # Go module caches inside the source tarballs are read-only (go sets 0555);
+   # make the tree writable so it can be removed.
+   chmod -R u+w "$tree" 2>/dev/null
    rm -rf "$tree"
    (( findings == 1 ))
 }
@@ -263,21 +267,26 @@ else
    mapfile -t recipes < <(ls "$RECIPEDIR"/*.recipe 2>/dev/null | xargs -n1 basename | sed 's/\.recipe$//' | sort)
 fi
 
-total=0 withfindings=0 nocache=0
+total=0 withfindings=0 nocache=0 unscannable=0
 for recipe in "${recipes[@]}"; do
    if [[ ! -d "$CACHEDIR/$recipe" ]] || [[ -z "$(ls -A "$CACHEDIR/$recipe" 2>/dev/null)" ]]; then
       (( nocache++ ))
       continue
    fi
    total=$((total + 1))
-   if _scan_recipe "$recipe"; then
+   _scan_recipe "$recipe"
+   rc=$?
+   if (( rc == 0 )); then
       withfindings=$((withfindings + 1))
       printf '%s\n' "== $recipe: NEW FINDINGS"
-   elif (( QUIET == 0 )); then
-      printf '%s\n' "== $recipe: clean"
+   elif (( rc == 1 )); then
+      (( QUIET == 0 )) && printf '%s\n' "== $recipe: clean"
+   else
+      unscannable=$((unscannable + 1))
+      (( QUIET == 0 )) && printf '%s\n' "== $recipe: no scannable source in cache"
    fi
 done
 
 printf '%s\n' "---"
-printf '%s\n' "Scanned $total recipe(s) with cache entries: $withfindings with new findings, $((total - withfindings)) clean."
+printf '%s\n' "Scanned $total recipe(s) with cache entries: $withfindings with new findings, $((total - withfindings - unscannable)) clean, $unscannable with no scannable source."
 printf '%s\n' "$nocache recipe(s) skipped (no cache entry, never built)."
