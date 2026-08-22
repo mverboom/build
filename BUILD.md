@@ -77,6 +77,8 @@ Force build for recipe, even if complete build is already available.
 Specify the target distribution for the Docker build (e.g., `trixie`, `bookworm`).
 Required on the host, since builds always run inside Docker. Inside the `-S` dev
 shell container it is optional and defaults to the container's distribution.
+A bare codename is equivalent to the family-codename form (`-d trixie` selects
+`[REQUIRED DEBIAN TRIXIE]` sections just like `-d debian-trixie`).
 
 `-i`
 Specify an instance for a recipe. Applies to all recipes on the command line unless a

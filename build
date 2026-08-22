@@ -3093,6 +3093,14 @@ parse_options() {
       IFS='-' read -r distr rel <<< "$BUILDDISTRO"
       distr=$(printf '%s' "$distr" | tr '[:lower:]' '[:upper:]')
       rel=$(printf '%s' "${rel:-$distr}" | tr '[:lower:]' '[:upper:]')
+      # A bare codename (e.g. "trixie") selects the Debian docker image, but
+      # distro-specific recipe sections are named "[X DEBIAN TRIXIE]"; map the
+      # codename to its family so those sections activate (native mode already
+      # yields DEBIAN from lsb_release -i). Explicit family-codenames
+      # ("debian-trixie") are split above and need no mapping.
+      if [[ "$BUILDDISTRO" != *-* ]] && is_debian_distro "$(printf '%s' "$rel" | tr '[:upper:]' '[:lower:]')"; then
+         distr=DEBIAN
+      fi
    else
       distr=$(lsb_release -i -s | tr '[:lower:]' '[:upper:]')
       rel=$(lsb_release -c -s | tr '[:lower:]' '[:upper:]')
