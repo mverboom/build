@@ -1441,51 +1441,55 @@ package() {
 # group D1). Writes <pkgfile>.provenance.json next to the .deb in $PKGDIR,
 # recording what was built from what (recipe, version, source-integrity pins,
 # build number, package checksum, image digest, build-deps snapshot).
-# Best-effort: never fails the build.
-# Parameters: pkgfile
+# Best-effort: never fails the build. May be called with several package
+# files (one per line / argument); writes a sidecar for each.
+# Parameters: pkgfile...
 _b_provenance() {
-   local pkgfile="$1"
    command -v jq > /dev/null 2>&1 || return 0
 
-   local recipe_head="" pkg_sha256="" deps=""
-   [[ -d "$RECIPEDIR/.git" ]] && recipe_head=$(git -C "$RECIPEDIR" rev-parse HEAD 2>/dev/null)
-   pkg_sha256=$(sha256sum "$PKGDIR/$pkgfile" 2>/dev/null | cut -d' ' -f1)
-   # Snapshot of installed packages (base image + build deps) for
-   # reproducibility (SECURITY.md B2). Sorted, one "pkg=version" per line.
-   deps=$(dpkg-query -W -f='${Package}=${Version}\n' 2>/dev/null | sort)
+   local pkgfile recipe_head="" pkg_sha256="" deps=""
+   for pkgfile in "$@"; do
+      [[ -n "$pkgfile" ]] || continue
+      recipe_head=""
+      [[ -d "$RECIPEDIR/.git" ]] && recipe_head=$(git -C "$RECIPEDIR" rev-parse HEAD 2>/dev/null)
+      pkg_sha256=$(sha256sum "$PKGDIR/$pkgfile" 2>/dev/null | cut -d' ' -f1)
+      # Snapshot of installed packages (base image + build deps) for
+      # reproducibility (SECURITY.md B2). Sorted, one "pkg=version" per line.
+      deps=$(dpkg-query -W -f='${Package}=${Version}\n' 2>/dev/null | sort)
 
-   jq -n \
-      --arg recipe "${pkg:-}" \
-      --arg version "${version:-}" \
-      --arg arch "${B_ARCH:-}" \
-      --arg distro "${B_DISTRO:-}" \
-      --arg package "$pkgfile" \
-      --arg pkg_sha256 "$pkg_sha256" \
-      --arg buildnr "${P_BUILDNR:-}" \
-      --arg recipe_head "$recipe_head" \
-      --arg commit "${B_COMMIT:-}" \
-      --arg gpgkey "${B_GPGKEY:-}" \
-      --arg sha256 "${B_SHA256:-}" \
-      --arg image_digest "${B_IMAGE_DIGEST:-}" \
-      --arg host "${BUILD_HOST:-$(hostname 2>/dev/null)}" \
-      --arg deps "$deps" \
-      --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-      '{
-         schema_version: "1.0",
-         recipe: $recipe,
-         version: $version,
-         arch: $arch,
-         distro: $distro,
-         package: $package,
-         package_sha256: $pkg_sha256,
-         build_number: $buildnr,
-         recipe_git_head: $recipe_head,
-         source: { commit: $commit, gpgkey: $gpgkey, sha256: $sha256 },
-         image_digest: $image_digest,
-         build_host: $host,
-         build_deps: ($deps | split("\n") | map(select(length > 0))),
-         timestamp: $timestamp
-      }' > "$PKGDIR/${pkgfile}.provenance.json" 2>/dev/null
+      jq -n \
+         --arg recipe "${pkg:-}" \
+         --arg version "${version:-}" \
+         --arg arch "${B_ARCH:-}" \
+         --arg distro "${B_DISTRO:-}" \
+         --arg package "$pkgfile" \
+         --arg pkg_sha256 "$pkg_sha256" \
+         --arg buildnr "${P_BUILDNR:-}" \
+         --arg recipe_head "$recipe_head" \
+         --arg commit "${B_COMMIT:-}" \
+         --arg gpgkey "${B_GPGKEY:-}" \
+         --arg sha256 "${B_SHA256:-}" \
+         --arg image_digest "${B_IMAGE_DIGEST:-}" \
+         --arg host "${BUILD_HOST:-$(hostname 2>/dev/null)}" \
+         --arg deps "$deps" \
+         --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+         '{
+            schema_version: "1.0",
+            recipe: $recipe,
+            version: $version,
+            arch: $arch,
+            distro: $distro,
+            package: $package,
+            package_sha256: $pkg_sha256,
+            build_number: $buildnr,
+            recipe_git_head: $recipe_head,
+            source: { commit: $commit, gpgkey: $gpgkey, sha256: $sha256 },
+            image_digest: $image_digest,
+            build_host: $host,
+            build_deps: ($deps | split("\n") | map(select(length > 0))),
+            timestamp: $timestamp
+         }' > "$PKGDIR/${pkgfile}.provenance.json" 2>/dev/null
+   done
    return 0
 }
 
@@ -1585,11 +1589,16 @@ package_deb() {
       else
          local -a deb_files=("$pkgdir"/*.deb)
          cp "${deb_files[@]}" "$PKGDIR"
-         pkgfile=$(basename "${deb_files[0]}")
+         # pkgready builds (e.g. openzfs make native-deb) may produce several
+         # packages; return all of them (one per line) so every one is pushed
+         # to the repository, not just the first in glob order.
+         pkgfile=$(printf '%s\n' "${deb_files[@]##*/}")
       fi
    fi
-   # Write a provenance sidecar next to the package (SECURITY.md group D1).
-   _b_provenance "$pkgfile"
+   # Write a provenance sidecar next to each package (SECURITY.md group D1).
+   while IFS= read -r f; do
+      [[ -n "$f" ]] && _b_provenance "$f"
+   done <<< "$pkgfile"
    printf '%s\n' "$pkgfile"
 }
 
@@ -3360,8 +3369,14 @@ main() {
    if (( DO_REPO != 0 )); then
       lock_get || { printf '%s\n' "Unable to get lock, other instance running?"; return 1; }
       local -a pkgs=()
+      local f
       for i in "${!work_recipes[@]}"; do
-         [[ "${work_packaged[$i]:-1}" == "0" ]] && pkgs+=("${work_package[$i]}")
+         [[ "${work_packaged[$i]:-1}" == "0" ]] || continue
+         # A recipe may produce several packages (pkgready builds); work_package
+         # then holds one file name per line. Split them into individual pushes.
+         while IFS= read -r f; do
+            [[ -n "$f" ]] && pkgs+=("$f")
+         done <<< "${work_package[$i]}"
       done
       B_ARCH="${work_arch[${work_recipes[$i]:-0}]}"
       if (( ${#pkgs[@]} != 0 )); then
