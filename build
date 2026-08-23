@@ -57,15 +57,15 @@ BUILD_HOST="$(hostname 2>/dev/null)"
 STRICT=0
 
 # Vulnerability scanning default (SECURITY.md group F4). Global default for
-# the [INFO] vulnscan= recipe key: advisory (warn but continue) or enforce
+# the [SECURITY] vulnscan= recipe key: advisory (warn but continue) or enforce
 # (fail on any HIGH/CRITICAL vulnerability). Empty = no scan unless a recipe
-# sets its own vulnscan= key. A recipe's [INFO] vulnscan= overrides this.
+# sets its own vulnscan= key. A recipe's [SECURITY] vulnscan= overrides this.
 VULNSCAN=""
 
 # Static build-script guard default (SECURITY.md group F6). Global default for
-# the [INFO] srcguard= recipe key: advisory (warn but continue) or enforce
+# the [SECURITY] srcguard= recipe key: advisory (warn but continue) or enforce
 # (fail on any suspicious build-script pattern). Empty = no scan unless a
-# recipe sets its own srcguard= key. A recipe's [INFO] srcguard= overrides
+# recipe sets its own srcguard= key. A recipe's [SECURITY] srcguard= overrides
 # this. Heuristic; may produce false positives, so advisory is recommended.
 SRCGUARD=""
 
@@ -179,10 +179,12 @@ trap '[[ -n "${_BUILD_TMP:-}" ]] && rm -rf "$_BUILD_TMP" 2>/dev/null' EXIT
 # Use ERR=1 prefix to output to stderr.
 # Use -f flag to force output at quiet level 1.
 output() {
-   local force=0
+   local force=0 verbose=0
    [[ "${1:-}" == "-f" ]] && { force=1; shift; }
+   [[ "${1:-}" == "-v" ]] && { verbose=1; shift; }
    (( QUIET == 2 )) && return
    (( force == 0 && QUIET == 1 )) && return
+   (( VERBOSE == 0 && verbose == 1 )) && return
    [[ -n "${ERR:-}" ]] && (>&2 printf '%s\n' "$1") || printf '%s\n' "$1"
 }
 
@@ -735,26 +737,32 @@ build() {
    B_GITTAG=$(recipe_item_get "$B_NAME" INFO gittag) || true
    B_STRICT="${STRICT:-0}"
 
-   # Vulnerability scanning (SECURITY.md group F4): read optional recipe [INFO]
-   # key. advisory = warn but continue; enforce = fail the build on any
-   # HIGH/CRITICAL vulnerability in the resolved build-time dependencies.
+   # Vulnerability scanning (SECURITY.md group F4): read optional recipe
+   # [SECURITY] key. advisory = warn but continue; enforce = fail the build on
+   # any HIGH/CRITICAL vulnerability in the resolved build-time dependencies.
    # Unset = no scan. The scan runs automatically after the BUILD section
-   # (B_VULNSCAN is appended to the build command below). A recipe's [INFO]
-   # vulnscan= overrides the global VULNSCAN default from ~/.buildrc.
-   B_VULNSCAN_POLICY=$(recipe_item_get "$B_NAME" INFO vulnscan) || true
+   # (B_VULNSCAN is appended to the build command below). A recipe's
+   # [SECURITY] vulnscan= overrides the global VULNSCAN default from ~/.buildrc.
+   B_VULNSCAN_POLICY=$(recipe_item_get "$B_NAME" SECURITY vulnscan) || true
    [[ -z "$B_VULNSCAN_POLICY" ]] && B_VULNSCAN_POLICY="${VULNSCAN:-}"
    # Per-issue vulnerability exceptions ([SECURITY] vulnscan-ignore=ID1,ID2).
    # B_VULNSCAN turns this into an osv-scanner config applied to the whole scan.
    B_VULNSCAN_IGNORE=$(recipe_item_get "$B_NAME" SECURITY vulnscan-ignore) || true
 
    # Static build-script guard (SECURITY.md group F6): read optional recipe
-   # [INFO] key. advisory = warn but continue; enforce = fail the build on any
-   # suspicious build-script pattern (network access or embedded-blob decoding
-   # in configure/m4/cmake/Makefile/etc.). Unset = no scan. Runs automatically
-   # after the BUILD section (B_SRCGUARD is appended to the build command
-   # below). A recipe's [INFO] srcguard= overrides the global SRCGUARD default.
-   B_SRCGUARD_POLICY=$(recipe_item_get "$B_NAME" INFO srcguard) || true
+   # [SECURITY] key. advisory = warn but continue; enforce = fail the build on
+   # any suspicious build-script pattern (network access or embedded-blob
+   # decoding in configure/m4/cmake/Makefile/etc.). Unset = no scan. Runs
+   # automatically after the BUILD section (B_SRCGUARD is appended to the
+   # build command below). A recipe's [SECURITY] srcguard= overrides the
+   # global SRCGUARD default from ~/.buildrc.
+   B_SRCGUARD_POLICY=$(recipe_item_get "$B_NAME" SECURITY srcguard) || true
    [[ -z "$B_SRCGUARD_POLICY" ]] && B_SRCGUARD_POLICY="${SRCGUARD:-}"
+   # Per-file exceptions ([SECURITY] srcguard-ignore=path/to/file). Paths are
+   # relative to the build root; all hits in an ignored file are suppressed.
+   # B_SRCGUARD filters its findings against this list, so srcguard=enforce
+   # stays active for everything else.
+   B_SRCGUARD_IGNORE=$(recipe_item_get "$B_NAME" SECURITY srcguard-ignore) || true
 
    # Build root: where the recipe's BUILD section runs and sources are checked
    # out. Docker: /tmp (the entrypoint cd's there). Native: the per-build temp
@@ -772,7 +780,7 @@ build() {
    export B_GPGKEY B_COMMIT B_SHA256 B_ALLOW_INSECURE B_GPGKEYFILE B_STRICT
    export B_GITTAG
    export B_VULNSCAN_POLICY B_BUILDROOT B_VULNSCAN_IGNORE
-   export B_SRCGUARD_POLICY
+   export B_SRCGUARD_POLICY B_SRCGUARD_IGNORE
 
    # Define build environment functions (used in both native and Docker modes)
    # These are exported for native mode and dumped to env script for Docker mode.
@@ -1124,6 +1132,10 @@ build() {
    # from B_SRCGUARD_POLICY: advisory (warn but continue) or enforce (fail on
    # any hit). Scans $B_BUILDROOT by default, or a path given as the first
    # argument. Heuristic; may produce false positives (advisory recommended).
+   # Per-file exceptions come from the recipe's [SECURITY] section
+   # (B_SRCGUARD_IGNORE, comma-separated paths relative to the build root);
+   # all hits in an ignored file are suppressed, so srcguard=enforce stays
+   # active for everything else.
    # shellcheck disable=SC2317
    B_SRCGUARD() {
       local target="${1:-${B_BUILDROOT:-.}}"
@@ -1149,12 +1161,61 @@ build() {
          return 0
       fi
 
+      # Filter hits against the recipe's [SECURITY] srcguard-ignore list
+      # (comma-separated paths relative to the build root). A hit is
+      # suppressed when its file path (scan-target prefix stripped) is in the
+      # list, so a recipe can allow-list a whole file (e.g. a Makefile that
+      # legitimately downloads firmware) while srcguard=enforce stays active
+      # for everything else.
+      local ignored=0
+      if [[ -n "${B_SRCGUARD_IGNORE:-}" ]]; then
+         local _ignore_paths=() _hit _file _rel _p _kept=""
+         IFS=',' read -ra _ignore_paths <<< "$B_SRCGUARD_IGNORE" || true
+         while IFS= read -r _hit; do
+            _file="${_hit%%:*}"
+            _rel="${_file#"$target"/}"
+            local _suppressed=0
+            for _p in "${_ignore_paths[@]}"; do
+               _p="${_p//[[:space:]]/}"
+               [[ -n "$_p" ]] || continue
+               if [[ "$_rel" == "$_p" ]]; then
+                  _suppressed=1
+                  break
+               fi
+            done
+            if (( _suppressed == 1 )); then
+               ignored=$((ignored + 1))
+            else
+               _kept+="$_hit"$'\n'
+            fi
+         done <<< "$hits"
+         hits="${_kept%$'\n'}"
+         if (( ignored > 0 )); then
+            output "B_SRCGUARD: suppressed $ignored hit(s) via [SECURITY] srcguard-ignore"
+         fi
+      fi
+
+      if [[ -z "$hits" ]]; then
+         output "B_SRCGUARD: no suspicious build-script patterns found (after srcguard-ignore)"
+         return 0
+      fi
+
       # Print findings to the build log.
       printf '%s\n' "$hits" | sed 's/^/  /'
 
       local count
       count=$(printf '%s\n' "$hits" | wc -l)
       output "B_SRCGUARD: $count suspicious build-script pattern(s) found"
+      # copy-pasteable [SECURITY] block so the recipe author can suppress
+      # reviewed files (lists every reported file, relative to the build root;
+      # trim as needed).
+      local files
+      files=$(printf '%s\n' "$hits" | sed 's/:.*//' | sed "s#^$target/##" | sort -u | paste -sd, -)
+      if [[ -n "$files" ]]; then
+         printf '%s\n' "B_SRCGUARD: to suppress these, add to the recipe:"
+         printf '%s\n' "[SECURITY]"
+         printf '%s\n' "srcguard-ignore=$files"
+      fi
       if [[ "$policy" == "enforce" ]]; then
          output "B_SRCGUARD: enforce mode - failing build"
          return 1
@@ -1382,51 +1443,55 @@ package() {
 # group D1). Writes <pkgfile>.provenance.json next to the .deb in $PKGDIR,
 # recording what was built from what (recipe, version, source-integrity pins,
 # build number, package checksum, image digest, build-deps snapshot).
-# Best-effort: never fails the build.
-# Parameters: pkgfile
+# Best-effort: never fails the build. May be called with several package
+# files (one per line / argument); writes a sidecar for each.
+# Parameters: pkgfile...
 _b_provenance() {
-   local pkgfile="$1"
    command -v jq > /dev/null 2>&1 || return 0
 
-   local recipe_head="" pkg_sha256="" deps=""
-   [[ -d "$RECIPEDIR/.git" ]] && recipe_head=$(git -C "$RECIPEDIR" rev-parse HEAD 2>/dev/null)
-   pkg_sha256=$(sha256sum "$PKGDIR/$pkgfile" 2>/dev/null | cut -d' ' -f1)
-   # Snapshot of installed packages (base image + build deps) for
-   # reproducibility (SECURITY.md B2). Sorted, one "pkg=version" per line.
-   deps=$(dpkg-query -W -f='${Package}=${Version}\n' 2>/dev/null | sort)
+   local pkgfile recipe_head="" pkg_sha256="" deps=""
+   for pkgfile in "$@"; do
+      [[ -n "$pkgfile" ]] || continue
+      recipe_head=""
+      [[ -d "$RECIPEDIR/.git" ]] && recipe_head=$(git -C "$RECIPEDIR" rev-parse HEAD 2>/dev/null)
+      pkg_sha256=$(sha256sum "$PKGDIR/$pkgfile" 2>/dev/null | cut -d' ' -f1)
+      # Snapshot of installed packages (base image + build deps) for
+      # reproducibility (SECURITY.md B2). Sorted, one "pkg=version" per line.
+      deps=$(dpkg-query -W -f='${Package}=${Version}\n' 2>/dev/null | sort)
 
-   jq -n \
-      --arg recipe "${pkg:-}" \
-      --arg version "${version:-}" \
-      --arg arch "${B_ARCH:-}" \
-      --arg distro "${B_DISTRO:-}" \
-      --arg package "$pkgfile" \
-      --arg pkg_sha256 "$pkg_sha256" \
-      --arg buildnr "${P_BUILDNR:-}" \
-      --arg recipe_head "$recipe_head" \
-      --arg commit "${B_COMMIT:-}" \
-      --arg gpgkey "${B_GPGKEY:-}" \
-      --arg sha256 "${B_SHA256:-}" \
-      --arg image_digest "${B_IMAGE_DIGEST:-}" \
-      --arg host "${BUILD_HOST:-$(hostname 2>/dev/null)}" \
-      --arg deps "$deps" \
-      --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-      '{
-         schema_version: "1.0",
-         recipe: $recipe,
-         version: $version,
-         arch: $arch,
-         distro: $distro,
-         package: $package,
-         package_sha256: $pkg_sha256,
-         build_number: $buildnr,
-         recipe_git_head: $recipe_head,
-         source: { commit: $commit, gpgkey: $gpgkey, sha256: $sha256 },
-         image_digest: $image_digest,
-         build_host: $host,
-         build_deps: ($deps | split("\n") | map(select(length > 0))),
-         timestamp: $timestamp
-      }' > "$PKGDIR/${pkgfile}.provenance.json" 2>/dev/null
+      jq -n \
+         --arg recipe "${pkg:-}" \
+         --arg version "${version:-}" \
+         --arg arch "${B_ARCH:-}" \
+         --arg distro "${B_DISTRO:-}" \
+         --arg package "$pkgfile" \
+         --arg pkg_sha256 "$pkg_sha256" \
+         --arg buildnr "${P_BUILDNR:-}" \
+         --arg recipe_head "$recipe_head" \
+         --arg commit "${B_COMMIT:-}" \
+         --arg gpgkey "${B_GPGKEY:-}" \
+         --arg sha256 "${B_SHA256:-}" \
+         --arg image_digest "${B_IMAGE_DIGEST:-}" \
+         --arg host "${BUILD_HOST:-$(hostname 2>/dev/null)}" \
+         --arg deps "$deps" \
+         --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+         '{
+            schema_version: "1.0",
+            recipe: $recipe,
+            version: $version,
+            arch: $arch,
+            distro: $distro,
+            package: $package,
+            package_sha256: $pkg_sha256,
+            build_number: $buildnr,
+            recipe_git_head: $recipe_head,
+            source: { commit: $commit, gpgkey: $gpgkey, sha256: $sha256 },
+            image_digest: $image_digest,
+            build_host: $host,
+            build_deps: ($deps | split("\n") | map(select(length > 0))),
+            timestamp: $timestamp
+         }' > "$PKGDIR/${pkgfile}.provenance.json" 2>/dev/null
+   done
    return 0
 }
 
@@ -1526,11 +1591,16 @@ package_deb() {
       else
          local -a deb_files=("$pkgdir"/*.deb)
          cp "${deb_files[@]}" "$PKGDIR"
-         pkgfile=$(basename "${deb_files[0]}")
+         # pkgready builds (e.g. openzfs make native-deb) may produce several
+         # packages; return all of them (one per line) so every one is pushed
+         # to the repository, not just the first in glob order.
+         pkgfile=$(printf '%s\n' "${deb_files[@]##*/}")
       fi
    fi
-   # Write a provenance sidecar next to the package (SECURITY.md group D1).
-   _b_provenance "$pkgfile"
+   # Write a provenance sidecar next to each package (SECURITY.md group D1).
+   while IFS= read -r f; do
+      [[ -n "$f" ]] && _b_provenance "$f"
+   done <<< "$pkgfile"
    printf '%s\n' "$pkgfile"
 }
 
@@ -2249,7 +2319,7 @@ _build_prune() {
             (( ${#versions[@]} > keep )) || continue
             local v
             for v in "${versions[@]:keep}"; do
-               output "build: pruning $v"
+               output -v "build: pruning $v"
                rm -rf "$v"
             done
          done
@@ -2298,7 +2368,7 @@ readonly -a BUILD_ENV_VARS=(
    RECIPEDIR LOGDIR PKGDIR PKGPOSTFIX PKGMAIL PKGORG
    B_GPGKEY B_COMMIT B_SHA256 B_ALLOW_INSECURE B_GPGKEYFILE B_STRICT distr rel
    B_GITTAG
-   B_VULNSCAN_POLICY B_BUILDROOT B_SRCGUARD_POLICY B_VULNSCAN_IGNORE
+   B_VULNSCAN_POLICY B_BUILDROOT B_SRCGUARD_POLICY B_VULNSCAN_IGNORE B_SRCGUARD_IGNORE
    BUILD_HOST
 )
 
@@ -2950,70 +3020,51 @@ parse_options() {
 
    while getopts :csbprad:i:RS:A:xvqfhm: opt; do
       case $opt in
-      c)
-         DO_CHECK=1
+      c) DO_CHECK=1
          ;;
-      b)
-         DO_CHECK=2
+      b) DO_CHECK=2
          DO_BUILD=1
          ;;
-      p)
-         DO_CHECK=2
+      p) DO_CHECK=2
          DO_PACKAGE=1
          ;;
-      r)
-         DO_CHECK=2
+      r) DO_CHECK=2
          DO_PACKAGE=2
          DO_REPO=1
          ;;
-      a)
-         all=1
+      a) all=1
          ;;
-      d)
+      d) BUILDDISTRO="$OPTARG"
+         ;;
+      i) B_INSTANCE="$OPTARG"
+         ;;
+      R) B_NOPKGRM=1
+         ;;
+      S) SHELL_MODE=1
          BUILDDISTRO="$OPTARG"
          ;;
-      i)
-         B_INSTANCE="$OPTARG"
+      A) ATTACH_CONTAINER="$OPTARG"
          ;;
-      R)
-         B_NOPKGRM=1
+      x) DEBUG=1
          ;;
-      S)
-         SHELL_MODE=1
-         BUILDDISTRO="$OPTARG"
+      v) VERBOSE=1
          ;;
-      A)
-         ATTACH_CONTAINER="$OPTARG"
+      s) DEBUGSHELL=1
          ;;
-      x)
-         DEBUG=1
+      q) QUIET=$((QUIET + 1))
          ;;
-      v)
-         VERBOSE=1
+      f) B_FORCE=1
          ;;
-      s)
-         DEBUGSHELL=1
+      h) usage
+         return 1
          ;;
-      q)
-         QUIET=$((QUIET + 1))
+      m) email="$OPTARG"
          ;;
-      f)
-         B_FORCE=1
-         ;;
-      h)
+      \?) printf '%s\n' "Unknown option: -$OPTARG"
          usage
          return 1
          ;;
-      m)
-         email="$OPTARG"
-         ;;
-      \?)
-         printf '%s\n' "Unknown option: -$OPTARG"
-         usage
-         return 1
-         ;;
-      :)
-         printf '%s\n' "Option -$OPTARG requires argument"
+      :) printf '%s\n' "Option -$OPTARG requires argument"
          usage
          return 1
          ;;
@@ -3034,6 +3085,14 @@ parse_options() {
       IFS='-' read -r distr rel <<< "$BUILDDISTRO"
       distr=$(printf '%s' "$distr" | tr '[:lower:]' '[:upper:]')
       rel=$(printf '%s' "${rel:-$distr}" | tr '[:lower:]' '[:upper:]')
+      # A bare codename (e.g. "trixie") selects the Debian docker image, but
+      # distro-specific recipe sections are named "[X DEBIAN TRIXIE]"; map the
+      # codename to its family so those sections activate (native mode already
+      # yields DEBIAN from lsb_release -i). Explicit family-codenames
+      # ("debian-trixie") are split above and need no mapping.
+      if [[ "$BUILDDISTRO" != *-* ]] && is_debian_distro "$(printf '%s' "$rel" | tr '[:upper:]' '[:lower:]')"; then
+         distr=DEBIAN
+      fi
    else
       distr=$(lsb_release -i -s | tr '[:lower:]' '[:upper:]')
       rel=$(lsb_release -c -s | tr '[:lower:]' '[:upper:]')
@@ -3293,8 +3352,14 @@ main() {
    if (( DO_REPO != 0 )); then
       lock_get || { printf '%s\n' "Unable to get lock, other instance running?"; return 1; }
       local -a pkgs=()
+      local f
       for i in "${!work_recipes[@]}"; do
-         [[ "${work_packaged[$i]:-1}" == "0" ]] && pkgs+=("${work_package[$i]}")
+         [[ "${work_packaged[$i]:-1}" == "0" ]] || continue
+         # A recipe may produce several packages (pkgready builds); work_package
+         # then holds one file name per line. Split them into individual pushes.
+         while IFS= read -r f; do
+            [[ -n "$f" ]] && pkgs+=("$f")
+         done <<< "${work_package[$i]}"
       done
       B_ARCH="${work_arch[${work_recipes[$i]:-0}]}"
       if (( ${#pkgs[@]} != 0 )); then
