@@ -347,6 +347,10 @@ _b_gpg_ensure_key() {
 # Exported so they are available to B_GET / B_GITCHECKOUT in child shells
 # (native build path) and serialized into the Docker env script.
 export -f _b_wget_fetch _b_verify_copy _b_pkg_id _b_gpg_ensure_key _b_git_refresh
+# output is used by the exported functions above and by B_VULNSCAN/B_SRCGUARD
+# (appended to the native build command); without it those fail with
+# "output: command not found" in the bash -c build subprocess.
+export -f output
 
 # Email a build-completion summary to the address given with -m.
 # Uses the work_* arrays populated by main(). Includes a per-recipe summary
