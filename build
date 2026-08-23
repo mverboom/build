@@ -1578,7 +1578,9 @@ package_deb() {
       fakeroot dpkg --build "$TMP/build" . > "$TMP/.buildoutput" 2>&1
       local result=$?
       cat "$TMP/.buildoutput" >> "$pkglog"
-      (( QUIET == 0 && BUILDMODE != "docker" )) && cat "$TMP/.buildoutput"
+      # Note: [[ ]] not (( )) -- an arithmetic comparison of BUILDMODE (a
+      # string) with set -u would fail with "unbound variable".
+      [[ "${QUIET:-0}" == "0" && "$BUILDMODE" != "docker" ]] && cat "$TMP/.buildoutput"
       local pkgfile
       pkgfile=$(cut -d "'" -f 4 "$TMP/.buildoutput")
       pkgfile="${pkgfile/*\//}"
