@@ -1556,7 +1556,13 @@ package_deb() {
       tar pcfB - . | (cd "$TMP/build" || exit; tar pxfB -)
       cd "$TMP/build" || return 1
 
-      if [[ -d "$RECIPEDIR/$pkg.files/B_DEBIAN" ]]; then
+      # Distro-specific B_DEBIAN-<release> tree takes precedence over the
+      # generic B_DEBIAN (documented order; original behaviour, see commit
+      # 9c5bed6 "Implemented B_DEBIAN-release option"). $rel is the uppercase
+      # codename (e.g. TRIXIE), matching directory names like B_DEBIAN-BOOKWORM.
+      if [[ -d "$RECIPEDIR/$pkg.files/B_DEBIAN-$rel" ]]; then
+         (cd "$RECIPEDIR/$pkg.files/B_DEBIAN-$rel" || exit; tar cf - .) | tar xf -
+      elif [[ -d "$RECIPEDIR/$pkg.files/B_DEBIAN" ]]; then
          (cd "$RECIPEDIR/$pkg.files/B_DEBIAN" || exit; tar cf - .) | tar xf -
       fi
 
