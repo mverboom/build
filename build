@@ -179,10 +179,12 @@ trap '[[ -n "${_BUILD_TMP:-}" ]] && rm -rf "$_BUILD_TMP" 2>/dev/null' EXIT
 # Use ERR=1 prefix to output to stderr.
 # Use -f flag to force output at quiet level 1.
 output() {
-   local force=0
+   local force=0 verbose=0
    [[ "${1:-}" == "-f" ]] && { force=1; shift; }
+   [[ "${1:-}" == "-v" ]] && { verbose=1; shift; }
    (( QUIET == 2 )) && return
    (( force == 0 && QUIET == 1 )) && return
+   (( VERBOSE == 0 && verbose == 1 )) && return
    [[ -n "${ERR:-}" ]] && (>&2 printf '%s\n' "$1") || printf '%s\n' "$1"
 }
 
@@ -2317,7 +2319,7 @@ _build_prune() {
             (( ${#versions[@]} > keep )) || continue
             local v
             for v in "${versions[@]:keep}"; do
-               output "build: pruning $v"
+               output -v "build: pruning $v"
                rm -rf "$v"
             done
          done
@@ -3018,70 +3020,51 @@ parse_options() {
 
    while getopts :csbprad:i:RS:A:xvqfhm: opt; do
       case $opt in
-      c)
-         DO_CHECK=1
+      c) DO_CHECK=1
          ;;
-      b)
-         DO_CHECK=2
+      b) DO_CHECK=2
          DO_BUILD=1
          ;;
-      p)
-         DO_CHECK=2
+      p) DO_CHECK=2
          DO_PACKAGE=1
          ;;
-      r)
-         DO_CHECK=2
+      r) DO_CHECK=2
          DO_PACKAGE=2
          DO_REPO=1
          ;;
-      a)
-         all=1
+      a) all=1
          ;;
-      d)
+      d) BUILDDISTRO="$OPTARG"
+         ;;
+      i) B_INSTANCE="$OPTARG"
+         ;;
+      R) B_NOPKGRM=1
+         ;;
+      S) SHELL_MODE=1
          BUILDDISTRO="$OPTARG"
          ;;
-      i)
-         B_INSTANCE="$OPTARG"
+      A) ATTACH_CONTAINER="$OPTARG"
          ;;
-      R)
-         B_NOPKGRM=1
+      x) DEBUG=1
          ;;
-      S)
-         SHELL_MODE=1
-         BUILDDISTRO="$OPTARG"
+      v) VERBOSE=1
          ;;
-      A)
-         ATTACH_CONTAINER="$OPTARG"
+      s) DEBUGSHELL=1
          ;;
-      x)
-         DEBUG=1
+      q) QUIET=$((QUIET + 1))
          ;;
-      v)
-         VERBOSE=1
+      f) B_FORCE=1
          ;;
-      s)
-         DEBUGSHELL=1
+      h) usage
+         return 1
          ;;
-      q)
-         QUIET=$((QUIET + 1))
+      m) email="$OPTARG"
          ;;
-      f)
-         B_FORCE=1
-         ;;
-      h)
+      \?) printf '%s\n' "Unknown option: -$OPTARG"
          usage
          return 1
          ;;
-      m)
-         email="$OPTARG"
-         ;;
-      \?)
-         printf '%s\n' "Unknown option: -$OPTARG"
-         usage
-         return 1
-         ;;
-      :)
-         printf '%s\n' "Option -$OPTARG requires argument"
+      :) printf '%s\n' "Option -$OPTARG requires argument"
          usage
          return 1
          ;;
