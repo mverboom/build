@@ -2595,11 +2595,13 @@ _docker_run() {
    # phase never invokes build/torepo (the host pushes top-level packages).
    if [[ $build_mode == 1 ]]; then
       # The build script itself (same mechanism as the -S dev shell).
+      # type -P (PATH-only lookup) is required: `command -v build` would
+      # resolve to the build() shell function defined in this very script.
       local build_script_path
-      build_script_path=$(command -v build 2>/dev/null || true)
+      build_script_path=$(type -P build 2>/dev/null || true)
       # Fallback: use the running script's own path.
       if [[ -z "$build_script_path" ]]; then
-         build_script_path="${0}"
+         build_script_path="${BASH_SOURCE[0]}"
       fi
       if [[ -n "$build_script_path" && -f "$build_script_path" ]]; then
          docker_args+=("-v" "${build_script_path}:${HOME}/bin/build:ro")
@@ -2959,11 +2961,12 @@ docker_shell() {
    docker_add_apt_config docker_args "$distro" || return 1
 
    # Mount the build script into the container so 'build' command works inside
+   # (type -P: PATH-only, as `command -v build` resolves to the build() function).
    local build_script_path
-   build_script_path=$(command -v build 2>/dev/null || true)
+   build_script_path=$(type -P build 2>/dev/null || true)
    # Fallback: use the running script's own path
    if [[ -z "$build_script_path" ]]; then
-      build_script_path="${0}"
+      build_script_path="${BASH_SOURCE[0]}"
    fi
    if [[ -n "$build_script_path" && -f "$build_script_path" ]]; then
       docker_args+=("-v" "${build_script_path}:${HOME}/bin/build:ro")
