@@ -31,23 +31,29 @@ QUIET=0
 VERBOSE=0
 _BUILD_TMP=""
 
-# Default configuration (overridden by ~/.buildrc)
-DESTDIR="$HOME/build"
-DESTSPLIT=""
-CACHEDIR="$HOME/cache"
-TMPDIR="$HOME/temp"
-RECIPEDIR="$HOME/recipes"
-PKGLIST="$RECIPEDIR/pkglist"
-PKGDIR="$HOME/packages"
-LOGDIR="$HOME/log"
-INSTDEP="yes"
-DEINSTDEP="yes"
-TODEBREPO=""
-PKGPOSTFIX=""
-PKGMAIL=""
-PKGORG=""
-POSTBUILD=""
-PROXY=""
+# Default configuration (overridden by ~/.buildrc). ${VAR:-default} so that
+# values exported into the container by the host (BUILD_ENV_VARS) survive for
+# nested 'build' invocations (meta recipes): inside the container ~/.buildrc is
+# deliberately absent, and the exported values are the ones that match the
+# host's bind-mounted paths (LOGDIR, PKGDIR, PKGLIST, TMPDIR, ...). On the
+# host these environment variables are unset, so the defaults apply and
+# ~/.buildrc still wins where it is sourced.
+DESTDIR="${DESTDIR:-$HOME/build}"
+DESTSPLIT="${DESTSPLIT:-}"
+CACHEDIR="${CACHEDIR:-$HOME/cache}"
+TMPDIR="${TMPDIR:-$HOME/temp}"
+RECIPEDIR="${RECIPEDIR:-$HOME/recipes}"
+PKGLIST="${PKGLIST:-$RECIPEDIR/pkglist}"
+PKGDIR="${PKGDIR:-$HOME/packages}"
+LOGDIR="${LOGDIR:-$HOME/log}"
+INSTDEP="${INSTDEP:-yes}"
+DEINSTDEP="${DEINSTDEP:-yes}"
+TODEBREPO="${TODEBREPO:-}"
+PKGPOSTFIX="${PKGPOSTFIX:-}"
+PKGMAIL="${PKGMAIL:-}"
+PKGORG="${PKGORG:-}"
+POSTBUILD="${POSTBUILD:-}"
+PROXY="${PROXY:-}"
 # Real build host name (captured on the host, passed to containers so
 # provenance records the actual build server, not the container hostname).
 BUILD_HOST="$(hostname 2>/dev/null)"
@@ -60,14 +66,14 @@ STRICT=0
 # the [SECURITY] vulnscan= recipe key: advisory (warn but continue) or enforce
 # (fail on any HIGH/CRITICAL vulnerability). Empty = no scan unless a recipe
 # sets its own vulnscan= key. A recipe's [SECURITY] vulnscan= overrides this.
-VULNSCAN=""
+VULNSCAN="${VULNSCAN:-}"
 
 # Static build-script guard default (SECURITY.md group F6). Global default for
 # the [SECURITY] srcguard= recipe key: advisory (warn but continue) or enforce
 # (fail on any suspicious build-script pattern). Empty = no scan unless a
 # recipe sets its own srcguard= key. A recipe's [SECURITY] srcguard= overrides
 # this. Heuristic; may produce false positives, so advisory is recommended.
-SRCGUARD=""
+SRCGUARD="${SRCGUARD:-}"
 
 # Per-distro apt/repository configuration.
 # Builds must not inherit apt config (repositories, proxies, keys, credentials)
@@ -2378,8 +2384,9 @@ readonly -a BUILD_ENV_VARS=(
    BUILD_HOST
    # Nested builds (meta recipes) run natively inside the container and need
    # these from .buildrc: TODEBREPO for the -r repo push, INSTDEP so required
-   # build dependencies are installed (native mode installs via sudo).
-   TODEBREPO INSTDEP
+   # build dependencies are installed (native mode installs via sudo), and the
+   # global VULNSCAN/SRCGUARD scan policies.
+   TODEBREPO INSTDEP VULNSCAN SRCGUARD
 )
 
 # Prepare the build environment script for use inside a Docker container.
