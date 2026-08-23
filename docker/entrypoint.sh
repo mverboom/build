@@ -151,6 +151,15 @@ if [[ -n "${HOST_UID:-}" ]]; then
    # those writes are deliberately ephemeral and discarded with the container.
    mkdir -p "$HOME" 2>/dev/null || true
    chown builduser:builduser "$HOME" 2>/dev/null || true
+
+   # Configure passwordless sudo for builduser in ALL modes, not just the
+   # interactive dev shell: a meta recipe's BUILD section calls `build` again
+   # for each component, and those nested builds run natively in this
+   # container, where build_require() installs dependencies via sudo.
+   # (The build images ship sudo; the interactive branch below also installs
+   # it for pulled images.)
+   printf 'builduser ALL=(ALL) NOPASSWD:ALL\n' > /etc/sudoers.d/builduser
+   chmod 440 /etc/sudoers.d/builduser
    # 20260725 MV: Don't know why this is done, disabled, should already be correct owner
    #for dir in "${B_INSTALLDIR:-}" "${B_CACHEDIR:-}" "${DESTDIR:-}" "${LOGDIR:-}" "${PKGDIR:-}"; do
    #   if [[ -n "${dir:-}" ]] && [[ -d "${dir}" ]]; then
@@ -237,9 +246,7 @@ else
       elif command -v dnf > /dev/null 2>&1; then
          run_pkg "$deps_log" dnf install -y sudo || true
       fi
-      # Configure passwordless sudo for builduser
-      printf 'builduser ALL=(ALL) NOPASSWD:ALL\n' > /etc/sudoers.d/builduser
-      chmod 440 /etc/sudoers.d/builduser
+      # Passwordless sudo for builduser is configured above for all modes.
       exec su - builduser -s /bin/bash
    else
       exec /bin/bash

@@ -156,11 +156,17 @@ DO_PACKAGE=0
 DO_REPO=0
 email=""
 
-# Source configuration
+# Source configuration. On the host .buildrc is mandatory. Inside a build
+# container it is deliberately NOT mounted: the host exports the configuration
+# into the container (BUILD_ENV_VARS), and a nested 'build' invocation (meta
+# recipes that build other recipes) must not re-resolve .buildrc's
+# HOSTNAME-based paths (LOGDIR, PKGDIR, PKGLIST) against the container's own
+# hostname (build-<recipe>) -- those paths are bind-mounted at their host
+# values.
 if [[ -f "$HOME/.buildrc" ]]; then
    # shellcheck source=~/.buildrc
    source "$HOME/.buildrc"
-else
+elif [[ ! -f /.dockerenv ]]; then
    printf '%s\n' "No configuration file found."
    exit 1
 fi
@@ -2370,6 +2376,10 @@ readonly -a BUILD_ENV_VARS=(
    B_GITTAG
    B_VULNSCAN_POLICY B_BUILDROOT B_SRCGUARD_POLICY B_VULNSCAN_IGNORE B_SRCGUARD_IGNORE
    BUILD_HOST
+   # Nested builds (meta recipes) run natively inside the container and need
+   # these from .buildrc: TODEBREPO for the -r repo push, INSTDEP so required
+   # build dependencies are installed (native mode installs via sudo).
+   TODEBREPO INSTDEP
 )
 
 # Prepare the build environment script for use inside a Docker container.
@@ -2404,6 +2414,12 @@ docker_prepare_env() {
       printf 'export XDG_CACHE_HOME="/tmp/.cache"\n'
       printf 'export YARN_CACHE_FOLDER="/tmp/.cache/yarn"\n'
       printf 'export QUIET=%s\n' "${QUIET:-0}"
+
+      # $HOME/bin in PATH so nested 'build' invocations (meta recipes whose
+      # BUILD section builds other recipes) can find the mounted build/torepo
+      # scripts. The build wrapper runs via non-login su, so the default PATH
+      # does not include $HOME/bin.
+      printf 'export PATH="%s/bin:$PATH"\n' "$HOME"
 
       # Function definitions (exported from build() function scope)
       declare -f B_GET B_GITCHECKOUT B_LINKFILES B_LINKFILE B_VULNSCAN B_SRCGUARD
@@ -2571,6 +2587,32 @@ _docker_run() {
    # offline, avoids per-build re-fetch). Apt repo signing keys are separate --
    # docker_add_apt_config mounts those at /etc/apt/keyrings.
    [[ -d "$HOME/.gnupg" ]] && docker_args+=("-v" "$(readlink -f "$HOME/.gnupg"):${HOME}/.gnupg")
+
+   # Scripts/config for nested 'build' invocations: a meta recipe's BUILD
+   # section calls `build -b -p -r <pkg>@<version>` for every component, which
+   # then runs natively inside this container (the in-container BUILDMODE
+   # fallback; Docker-in-Docker is not available). Build-only: the package
+   # phase never invokes build/torepo (the host pushes top-level packages).
+   if [[ $build_mode == 1 ]]; then
+      # The build script itself (same mechanism as the -S dev shell).
+      local build_script_path
+      build_script_path=$(command -v build 2>/dev/null || true)
+      # Fallback: use the running script's own path.
+      if [[ -z "$build_script_path" ]]; then
+         build_script_path="${0}"
+      fi
+      if [[ -n "$build_script_path" && -f "$build_script_path" ]]; then
+         docker_args+=("-v" "${build_script_path}:${HOME}/bin/build:ro")
+      fi
+      # torepo + its config: nested builds push their packages (-r) from inside
+      # the container via $TODEBREPO (exported in BUILD_ENV_VARS).
+      local torepo_path
+      torepo_path=$(command -v torepo 2>/dev/null || true)
+      if [[ -n "$torepo_path" && -f "$torepo_path" ]]; then
+         docker_args+=("-v" "${torepo_path}:${HOME}/bin/torepo:ro")
+      fi
+      [[ -f "$HOME/.toreporc" ]] && docker_args+=("-v" "$(readlink -f "$HOME/.toreporc"):${HOME}/.toreporc:ro")
+   fi
 
    # Optional: bind-mount a host directory over the container's /tmp so large
    # source extractions land on a volume with space instead of the container's
