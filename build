@@ -1580,7 +1580,10 @@ package_deb() {
       cat "$TMP/.buildoutput" >> "$pkglog"
       # Note: [[ ]] not (( )) -- an arithmetic comparison of BUILDMODE (a
       # string) with set -u would fail with "unbound variable".
-      [[ "${QUIET:-0}" == "0" && "$BUILDMODE" != "docker" ]] && cat "$TMP/.buildoutput"
+      # stderr, not stdout: package() is called via $(...) in main(), so any
+      # stdout here would be captured into work_package and then passed to
+      # package_torepo as bogus extra "packages" ("type " empty).
+      [[ "${QUIET:-0}" == "0" && "$BUILDMODE" != "docker" ]] && cat "$TMP/.buildoutput" >&2
       local pkgfile
       pkgfile=$(cut -d "'" -f 4 "$TMP/.buildoutput")
       pkgfile="${pkgfile/*\//}"
