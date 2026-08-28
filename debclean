@@ -52,12 +52,12 @@ main() {
    "-c")
       if [[ -f "$BASE" ]]; then
          dpkg -l | grep "^.i" | awk '{print $2}' > "$CUR"
-         diff "$BASE" "$CUR" | grep '<' | cut -d' ' -f2 | xargs sudo apt-get -qq -y install > /dev/null 2>&1
+         diff "$BASE" "$CUR" | grep '<' | cut -d' ' -f2 | xargs -r sudo apt-get -qq -y install > /dev/null 2>&1
          [[ ${PIPESTATUS[3]} -ne 0 ]] && printf '%s\n' "Error installing missing packages."
          if ! sudo apt-get -qq -y --purge autoremove > /dev/null 2>&1; then
             printf '%s\n' "Error removing no longer required packages."
          fi
-         diff "$BASE" "$CUR" | grep '>' | cut -d' ' -f2 | xargs sudo apt-get -qq --purge -y remove > /dev/null 2>&1
+         diff "$BASE" "$CUR" | grep '>' | cut -d' ' -f2 | xargs -r sudo apt-get -qq --purge -y remove > /dev/null 2>&1
          [[ ${PIPESTATUS[3]} -ne 0 ]] && printf '%s\n' "Error removing extra packages."
       else
          printf '%s\n' "No base list is available for this system."

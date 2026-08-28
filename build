@@ -1830,7 +1830,7 @@ recipe_select_arch() {
    local arch
    arch=$(recipe_item_get "$recipe" INFO arch)
    [[ -z "$arch" ]] && arch="$B_SARCH"
-   for B_ARCH in ${arch/,/ }; do
+   for B_ARCH in ${arch//,/ }; do
       if [[ "$B_ARCH" == "all" || "$B_ARCH" == "$B_SARCH" ]]; then
          return 0
       fi
@@ -3401,6 +3401,13 @@ main() {
          local r="${work_recipes[$i]}"
          work_version[i]=$(check_version_built "$r" "${work_forcever[$r]:-}" "${work_instance[$r]:-$global_instance}")
          work_built[i]=$?
+         # A failed version check (rc 2) must not pass silently: fail the run so
+         # cron/-m report it, and let the build/package loops skip this recipe.
+         if (( work_built[i] == 2 )); then
+            retval=1
+            output -f "${work_recipes[$i]} (version check failed)"
+            continue
+         fi
          if (( DO_CHECK == 1 || (DO_BUILD == 1 && B_FORCE == 0) )); then
             (( work_built[i] == 1 )) && output "${work_recipes[$i]} ${work_version[$i]} (already built)"
          fi
@@ -3418,6 +3425,14 @@ main() {
          B_ARCH="${work_arch[${work_recipes[$i]}]}"
          B_INSTANCE="${work_instance[${work_recipes[$i]}]:-$global_instance}"
          if (( work_built[i] == 0 || B_FORCE == 1 )); then
+            # Never build with an empty version (e.g. -f after a failed version
+            # check): it would create a garbage install dir ($name-).
+            if [[ -z "${work_version[$i]:-}" ]]; then
+               output -f "${work_recipes[$i]} (no version available, build skipped)"
+               work_build[i]=0
+               retval=1
+               continue
+            fi
             if (( DRYRUN == 1 )); then
                output -f "Would build ${work_recipes[$i]} ${work_version[$i]}"
                work_build[i]=1
