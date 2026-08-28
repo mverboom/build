@@ -2499,20 +2499,21 @@ docker_prepare_env() {
       printf '#!/usr/bin/env bash\n'
       printf '# Build environment for %s\n\n' "${B_NAME}"
 
-      # Build-environment variables (single source: BUILD_ENV_VARS).
+      # Build-environment variables (single source: BUILD_ENV_VARS). %q keeps
+      # values with quotes/spaces/$ shell-safe in the generated script.
       local _v
       for _v in "${BUILD_ENV_VARS[@]}"; do
          if [[ "$_v" == *=* ]]; then
             printf 'export %s\n' "$_v"
          else
-            printf 'export %s="%s"\n' "$_v" "${!_v:-}"
+            printf 'export %s=%q\n' "$_v" "${!_v:-}"
          fi
       done
 
       # Build-only vars (always exported here; passed as -e only for build
       # runs by _docker_run).
-      printf 'export B_FILES="%s"\n' "${B_FILES:-}"
-      printf 'export B_FORCE="%s"\n' "${B_FORCE:-}"
+      printf 'export B_FILES=%q\n' "${B_FILES:-}"
+      printf 'export B_FORCE=%q\n' "${B_FORCE:-}"
       printf 'export B_VERBOSE=%s\n' "${VERBOSE:-0}"
 
       # Cache locations and quiet flag (env-script only; not passed as -e).
