@@ -715,6 +715,14 @@ build_require_remove() {
    _sudo_pkg apt-get -qq -y --purge remove "${list[@]}"
 }
 
+# Run the recipe POSTBUILD command on the host (e.g. "clean -c"); in docker
+# mode the container is ephemeral, so host-side cleanup belongs here. Returns
+# non-zero on failure so the caller can fail the build (original behaviour).
+_run_postbuild() {
+   [[ -n "${POSTBUILD:-}" && $B_NOPKGRM == 0 ]] || return 0
+   $POSTBUILD || { ERR=1 output "Error running postbuild command $POSTBUILD"; return 255; }
+}
+
 # Build a recipe: install dependencies, set up environment, run build commands.
 # Parameters: recipe_name version
 build() {
@@ -1311,15 +1319,7 @@ B_SRCGUARD"
       # Clean up temp files
       rm -f "$envfile" "$buildfile" "$pkgcmdfile"
 
-      # Postbuild command (e.g. "clean -c") runs on the host, like in the
-      # original build script: the container is ephemeral, so host-side
-      # cleanup belongs here. A failing postbuild command fails the build.
-      if [[ -n "${POSTBUILD:-}" ]] && (( B_NOPKGRM == 0 )); then
-         if ! $POSTBUILD; then
-            ERR=1 output "Error running postbuild command $POSTBUILD"
-            result=255
-         fi
-      fi
+      _run_postbuild || result=255
 
       if (( result != 0 )); then
          rm -rf "$B_INSTALLDIR"
@@ -1376,14 +1376,7 @@ B_SRCGUARD"
    _BUILD_TMP=""
 
    [[ -n "$pkgs" && "$DEINSTDEP" == "yes" ]] && (( B_NOPKGRM == 0 )) && build_require_remove "$pkgs"
-   # A failing postbuild command fails the whole build (original build script
-   # behaviour): the install directory is removed below like any failed build.
-   if [[ -n "${POSTBUILD:-}" ]] && (( B_NOPKGRM == 0 )); then
-      if ! $POSTBUILD; then
-         ERR=1 output "Error running postbuild command $POSTBUILD"
-         result=255
-      fi
-   fi
+   _run_postbuild || result=255
 
    if (( result != 0 )); then
       rm -rf "$B_INSTALLDIR"
@@ -1771,9 +1764,8 @@ version_get() {
       wget -q --secure-protocol=TLSv1_2 --https-only -O - "$URL/rss?path=/" | xml2 | grep '/rss/channel/item/link' | sed 's/.*\/files\/\([^\/]\+\)\/.*/\1/; s/.\+-\(.\+\)/\1/' | sort -t. -k 1,1n -k 2,2n -k 3,3n -k 4,4n | tail -1
    }
 
-   # Get the last commit date on a git repository's branch head, formatted as
-   # %Y%m%d (for date-stamped versions). Reads the loose commit object over
-   # plain HTTP, exactly like the original build script did.
+   # Branch head commit date as %Y%m%d, read from the loose commit object
+   # over plain HTTP, like the original build script did.
    # shellcheck disable=SC2317
    B_GITDATE() {
       local URL="$1"
@@ -1783,11 +1775,11 @@ version_get() {
       DT=$( (printf '\x1f\x8b\x08\x00\x00\x00\x00\x00' &&
          wget -q -O - "$URL/objects/${HEAD:0:2}/${HEAD:2}") |
          gzip -dc 2> /dev/null | cut -d $'\0' -f 1 |
-         grep '^committer' | sed 's/.* \([0-9]\+\) .*/\1/')
+         awk '/^committer/ {print $(NF-1); exit}')
       date -d "@$DT" '+%Y%m%d'
    }
 
-   # Get the latest published release tag of a GitHub repository via the API
+   # Latest published GitHub release tag
    # shellcheck disable=SC2317
    B_GITHUBREL() {
       local URL="$1"
@@ -2532,7 +2524,7 @@ docker_prepare_env() {
       # Function definitions (exported from build() function scope)
       declare -f B_GET B_GITCHECKOUT B_LINKFILES B_LINKFILE B_VULNSCAN B_SRCGUARD
       # Helpers used by the containerized functions above
-      declare -f _b_wget_fetch _b_verify_copy _b_pkg_id _b_installdir _b_gpg_ensure_key _b_git_refresh
+      declare -f _b_wget_fetch _b_verify_copy _b_pkg_id _b_installdir _b_gpg_ensure_key _b_git_refresh _cache_store
 
       # Utility functions needed by packaging
       declare -f output
