@@ -81,6 +81,25 @@ run_builduser() {
    return "$rc"
 }
 
+# When /tmp is a bind mount of a host BUILDDOCKERTMP subdirectory, clean it on
+# exit so root-owned build artifacts (created by apt/dpkg/etc. during the
+# build) are removed by root -- the host builduser cannot delete them. Each
+# build gets its own fresh subdirectory (created by the host script), so there
+# are no leftovers from previous runs to clean at start; this runs at exit
+# instead. The read-only build scripts live under /opt/build (outside the /tmp
+# bind mount), so /tmp holds only generated build artifacts and can be wiped
+# without excluding any mount points. On the default ephemeral /tmp
+# (B_DOCKERTMP=0) this is a no-op. Runs as root (the entrypoint process), so
+# it can remove files owned by both root and builduser.
+# Installed before the dependency-setup section: that path exits early on
+# failure, and a skipped cleanup leaves a root-owned /tmp/build-deps.log in
+# the bind-mounted buildtmp subdir that the host builduser can never delete.
+bdt_cleanup() {
+   [[ "${B_DOCKERTMP:-0}" == "1" ]] || return 0
+   find /tmp -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
+}
+trap bdt_cleanup EXIT
+
 # Build log file (defined early so dependency output can be appended to it).
 log_dir="${LOGDIR:-/tmp}"
 log_file="${log_dir}/${B_NAME:-build}-${B_ARCH:-all}.log"
@@ -170,22 +189,6 @@ else
    # No UID provided, run as root
    :
 fi
-
-# When /tmp is a bind mount of a host BUILDDOCKERTMP subdirectory, clean it on
-# exit so root-owned build artifacts (created by apt/dpkg/etc. during the
-# build) are removed by root -- the host builduser cannot delete them. Each
-# build gets its own fresh subdirectory (created by the host script), so there
-# are no leftovers from previous runs to clean at start; this runs at exit
-# instead. The read-only build scripts live under /opt/build (outside the /tmp
-# bind mount), so /tmp holds only generated build artifacts and can be wiped
-# without excluding any mount points. On the default ephemeral /tmp
-# (B_DOCKERTMP=0) this is a no-op. Runs as root (the entrypoint process), so
-# it can remove files owned by both root and builduser.
-bdt_cleanup() {
-   [[ "${B_DOCKERTMP:-0}" == "1" ]] || return 0
-   find /tmp -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
-}
-trap bdt_cleanup EXIT
 
 # --- Execute build and/or package commands ---
 
