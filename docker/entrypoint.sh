@@ -222,8 +222,14 @@ if [[ -f "/opt/build/build-cmd.sh" ]]; then
    if (( build_rc != 0 )) && [[ "${DEBUGSHELL:-}" == "1" ]]; then
       printf '%s\n' "## Build failed (exit ${build_rc}). DEBUGSHELL: keeping container alive for inspection."
       : > "${log_dir}/.build-debug-${_BUILD_DEBUG_TOKEN:-nodebug}" 2>/dev/null || true
-      # Block PID 1 so the container stays running until the host removes it.
-      tail -f /dev/null
+      # Stay alive until the host removes the sentinel (debug session finished)
+      # or a safety timeout expires, so an interrupted host run cannot leak the
+      # container forever.
+      waited=0
+      while [[ -f "${log_dir}/.build-debug-${_BUILD_DEBUG_TOKEN:-nodebug}" ]] && (( waited < 3600 )); do
+         sleep 10
+         waited=$((waited + 10))
+      done
    fi
    exit "${build_rc}"
 elif [[ -f "/opt/build/package-cmd.sh" ]]; then

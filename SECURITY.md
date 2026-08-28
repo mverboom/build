@@ -26,8 +26,8 @@ before code is written.
 
 The assets at risk are the **consumers of the packages** produced by
 this system. The build host itself is also an asset, but is out of scope
-here — see `improvement.md` §4 for build-system-local security issues
-(`eval`, unquoted `ssh`/`scp` arguments, sourcing untrusted config).
+here (build-system-local issues to keep in mind: `eval`, unquoted
+`ssh`/`scp` arguments, sourcing untrusted config).
 
 The adversaries of interest, in rough order of likelihood for
 frequent-update software:
@@ -164,7 +164,7 @@ swallowing errors. At minimum:
 - fail the build when `apt-get update` exits non-zero,
 - log the installed package versions (`dpkg -l` snapshot) into provenance.
 
-`debclean` already provides a baseline-snapshot mechanism that could be
+`clean` already provides a baseline-snapshot mechanism that could be
 reused to make `[REQUIRED]` installs reproducible per build.
 
 **B3. Hermetic build phase (separate fetch from build).**
@@ -257,7 +257,7 @@ rm "$pkg"
 
 Problems:
 
-- unquoted vars (also flagged in `improvement.md` §4.2) enable filename
+- unquoted vars enable filename
   injection,
 - `rm "$pkg"` destroys the local audit copy,
 - `/tmp` on the server is a world-writable staging area.
@@ -474,7 +474,7 @@ container.
 ## 6. Out of scope
 
 - Build-host-local security (untrusted `~/.buildrc`, `eval`, unquoted
-  `ssh` arguments): see `improvement.md` §4.
+  `ssh` arguments) is out of scope for this document.
 - General Debian/apt repo operational security (key custody, repo host
   hardening): belongs in the repository operator's runbook, not this
   build tool.
@@ -501,4 +501,3 @@ container.
   https://diffoscope.org/
 - pip secure installs (`--require-hashes`):
   https://pip.pypa.io/en/latest/topics/secure-installs/
-- `improvement.md` §4 (build-system-local security concerns)

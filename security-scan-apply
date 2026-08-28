@@ -66,6 +66,9 @@ done
 [[ -d "$RECIPEDIR" ]] || { printf '%s\n' "security-scan-apply: recipe directory not found: $RECIPEDIR"; exit 1; }
 
 # Parse the report into per-recipe ignore lists. Output: recipe<TAB>srcguard<TAB>vulnscan
+# Written to a private temp file (not a fixed /tmp name) and removed on exit.
+BLOCKS=$(mktemp) || exit 1
+trap 'rm -f "$BLOCKS"' EXIT
 awk '
 /^== / {
    if (src != "" || vuln != "") {
@@ -87,7 +90,7 @@ END {
       print r "|" src "|" vuln
    }
 }
-' "$REPORT" > /tmp/security-scan-blocks.txt
+' "$REPORT" > "$BLOCKS"
 
 added=0 merged=0 skipped=0
 while IFS='|' read -r recipe src vuln; do
@@ -140,7 +143,7 @@ while IFS='|' read -r recipe src vuln; do
       fi
       added=$((added + 1))
    fi
-done < /tmp/security-scan-blocks.txt
+done < "$BLOCKS"
 
 printf '%s\n' "---"
 printf '%s\n' "Added sections to $added recipe(s), merged into $merged, skipped $skipped."

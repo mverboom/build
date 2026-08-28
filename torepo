@@ -45,6 +45,7 @@ main() {
    # ~/.toreporc for backward compatibility.
    local repo="${B_DISTRO:-${REPONAME:-}}"
    [[ -z "$repo" ]] && { printf '%s\n' "Neither B_DISTRO nor REPONAME configured."; usage; return 1; }
+   [[ -n "${SERVER:-}" ]] || { printf '%s\n' "SERVER not configured in ~/.toreporc."; usage; return 1; }
 
    for pkg in "$@"; do
       [[ -f "$pkg" ]] || { printf '%s\n' "No such file $pkg."; return 1; }

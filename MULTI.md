@@ -138,13 +138,11 @@ in the recipe file.
 * [ ] Implement rpm building
 * [ ] Push changes upstream
 
-## Debclean script
+## Clean script
 
-The debclean script was named debclean and specifically for debian. However,
-the configuration file only has support for 1 post processing command. The
-best solution seems to be to change the debclean script to a generic clean
-script, that runs the appropriate action depending on the type of packaging
-the system uses.
+The debclean script was merged into the generic `clean` script (the same
+dpkg baseline-snapshot logic, plus OS detection). Use `clean -c` as the
+POSTBUILD command.
 
 #### Progress
 

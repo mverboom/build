@@ -66,7 +66,6 @@ git clone https://github.com/mverboom/build.git build.git
 
 ```
 ln -s build.git/build build
-ln -s build.git/debclean debclean
 ln -s build.git/torepo torepo
 ```
 * Copy the example configuration files

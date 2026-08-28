@@ -372,7 +372,8 @@ export -f output
 # (build/package ok/fail with percentages) and, only for recipes that were
 # actually built and failed, log excerpts (head 5 / tail 5). The target
 # distribution is included in the subject. No-op when no -m was given.
-sendmail() {
+# (Not named sendmail: that would shadow the sendmail MTA binary.)
+_send_summary() {
    [[ -z "$email" ]] && return
    if ! command -v mail > /dev/null 2>&1; then
       output "mail command not found, cannot send summary to $email"
@@ -440,50 +441,43 @@ sendmail() {
 }
 
 usage() {
-   printf '%s\n' "Usage: build [OPTION]... [RECIPE]..."
-   printf '%s\n' ""
-   printf '%s\n' "Operation mode:"
-   printf '%s\n' "   -c  Check version, runs the version check section of the specified recipe(s)."
-   printf '%s\n' "   -b  Build, runs the build version of the specified recipe(s)."
-   printf '%s\n' "   -p  Package, runs the package section of the specified recipe(s)."
-   printf '%s\n' "   -r  To repository, creates packages and copies to repository for specified recipe(s)"
-   printf '%s\n' ""
-   printf '%s\n' "Operation modifiers:"
-   printf '%s\n' "   -a  Select all recipes available."
-   printf '%s\n' "   -l  Dryrun: only report which recipes would be built, packaged and/or"
-   printf '%s\n' "       pushed to the repository, without executing any of it."
-   printf '%s\n' "   -q  Quiet output"
-   printf '%s\n' "   -v  Verbose output: show command output that is normally suppressed"
-   printf '%s\n' "   -x  Enable debugging output"
-   printf '%s\n' "   -s  Drop to a shell when building process fails to inspect."
-   printf '%s\n' "   -f  Force build for recipe, even if complete build is already available."
-   printf '%s\n' "   -d  Specify target distribution for Docker (required on the host, e.g., -d trixie, -d bookworm)"
-   printf '%s\n' "   -i  Specify an instance for a recipe"
-   printf '%s\n' "   -R  Don't remove required packages after building and skip any post build script."
-   printf '%s\n' "   -m  Mail a completion summary to the given email address."
-   printf '%s\n' "   -h  This help message"
-   printf '%s\n' ""
-   printf '%s\n' "Docker interactive commands:"
-   printf '%s\n' "   -S  Shell, start interactive development shell in a Docker container for the"
-   printf '%s\n' "       specified distro (e.g., -S bookworm, -S trixie)."
-   printf '%s\n' "   -A  Attach, re-attach to a running Docker container by container ID."
-   printf '%s\n' ""
-   printf '%s\n' "A recipe name may be suffixed with a forced version and/or instance:"
-   printf '%s\n' "   recipe@version            build a specific version (skips version check)"
-   printf '%s\n' "   recipe:instance           build for a specific instance"
-   printf '%s\n' "   recipe@version:instance    both, in either order (recipe:instance@version)"
-   printf '%s\n' "Several recipes can be built at different versions/instances in one command."
-   printf '%s\n' ""
-   return 1
-}
+   cat <<-EOF
+	Usage: build [OPTION]... [RECIPE]...
 
-# Check for required software on the host system.
-# Outputs a space-separated list of required command names.
-# Always returns 1 (used in command substitution to generate a list).
-require_software() {
-   # Native builds only run in Debian-based containers (the -S dev shell), so
-   # the requirement list is Debian-only.
-   printf '%s\n' "gawk grep git svn wget fakeroot bzip2 hg lsb_release jq xml2"
+	Operation mode:
+	   -c  Check version, runs the version check section of the specified recipe(s).
+	   -b  Build, runs the build version of the specified recipe(s).
+	   -p  Package, runs the package section of the specified recipe(s).
+	   -r  To repository, creates packages and copies to repository for specified recipe(s)
+
+	Operation modifiers:
+	   -a  Select all recipes available.
+	   -l  Dryrun: only report which recipes would be built, packaged and/or
+	       pushed to the repository, without executing any of it.
+	   -q  Quiet output
+	   -v  Verbose output: show command output that is normally suppressed
+	   -x  Enable debugging output
+	   -s  Drop to a shell when building process fails to inspect.
+	   -f  Force build for recipe, even if complete build is already available.
+	   -d  Specify target distribution for Docker (required on the host, e.g., -d trixie, -d bookworm)
+	   -i  Specify an instance for a recipe
+	   -R  Don't remove required packages after building and skip any post build script.
+	   -m  Mail a completion summary to the given email address.
+	   -h  This help message
+
+	Docker interactive commands:
+	   -S  Shell, start interactive development shell in a Docker container for the
+	       specified distro (e.g., -S bookworm, -S trixie).
+	   -A  Attach, re-attach to a running Docker container by container ID.
+
+	A recipe name may be suffixed with a forced version and/or instance:
+	   recipe@version            build a specific version (skips version check)
+	   recipe:instance           build for a specific instance
+	   recipe@version:instance    both, in either order (recipe:instance@version)
+	Several recipes can be built at different versions/instances in one command.
+
+	EOF
+   return 1
 }
 
 # Run sanity checks before starting build operations.
@@ -491,9 +485,11 @@ sanity_check() {
    local missing=""
    local name
 
-   # In Docker mode, skip host-side tool checks (tools are in the container)
+   # In Docker mode, skip host-side tool checks (tools are in the container).
+   # Native builds only run in Debian-based containers (the -S dev shell), so
+   # the requirement list is Debian-only.
    if [[ "$BUILDMODE" != "docker" ]]; then
-      for name in $(require_software); do
+      for name in gawk grep git svn wget fakeroot bzip2 hg lsb_release jq xml2; do
          if ! command -v "$name" > /dev/null 2>&1; then
             missing="$missing $name"
          fi
@@ -523,21 +519,23 @@ arch_get() {
    esac
 }
 
-# Try to acquire the build lock file.
+# Build lock: fd 9 is opened on $LOCK for the lifetime of the script; a build
+# session holds an exclusive flock on it. flock is atomic (no test-then-write
+# race), is released automatically on process exit (no stale locks from killed
+# runs), and lock_free can never remove another process's lock.
+exec 9>"$LOCK"
+
+# Try to acquire the build lock (non-blocking). Nested builds (B_METABUILD)
+# never lock.
 lock_get() {
-   [[ -z "${B_METABUILD:-}" ]] && return 0
-   if [[ -f "$LOCK" ]] && pgrep -F "$LOCK" > /dev/null; then
-      return 1
-   else
-      printf '%s' "$$" > "$LOCK"
-      return 0
-   fi
+   [[ -n "${B_METABUILD:-}" ]] && return 0
+   flock -n 9
 }
 
-# Release the build lock file.
+# Release the build lock.
 lock_free() {
-   [[ -z "${B_METABUILD:-}" ]] && return 0
-   rm -f "$LOCK"
+   [[ -n "${B_METABUILD:-}" ]] && return 0
+   flock -u 9
 }
 
 # --- Domain functions ---
@@ -917,8 +915,6 @@ build() {
             if [[ "$option" == "-s" ]]; then
                (cd "$fn" || exit; git submodule update --init --recursive --depth 1)
             fi
-            cd "$fn" || return 1
-            cd ..
             _cache_store "$targetnover" "$fn" || return 1
          fi
          ;;
@@ -1487,6 +1483,8 @@ package() {
          package_deb "$pkg" "$version" "$ID"
          return $?
       fi
+      ERR=1 output "Debian packaging requires Debian (running on $OS)."
+      return 1
       ;;
    *)
       ERR=1 output "Unknown package type ($pkgtype)."
@@ -1612,8 +1610,15 @@ package_deb() {
          (cd "$RECIPEDIR/$pkg.files/B_DEBIAN" || exit; tar cf - .) | tar xf -
       fi
 
-      # Mark config files
-      find . -path "*/etc/*" -type f | sed "s/^\.//" > DEBIAN/conffiles
+      # Mark config files. A conffiles shipped via the B_DEBIAN tree is kept
+      # and merged (deduped) with the /etc files found in the build output,
+      # instead of being silently overwritten.
+      local shipped_conffiles=""
+      [[ -f DEBIAN/conffiles ]] && shipped_conffiles=$(cat DEBIAN/conffiles)
+      {
+         [[ -n "$shipped_conffiles" ]] && printf '%s\n' "$shipped_conffiles"
+         find . -path "*/etc/*" -type f | sed "s/^\.//"
+      } | sort -u > DEBIAN/conffiles
       local configfiles
       configfiles=$(recipe_item_get "$pkg" PKG configfiles) || true
       [[ -n "$configfiles" ]] && { printf '%s\n' "$configfiles" | tr ' ' '\n' >> DEBIAN/conffiles; }
@@ -1627,7 +1632,9 @@ package_deb() {
       # not quiet; in docker mode the entrypoint already echoes the log on
       # failure/verbose, so we don't print here (would duplicate in the log).
       printf '\n### Packaging %s (version %s)\n' "$pkg" "$version" >> "$pkglog"
-      fakeroot dpkg --build "$TMP/build" . > "$TMP/.buildoutput" 2>&1
+      # LC_ALL=C: the package filename is parsed from dpkg's message below;
+      # a translated locale would change the wording and break that parse.
+      LC_ALL=C fakeroot dpkg --build "$TMP/build" . > "$TMP/.buildoutput" 2>&1
       local result=$?
       cat "$TMP/.buildoutput" >> "$pkglog"
       # Note: [[ ]] not (( )) -- an arithmetic comparison of BUILDMODE (a
@@ -1769,10 +1776,11 @@ version_get() {
    }
 
    # Branch head commit date as %Y%m%d, read from the loose commit object
-   # over plain HTTP, like the original build script did.
+   # (A4: http: is rewritten to https:, like the other fetch helpers).
    # shellcheck disable=SC2317
    B_GITDATE() {
       local URL="$1"
+      URL="${URL/#http:/https:}"
       local BRANCH="${2:-master}"
       local HEAD DT
       HEAD=$(git ls-remote -h "$URL" "$BRANCH" | cut -d $'\t' -f 1)
@@ -2404,7 +2412,7 @@ _cache_prune() {
 # removes the oldest so the build output does not grow without bound. No-op when
 # MAXBUILDKEEP is 0 or empty, or when DESTDIR does not exist. Never fatal.
 _build_prune() {
-   local keep="${MAXBUILDKEEP:-2}"
+   local keep="${MAXBUILDKEEP:-1}"
    (( keep > 0 )) || return 0
    [[ -d "$DESTDIR" ]] || return 0
    local distro arch name
@@ -2561,6 +2569,12 @@ docker_prepare_package_cmd() {
       id_val="${version}"
    fi
 
+   # Build output dir, computed host-side via _b_installdir (the same config
+   # values are exported into the container, so the path is identical there);
+   # avoids duplicating _b_installdir's DESTSPLIT logic in the script below.
+   local pkgdir
+   pkgdir=$(_b_installdir "$pkg" "$version" "${B_INSTANCE:-}")
+
    cat > "$pkgfile" << PKGSCRIPT
 #!/usr/bin/env bash
 # Package command for ${pkg} version ${version}
@@ -2568,12 +2582,8 @@ docker_prepare_package_cmd() {
 pkg="${pkg}"
 version="${version}"
 ID="${id_val}"
+pkgdir="${pkgdir}"
 
-if [[ -n "\$DESTSPLIT" ]]; then
-   pkgdir="\$DESTDIR/\$B_DISTRODIR/\$B_ARCH/\$pkg/\$ID"
-else
-   pkgdir="\$DESTDIR/\$B_DISTRODIR/\$B_ARCH/\$pkg-\$ID"
-fi
 if [[ ! -d "\$pkgdir" ]]; then
    ERR=1 output "Version \$version of \$pkg is not available for packaging."
    exit 1
@@ -2981,8 +2991,6 @@ docker_package_only() {
    DOCKER_PKG_FILE=""
    B_NAME="$pkg"
    B_VERSION="$version"
-   ID=$(_b_pkg_id)
-   B_BUILDNR=$(package_buildnr_get "$ID")
    # Compute B_INSTALLDIR (normally set in build(), but we skipped it).
    B_INSTALLDIR=$(_b_installdir "$B_NAME" "$B_VERSION" "${B_INSTANCE:-}")
    B_CACHEDIR="$CACHEDIR"
@@ -3376,6 +3384,15 @@ main() {
    if [[ "$BUILDMODE" == "docker" ]] && (( DO_BUILD != 0 || DO_PACKAGE != 0 )); then
       _docker_autoprune
       docker_image_ensure "$BUILDDISTRO" || return 1
+      # Fail early with a clear cause when the image is missing and could not
+      # be built (e.g. no Dockerfile found because DOCKER_DIR is unset),
+      # instead of a confusing "docker run" failure later.
+      local image
+      image=$(docker_image_select "$BUILDDISTRO")
+      if ! docker image inspect "$image" > /dev/null 2>&1; then
+         ERR=1 output "Docker image '$image' not found and no Dockerfile to build it. Set DOCKER_DIR in ~/.buildrc or pull it: docker pull $image"
+         return 1
+      fi
    fi
 
    # Handle --attach mode: re-attach to a running Docker container
@@ -3573,7 +3590,7 @@ main() {
    BUILD_DURATION=$(printf '%02d:%02d:%02d' \
       $((elapsed / 3600)) $(((elapsed % 3600) / 60)) $((elapsed % 60)))
 
-   sendmail
+   _send_summary
 
    return "$retval"
 }

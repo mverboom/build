@@ -50,7 +50,7 @@ main() {
       if [[ "${answer^^}" == "Y" || "${answer^^}" == "YES" ]]; then
          case "$OS" in
          "Debian GNU/Linux")
-            dpkg -l | grep "^.i" | awk '{print $2}' > "$BASE"
+            dpkg -l | grep "^ii" | awk '{print $2}' > "$BASE"
             ;;
          *)
             printf '%s\n' "Not implemented on $OS"
@@ -65,7 +65,7 @@ main() {
       if [[ -f "$BASE" ]]; then
          case "$OS" in
          "Debian GNU/Linux")
-            dpkg -l | grep "^.i" | awk '{print $2}' > "$CUR"
+            dpkg -l | grep "^ii" | awk '{print $2}' > "$CUR"
             diff "$BASE" "$CUR" | grep '<' | cut -d' ' -f2 | xargs -r sudo apt-get -qq -y install > /dev/null 2>&1
             [[ ${PIPESTATUS[3]} -ne 0 ]] && printf '%s\n' "Error installing missing packages."
             if ! sudo apt-get -qq -y --purge autoremove > /dev/null 2>&1; then
@@ -86,7 +86,7 @@ main() {
       if [[ -f "$BASE" ]]; then
          case "$OS" in
          "Debian GNU/Linux")
-            dpkg -l | grep "^.i" | awk '{print $2}' > "$CUR"
+            dpkg -l | grep "^ii" | awk '{print $2}' > "$CUR"
             printf '%s\n' "Extra packages installed:"
             diff "$BASE" "$CUR" | grep '>' | cut -d' ' -f2
             printf '%s\n' "Packages removed:"

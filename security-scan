@@ -270,7 +270,12 @@ if [[ -n "$ONLY_RECIPE" ]]; then
    [[ -f "$RECIPEDIR/$ONLY_RECIPE.recipe" ]] || { printf '%s\n' "security-scan: recipe not found: $ONLY_RECIPE"; exit 1; }
    recipes=("$ONLY_RECIPE")
 else
-   mapfile -t recipes < <(ls "$RECIPEDIR"/*.recipe 2>/dev/null | xargs -n1 basename | sed 's/\.recipe$//' | sort)
+   # Glob (never parse ls); sorted for stable output order.
+   for rfile in "$RECIPEDIR"/*.recipe; do
+      [[ -f "$rfile" ]] || continue
+      recipes+=("$(basename "$rfile" .recipe)")
+   done
+   mapfile -t recipes < <(printf '%s\n' "${recipes[@]}" | sort)
 fi
 
 total=0 withfindings=0 nocache=0 unscannable=0

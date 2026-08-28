@@ -55,16 +55,12 @@ MAXCACHEKEEP="${MAXCACHEKEEP:-3}"
 # Print a byte count as a human-readable size (e.g. 1.5G, 234M).
 # Parameters: bytes
 _human() {
-   local bytes="$1"
-   if (( bytes >= 1073741824 )); then
-      printf '%.1fG' "$(echo "scale=1; $bytes/1073741824" | bc 2>/dev/null || awk "BEGIN{printf \"%.1f\", $bytes/1073741824}")"
-   elif (( bytes >= 1048576 )); then
-      printf '%.1fM' "$(echo "scale=1; $bytes/1048576" | bc 2>/dev/null || awk "BEGIN{printf \"%.1f\", $bytes/1048576}")"
-   elif (( bytes >= 1024 )); then
-      printf '%.1fK' "$(echo "scale=1; $bytes/1024" | bc 2>/dev/null || awk "BEGIN{printf \"%.1f\", $bytes/1024}")"
-   else
-      printf '%dB' "$bytes"
-   fi
+   awk -v b="$1" 'BEGIN {
+      if (b >= 1073741824)      printf "%.1fG\n", b/1073741824;
+      else if (b >= 1048576)    printf "%.1fM\n", b/1048576;
+      else if (b >= 1024)       printf "%.1fK\n", b/1024;
+      else                      printf "%dB\n", b;
+   }'
 }
 
 # Compute the "stem" of a cached download filename: the part before the first
@@ -226,6 +222,9 @@ compact() {
                      rm -f "$f.tmp"
                      printf '%s\n' "no gain, skipped $f"
                   fi
+               else
+                  # Do not leave a partial .tmp behind in the cache dir.
+                  rm -f "$f.tmp"
                fi
             fi
          fi
