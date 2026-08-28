@@ -4,7 +4,7 @@
 #
 # Completes:
 #   * recipe names (read from RECIPEDIR in ~/.buildrc)
-#   * command-line options (-c -b -p -r -a -q -v -x -s -f -R -h
+#   * command-line options (-c -b -p -r -a -l -q -v -x -s -f -R -h
 #     and the argument-taking -d -i -S -A -m)
 #   * option arguments where a meaningful value is known:
 #       -d / -S   target distribution codename (via `build --list-distros`)
@@ -110,7 +110,7 @@ _build_completions() {
 
    # An option being typed: complete the available short options.
    if [[ "$cur" == -* ]]; then
-      local opts="-c -b -p -r -a -q -v -x -s -f -R -h -d -i -S -A -m"
+      local opts="-c -b -p -r -a -l -q -v -x -s -f -R -h -d -i -S -A -m"
       mapfile -t COMPREPLY < <(compgen -W "$opts" -- "$cur")
       return 0
    fi

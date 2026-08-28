@@ -38,6 +38,11 @@ architecture or don't have a build section for this system will be excluded. Rec
 that require an instance (see `instance` in their `[INFO]` section) are skipped unless an
 instance is given with `-i`.
 
+`-l`
+Dryrun. Only reports which recipes would be built, packaged and/or pushed to the
+repository, without executing any of it. No lock is taken and nothing is written
+(cache, build output, package list) — useful to preview what `build -a` would do.
+
 A recipe name given on the command line may be suffixed with a forced version and/or
 instance, in either order:
 
@@ -229,7 +234,9 @@ parameter will be substituted when B_MAIL is used in the [DEB] section of the re
 
 `POSTBUILD`
 This can point to an optional script to be run after the build process is
-complete. The included debclean script can for example be used here.
+complete. The included debclean script can for example be used here. If the
+postbuild command fails, the build is treated as failed: the build output is
+removed and the recipe is reported as failed.
 
 `PROXY`
 Point to a proxy hostname and port to use when connecting to network resources.
@@ -536,6 +543,25 @@ Github's core API is rate-limited to 60 requests per hour, as of now there is no
 Example: `B_GITHUBVER https://github.com/user/repo`
          `B_GITHUBVER https://github.com/user/repo branch`
 
+`B_GITDATE <git repository> <branch>`
+
+This function retrieves the last commit date on the head of the given branch of a git
+repository and returns it as a date stamp (`%Y%m%d`). When <branch> is not supplied, it
+will look in master.
+
+Note that this function reads the commit object over plain HTTP (the git "dumb HTTP"
+protocol); it only works with repositories served over HTTP(S) that support it.
+
+Example: `B_GITDATE https://github.com/user/repo`
+         `B_GITDATE https://github.com/user/repo branch`
+
+`B_GITHUBREL <github repository uri>`
+
+This function uses the GitHub API to determine the tag of the latest release
+published for the project. A leading `v` is stripped from the tag.
+
+Example: `B_GITHUBREL https://github.com/user/repo`
+
 `B_GITLABVER <gitlab repository uri> <branch>`
 
 This function attempts to find the last date an update was done on a repository on
@@ -576,7 +602,8 @@ The DISTRO and RELEASE keywords are determined based on the machine the script
 is running on.
 
 When the name of a package contains B_PF this will be expanded to the value 
-of the PKGPOSTFIX variable.
+of the PKGPOSTFIX variable. When it contains B_INSTANCE this will be expanded
+to the instance given on the invokation of the build script (if any).
 
 `[BUILD] [BUILD DISTRO] [BUILD DISTRO RELEASE]` (mandatory)
 
@@ -625,6 +652,12 @@ Architecture software is being build for.
 Instance name of software being build. This is set when an instance was provided on
 the invokation of the build script, either globally via `-i` or per recipe via the
 `recipe:instance` command-line suffix (the per-recipe value takes precedence).
+
+`B_PF`
+
+The value of the `PKGPOSTFIX` configuration variable. Available as a variable
+(so `$B_PF` can be used in BUILD commands) in addition to the keyword
+substitution in the `[DEB]`, `[REQUIRED]` and `[DEB_DEPENDS]` sections.
 
 `B_CACHEDIR`
 
@@ -884,6 +917,11 @@ being created.
 This will be replaced by the value of the PKGPOSTFIX variable if defined in the
 configuration.
 
+* `B_INSTANCE`
+
+This will be replaced by the instance given on the invokation of the build
+script (if any).
+
 * `B_MAIL`
 
 This will be replaced by the value of the PKGMAIL variable if defined in the
@@ -901,6 +939,9 @@ by other recipes.
 This section contains shell code that will be run when a `[DEB]` section contains
 the macro `[DEB_DEPENDS]`. The output of the code should be compatible with the
 debian package dependency specification.
+
+The code is run with `B_VERSION`, `B_INSTANCE` and `B_PF` set in its environment,
+so instance-specific or postfix-specific dependencies can be generated.
 
 ## TO REPOSITORY
 

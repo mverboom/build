@@ -252,6 +252,21 @@ _b_verify_copy() {
    flock -w 60 "$target" cp "$target" "$fn"
 }
 
+# Store a directory tree into a cached tarball atomically: write to a
+# temporary '.new' name first and only replace the cache entry when tar
+# succeeded, so an interrupted tar cannot leave a corrupt archive behind
+# (original build script behaviour, see commit 5566fe3).
+# Parameters: archive_path directory_to_store
+_cache_store() {
+   local archive="$1" dir="$2"
+   if ! flock -w 60 "$archive" tar cfz "$archive.new" "$dir"; then
+      printf '%s\n' "Unable to store in cache."
+      rm -f "$archive.new"
+      return 1
+   fi
+   mv -f "$archive.new" "$archive"
+}
+
 # Refresh a shallow git clone in the build tree so it is ready to build from.
 # Moves to the default branch and shallow-fetches its tip (so date-based recipes
 # that build the default-branch head get the latest code), then shallow-fetches
@@ -435,6 +450,8 @@ usage() {
    printf '%s\n' ""
    printf '%s\n' "Operation modifiers:"
    printf '%s\n' "   -a  Select all recipes available."
+   printf '%s\n' "   -l  Dryrun: only report which recipes would be built, packaged and/or"
+   printf '%s\n' "       pushed to the repository, without executing any of it."
    printf '%s\n' "   -q  Quiet output"
    printf '%s\n' "   -v  Verbose output: show command output that is normally suppressed"
    printf '%s\n' "   -x  Enable debugging output"
@@ -712,6 +729,10 @@ build() {
    pkgs=$(recipe_section_lookup "$B_NAME" REQUIRED)
 
    [[ -n "$PKGPOSTFIX" ]] && pkgs="${pkgs//B_PF/$PKGPOSTFIX}"
+   # B_INSTANCE replacement in the required package list (original build script
+   # behaviour): lets instance-specific recipes select instance-specific
+   # packages.
+   [[ -n "$B_INSTANCE" ]] && pkgs="${pkgs//B_INSTANCE/$B_INSTANCE}"
    # Reset the per-container dependency list so deps from previous recipes in
    # the same run (e.g. `build -a`) do not leak into this recipe's container.
    # build_require() only appends to BUILD_DEPS; without a reset each successive
@@ -791,8 +812,9 @@ build() {
 
    # Define build environment variables and functions
    B_CACHEDIR="$CACHEDIR"
+   B_PF="$PKGPOSTFIX"
    [[ -d "$RECIPEDIR/$B_NAME.files/B_BUILD" ]] && B_FILES="$RECIPEDIR/$B_NAME.files/B_BUILD"
-   export B_VERSION B_INSTALLDIR B_ARCH B_INSTANCE B_CACHEDIR B_NAME B_BUILDNR B_FILES B_FORCE B_DISTRODIR B_DISTRO
+   export B_VERSION B_INSTALLDIR B_ARCH B_INSTANCE B_CACHEDIR B_NAME B_BUILDNR B_FILES B_FORCE B_PF B_DISTRODIR B_DISTRO
    export B_GPGKEY B_COMMIT B_SHA256 B_ALLOW_INSECURE B_GPGKEYFILE B_STRICT
    export B_GITTAG
    export B_VULNSCAN_POLICY B_BUILDROOT B_VULNSCAN_IGNORE
@@ -876,7 +898,7 @@ build() {
             if [[ "$option" == "-s" ]]; then
                (cd "$fn" || exit; git submodule update --init --recursive --depth 1)
             fi
-            flock -w 60 "$targetnover" tar cfz "$targetnover" "$fn"
+            _cache_store "$targetnover" "$fn" || return 1
          else
             flock -w 60 "$targetnover" tar xzf "$targetnover"
             _b_git_refresh "$fn"
@@ -885,7 +907,7 @@ build() {
             fi
             cd "$fn" || return 1
             cd ..
-            flock -w 60 "$targetnover" tar cfz "$targetnover" "$fn"
+            _cache_store "$targetnover" "$fn" || return 1
          fi
          ;;
       "go")
@@ -899,7 +921,7 @@ build() {
             if ! go get "$url"; then
                printf '%s\n' "Error downloading repository."; return 1
             fi
-            flock -w 60 "$targetnover" tar cfz "$targetnover" .
+            _cache_store "$targetnover" . || return 1
          else
             flock -w 60 "$targetnover" tar xzf "$targetnover"
             # No -u: never upgrade dependencies on cache refresh. A silent
@@ -907,7 +929,7 @@ build() {
             if ! go get "$url"; then
                printf '%s\n' "Error updating repository."; return 1
             fi
-            flock -w 60 "$targetnover" tar cfz "$targetnover" .
+            _cache_store "$targetnover" . || return 1
          fi
          ;;
       "hg")
@@ -917,7 +939,7 @@ build() {
             if ! hg clone "$url" "$fn"; then
                printf '%s\n' "Error cloning repository."; return 1
             fi
-            flock -w 60 "$targetnover" tar cfz "$targetnover" "$fn"
+            _cache_store "$targetnover" "$fn" || return 1
          else
             flock -w 60 "$targetnover" tar xzf "$targetnover"
             cd "$fn" || return 1
@@ -927,7 +949,7 @@ build() {
             if [[ "$loc_id" != "$rem_id" ]]; then
                hg pull
                cd ..
-               flock -w 60 "$targetnover" tar cfz "$targetnover" "$fn"
+               _cache_store "$targetnover" "$fn" || return 1
             else
                cd ..
             fi
@@ -941,7 +963,7 @@ build() {
             if ! svn checkout "${svn_opts[@]}" -q "$url" "$fn"; then
                printf '%s\n' "Error checking out repository."; return 1
             fi
-            flock -w 60 "$targetnover" tar cfz "$targetnover" "$fn"
+            _cache_store "$targetnover" "$fn" || return 1
          else
             flock -w 60 "$targetnover" tar xzf "$targetnover"
             cd "$fn" || return 1
@@ -951,7 +973,7 @@ build() {
             if [[ "$rem_rev" != "$loc_rev" ]]; then
                svn update "${svn_opts[@]}"
                cd ..
-               flock -w 60 "$targetnover" tar cfz "$targetnover" "$fn"
+               _cache_store "$targetnover" "$fn" || return 1
             else
                cd ..
             fi
@@ -1289,6 +1311,16 @@ B_SRCGUARD"
       # Clean up temp files
       rm -f "$envfile" "$buildfile" "$pkgcmdfile"
 
+      # Postbuild command (e.g. "clean -c") runs on the host, like in the
+      # original build script: the container is ephemeral, so host-side
+      # cleanup belongs here. A failing postbuild command fails the build.
+      if [[ -n "${POSTBUILD:-}" ]] && (( B_NOPKGRM == 0 )); then
+         if ! $POSTBUILD; then
+            ERR=1 output "Error running postbuild command $POSTBUILD"
+            result=255
+         fi
+      fi
+
       if (( result != 0 )); then
          rm -rf "$B_INSTALLDIR"
          return 1
@@ -1302,6 +1334,10 @@ B_SRCGUARD"
    # Setting to set temporary files to the build folder
    export XDG_CACHE_HOME="$TMP/.cache"
    export YARN_CACHE_FOLDER="$TMP/.cache/yarn"
+   export PYTHONDONTWRITEBYTECODE=1
+   export npm_config_cache="$TMP/.npm"
+   export CABAL_DIR="$TMP/.cabal"
+   export GOPATH="$TMP/.go"
 
    local result
    local -a opts=()
@@ -1340,7 +1376,14 @@ B_SRCGUARD"
    _BUILD_TMP=""
 
    [[ -n "$pkgs" && "$DEINSTDEP" == "yes" ]] && (( B_NOPKGRM == 0 )) && build_require_remove "$pkgs"
-   [[ -n "${POSTBUILD:-}" ]] && (( B_NOPKGRM == 0 )) && $POSTBUILD
+   # A failing postbuild command fails the whole build (original build script
+   # behaviour): the install directory is removed below like any failed build.
+   if [[ -n "${POSTBUILD:-}" ]] && (( B_NOPKGRM == 0 )); then
+      if ! $POSTBUILD; then
+         ERR=1 output "Error running postbuild command $POSTBUILD"
+         result=255
+      fi
+   fi
 
    if (( result != 0 )); then
       rm -rf "$B_INSTALLDIR"
@@ -1521,7 +1564,7 @@ package_deb() {
    pkgready=$(recipe_item_get "$pkg" PKG pkgready) || true
 
    local pkgdir
-   pkgdir=$(_b_installdir "$pkg" "$version" "")
+   pkgdir=$(_b_installdir "$pkg" "$version" "${B_INSTANCE:-}")
 
    if [[ -z "$pkgready" ]]; then
       local P_PKGNAME="${pkg}_${ID}_${B_ARCH}"
@@ -1544,10 +1587,16 @@ package_deb() {
          local CMD
          local DEPS
          CMD=$(recipe_section_get "$pkg" DEB_DEPENDS)
-         DEPS=$(B_VERSION=$version bash -c "$CMD")
+         # Same environment as the original build script gave the DEB_DEPENDS
+         # command: version, instance and package postfix.
+         DEPS=$(B_VERSION="$version" B_INSTANCE="${B_INSTANCE:-}" \
+            B_PF="${PKGPOSTFIX:-}" bash -c "$CMD")
          INFO=$(printf '%s\n' "$INFO" | sed "/^Depends:/ s/B_DEPENDS/$DEPS/")
       fi
       [[ -n "$PKGPOSTFIX" ]] && INFO=$(printf '%s\n' "$INFO" | sed "/^Package:/ s/$/-$PKGPOSTFIX/" | sed "s/B_PF/$PKGPOSTFIX/g")
+      # B_INSTANCE replacement in the package section (original build script
+      # behaviour, e.g. for instance-specific package names).
+      [[ -n "$B_INSTANCE" ]] && INFO=$(printf '%s\n' "$INFO" | sed "s/B_INSTANCE/$B_INSTANCE/g")
       [[ -n "$PKGPOSTFIX" ]] && INFO="${INFO//B_MAIL/$PKGMAIL}"
       [[ -n "$PKGORG" ]] && INFO="${INFO//B_ORG/$PKGORG}"
       [[ -n "$PKGMAIL" ]] && INFO="${INFO//B_MAIL/$PKGMAIL}"
@@ -1639,6 +1688,13 @@ version_get() {
 
    export B_SARCH
    export B_NAME="$1"
+   # Compatibility with the original (non-docker) build script: B_ARCH and
+   # B_FILES were available to the version check section there, so recipes
+   # with per-arch version logic keep working. B_FILES points at the recipe's
+   # B_BUILD files directory when present.
+   B_FILES=""
+   [[ -d "$RECIPEDIR/$B_NAME.files/B_BUILD" ]] && B_FILES="$RECIPEDIR/$B_NAME.files/B_BUILD"
+   export B_ARCH B_FILES
 
    # Find the newest tag for a git repository with filtering options
    # shellcheck disable=SC2317
@@ -1715,13 +1771,36 @@ version_get() {
       wget -q --secure-protocol=TLSv1_2 --https-only -O - "$URL/rss?path=/" | xml2 | grep '/rss/channel/item/link' | sed 's/.*\/files\/\([^\/]\+\)\/.*/\1/; s/.\+-\(.\+\)/\1/' | sort -t. -k 1,1n -k 2,2n -k 3,3n -k 4,4n | tail -1
    }
 
+   # Get the last commit date on a git repository's branch head, formatted as
+   # %Y%m%d (for date-stamped versions). Reads the loose commit object over
+   # plain HTTP, exactly like the original build script did.
+   # shellcheck disable=SC2317
+   B_GITDATE() {
+      local URL="$1"
+      local BRANCH="${2:-master}"
+      local HEAD DT
+      HEAD=$(git ls-remote -h "$URL" "$BRANCH" | cut -d $'\t' -f 1)
+      DT=$( (printf '\x1f\x8b\x08\x00\x00\x00\x00\x00' &&
+         wget -q -O - "$URL/objects/${HEAD:0:2}/${HEAD:2}") |
+         gzip -dc 2> /dev/null | cut -d $'\0' -f 1 |
+         grep '^committer' | sed 's/.* \([0-9]\+\) .*/\1/')
+      date -d "@$DT" '+%Y%m%d'
+   }
+
+   # Get the latest published release tag of a GitHub repository via the API
+   # shellcheck disable=SC2317
+   B_GITHUBREL() {
+      local URL="$1"
+      wget -q -O - "https://api.github.com/repos/${URL/*github.com\//}/releases/latest" | jq -r '.tag_name | gsub("v";"")'
+   }
+
    # Get the last changed date for an SVN repository
    # shellcheck disable=SC2317
    B_SVNDATE() {
       date -d "$(svn info --non-interactive --trust-server-cert "$1" | grep 'Last Changed Date:' | cut -d':' -f2-)" "+%Y%m%d"
    }
 
-   export -f B_GITVER B_GITHUBVER B_SVNDATE B_GITLABVER B_SFVER
+   export -f B_GITVER B_GITHUBVER B_GITDATE B_GITHUBREL B_SVNDATE B_GITLABVER B_SFVER
 
    if ! CMD=$(recipe_section_get "$pkg" VERSION); then
       output "$CMD"; return 1
@@ -2391,7 +2470,7 @@ _build_time_prune() {
 #   - B_VERBOSE: derived from the host VERBOSE var, handled explicitly.
 readonly -a BUILD_ENV_VARS=(
    B_VERSION B_INSTALLDIR B_DISTRODIR B_DISTRO B_ARCH B_NAME B_BUILDNR B_CACHEDIR
-   B_INSTANCE BUILDMODE=docker TMPDIR=/tmp HOME PKGLIST DESTDIR DESTSPLIT
+   B_INSTANCE B_PF BUILDMODE=docker TMPDIR=/tmp HOME PKGLIST DESTDIR DESTSPLIT
    RECIPEDIR LOGDIR PKGDIR PKGPOSTFIX PKGMAIL PKGORG
    B_GPGKEY B_COMMIT B_SHA256 B_ALLOW_INSECURE B_GPGKEYFILE B_STRICT distr rel
    B_GITTAG
@@ -2433,6 +2512,13 @@ docker_prepare_env() {
       printf 'export B_VERBOSE=%s\n' "${VERBOSE:-0}"
 
       # Cache locations and quiet flag (env-script only; not passed as -e).
+      # Tool-specific cache overrides from the original build script, so
+      # npm/python/cabal/go caches stay inside the build root instead of
+      # polluting $HOME (which is ephemeral but shared per container run).
+      printf 'export PYTHONDONTWRITEBYTECODE=1\n'
+      printf 'export npm_config_cache="/tmp/.npm"\n'
+      printf 'export CABAL_DIR="/tmp/.cabal"\n'
+      printf 'export GOPATH="/tmp/.go"\n'
       printf 'export XDG_CACHE_HOME="/tmp/.cache"\n'
       printf 'export YARN_CACHE_FOLDER="/tmp/.cache/yarn"\n'
       printf 'export QUIET=%s\n' "${QUIET:-0}"
@@ -2488,9 +2574,9 @@ version="${version}"
 ID="${id_val}"
 
 if [[ -n "\$DESTSPLIT" ]]; then
-   pkgdir="\$DESTDIR/\$B_DISTRODIR/\$B_ARCH/\$pkg/\$version"
+   pkgdir="\$DESTDIR/\$B_DISTRODIR/\$B_ARCH/\$pkg/\$ID"
 else
-   pkgdir="\$DESTDIR/\$B_DISTRODIR/\$B_ARCH/\$pkg-\$version"
+   pkgdir="\$DESTDIR/\$B_DISTRODIR/\$B_ARCH/\$pkg-\$ID"
 fi
 if [[ ! -d "\$pkgdir" ]]; then
    ERR=1 output "Version \$version of \$pkg is not available for packaging."
@@ -2902,7 +2988,7 @@ docker_package_only() {
    ID=$(_b_pkg_id)
    B_BUILDNR=$(package_buildnr_get "$ID")
    # Compute B_INSTALLDIR (normally set in build(), but we skipped it).
-   B_INSTALLDIR=$(_b_installdir "$B_NAME" "$B_VERSION" "")
+   B_INSTALLDIR=$(_b_installdir "$B_NAME" "$B_VERSION" "${B_INSTANCE:-}")
    B_CACHEDIR="$CACHEDIR"
    B_FILES=""
    B_FORCE=0
@@ -3078,6 +3164,7 @@ parse_options() {
    DEBUG=""
    DEBUGSHELL=""
    B_INSTANCE=""
+   DRYRUN=0
    DO_CHECK=0
    DO_BUILD=0
    DO_PACKAGE=0
@@ -3085,9 +3172,11 @@ parse_options() {
    B_NOPKGRM=0
    local all=0
 
-   while getopts :csbprad:i:RS:A:xvqfhm: opt; do
+   while getopts :csbprad:li:RS:A:xvqfhm: opt; do
       case $opt in
       c) DO_CHECK=1
+         ;;
+      l) DRYRUN=1
          ;;
       b) DO_CHECK=2
          DO_BUILD=1
@@ -3326,12 +3415,18 @@ main() {
    fi
 
    if (( DO_BUILD != 0 )); then
-      # If not built or forced, then build
-      lock_get || { printf '%s\n' "Unable to get lock, other instance running?"; return 1; }
+      # If not built or forced, then build. In dryrun mode no lock is taken and
+      # nothing is written, so the build/package/repo actions below only report.
+      (( DRYRUN == 1 )) || lock_get || { printf '%s\n' "Unable to get lock, other instance running?"; return 1; }
       for i in "${!work_recipes[@]}"; do
          B_ARCH="${work_arch[${work_recipes[$i]}]}"
          B_INSTANCE="${work_instance[${work_recipes[$i]}]:-$global_instance}"
          if (( work_built[i] == 0 || B_FORCE == 1 )); then
+            if (( DRYRUN == 1 )); then
+               output -f "Would build ${work_recipes[$i]} ${work_version[$i]}"
+               work_build[i]=1
+               continue
+            fi
             build "${work_recipes[$i]}" "${work_version[$i]}"
             if [[ $? -eq 1 ]]; then
                output -f "${work_recipes[$i]} ${work_version[$i]} (build failed)"
@@ -3361,12 +3456,15 @@ main() {
       done
       # Prune stale versioned downloads now that the build session is done, so
       # the cache does not grow without bound. Runs while the build lock is
-      # still held to avoid racing a concurrent build's B_GET.
-      _cache_prune
-      # Prune old build output now that the build session is done, so the build
-      # directory does not grow without bound.
-      _build_prune
-      lock_free
+      # still held to avoid racing a concurrent build's B_GET. Skipped in
+      # dryrun mode, which must not modify anything.
+      if (( DRYRUN == 0 )); then
+         _cache_prune
+         # Prune old build output now that the build session is done, so the
+         # build directory does not grow without bound.
+         _build_prune
+         lock_free
+      fi
    fi
 
    if (( DO_PACKAGE != 0 )); then
@@ -3382,6 +3480,11 @@ main() {
          (( DO_BUILD == 0 && work_built[i] == 1 )) && b=1
          [[ "${work_build[$i]:-0}" == "1" ]] && b=1
          if (( b == 1 )); then
+            if (( DRYRUN == 1 )); then
+               output -f "Would package ${work_recipes[$i]} ${work_version[$i]}"
+               work_packaged[i]=0
+               continue
+            fi
             if [[ "$BUILDMODE" == "docker" ]]; then
                # Package inside Docker container (package-only mode)
                docker_package_only "${work_recipes[$i]}" "${work_version[$i]}"
@@ -3417,7 +3520,7 @@ main() {
    fi
 
    if (( DO_REPO != 0 )); then
-      lock_get || { printf '%s\n' "Unable to get lock, other instance running?"; return 1; }
+      (( DRYRUN == 1 )) || lock_get || { printf '%s\n' "Unable to get lock, other instance running?"; return 1; }
       local -a pkgs=()
       local f
       for i in "${!work_recipes[@]}"; do
@@ -3426,25 +3529,27 @@ main() {
          # then holds one file name per line. Split them into individual pushes.
          while IFS= read -r f; do
             [[ -n "$f" ]] && pkgs+=("$f")
-         done <<< "${work_package[$i]}"
+         done <<< "${work_package[$i]:-}"
       done
       B_ARCH="${work_arch[${work_recipes[$i]:-0}]}"
       if (( ${#pkgs[@]} != 0 )); then
-         if package_torepo "${pkgs[@]}"; then
+         if (( DRYRUN == 1 )); then
+            output -f "Would push ${#pkgs[@]} package(s) to the repository"
+         elif package_torepo "${pkgs[@]}"; then
             output "packages pushed to repo"
          else
             output -f "packages not pushed to repo"
             retval=1
          fi
       fi
-      lock_free
+      (( DRYRUN == 0 )) && lock_free
    fi
 
    # After packaging, replace the build output of fast builds (under
    # BUILDKEEPTIME) with an empty marker dir so the version stays recorded as
    # built but cheap-to-rebuild trees do not waste disk. Runs only for builds
    # that were actually built and successfully packaged this session.
-   if (( BUILDKEEPTIME > 0 )); then
+   if (( BUILDKEEPTIME > 0 && DRYRUN == 0 )); then
       for i in "${!work_recipes[@]}"; do
          [[ "${work_build[$i]:-0}" == "1" ]] || continue
          [[ "${work_packaged[$i]:-1}" == "0" ]] || continue
