@@ -881,10 +881,10 @@ build() {
          if [[ ! -f "$target" ]]; then
             # A4: force HTTPS for the SourceForge RSS feed (a known weak link).
             local sfurl="$url"
-            sfurl="${sfurl/http:\/\/https:\/\/}"
+            sfurl="${sfurl/#http:/https:}"
             url=$(wget -q --secure-protocol=TLSv1_2 --https-only -O - "$sfurl/rss?path=/" | xml2 | grep '/rss/channel/item/link' | grep "$B_VERSION" | cut -d '=' -f 2 | tail -1)
             [[ -n "$url" ]] || { ERR=1 output -f "B_GET: no SourceForge download found for $B_VERSION"; return 1; }
-            url="${url/http:\/\/https:\/\/}"
+            url="${url/#http:/https:}"
             [[ -d "$targetdir" ]] || mkdir -p "$targetdir"
             printf '%s\n' "Http sf downloading files.."
             _b_wget_fetch "$target" "$url" || return 1
@@ -902,14 +902,18 @@ build() {
             if ! git clone --depth 1 "$url" "$fn"; then
                printf '%s\n' "Error cloning repository."; return 1
             fi
-            _b_git_refresh "$fn"
+            if ! _b_git_refresh "$fn"; then
+               printf '%s\n' "B_GET: git refresh of $fn failed."; return 1
+            fi
             if [[ "$option" == "-s" ]]; then
                (cd "$fn" || exit; git submodule update --init --recursive --depth 1)
             fi
             _cache_store "$targetnover" "$fn" || return 1
          else
             flock -w 60 "$targetnover" tar xzf "$targetnover"
-            _b_git_refresh "$fn"
+            if ! _b_git_refresh "$fn"; then
+               printf '%s\n' "B_GET: git refresh of $fn failed."; return 1
+            fi
             if [[ "$option" == "-s" ]]; then
                (cd "$fn" || exit; git submodule update --init --recursive --depth 1)
             fi
@@ -1760,7 +1764,7 @@ version_get() {
    B_SFVER() {
       local URL="$1"
       # A4: force HTTPS for the SourceForge RSS feed (a known weak link).
-      URL="${URL/http:\/\/https:\/\/}"
+      URL="${URL/#http:/https:}"
       wget -q --secure-protocol=TLSv1_2 --https-only -O - "$URL/rss?path=/" | xml2 | grep '/rss/channel/item/link' | sed 's/.*\/files\/\([^\/]\+\)\/.*/\1/; s/.\+-\(.\+\)/\1/' | sort -t. -k 1,1n -k 2,2n -k 3,3n -k 4,4n | tail -1
    }
 
@@ -1783,7 +1787,7 @@ version_get() {
    # shellcheck disable=SC2317
    B_GITHUBREL() {
       local URL="$1"
-      wget -q -O - "https://api.github.com/repos/${URL/*github.com\//}/releases/latest" | jq -r '.tag_name | gsub("v";"")'
+      wget -q -O - "https://api.github.com/repos/${URL/*github.com\//}/releases/latest" | jq -r '.tag_name | sub("^v";"")'
    }
 
    # Get the last changed date for an SVN repository
@@ -3523,7 +3527,6 @@ main() {
             [[ -n "$f" ]] && pkgs+=("$f")
          done <<< "${work_package[$i]:-}"
       done
-      B_ARCH="${work_arch[${work_recipes[$i]:-0}]}"
       if (( ${#pkgs[@]} != 0 )); then
          if (( DRYRUN == 1 )); then
             output -f "Would push ${#pkgs[@]} package(s) to the repository"
