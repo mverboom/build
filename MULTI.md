@@ -138,19 +138,6 @@ in the recipe file.
 * [ ] Implement rpm building
 * [ ] Push changes upstream
 
-## Clean script
-
-The debclean script was merged into the generic `clean` script (the same
-dpkg baseline-snapshot logic, plus OS detection). Use `clean -c` as the
-POSTBUILD command.
-
-#### Progress
-
-* [x] Initial changeover to clean script
-* [ ] Push changes upstream
-* [ ] Implement rpm solution
-* [ ] Push changes upstream
-
 ## Update test recipe
 
 The test recipe should reflect a way to build it on an rpm system

@@ -30,8 +30,6 @@ INSTDEP=yes
 DEINSTDEP=yes
 # Set package name postfix or empty if not set
 PKGPOSTFIX=myorganisation
-# Script to run after a build
-POSTBUILD="clean -c"
 # Point to a proxy hostname and port to use when connecting to network
 # resources. Optional; passed to containers as http_proxy/https_proxy. A
 # per-distro override is possible via ~/.build-repos.d/<distro>.

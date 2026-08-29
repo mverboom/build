@@ -232,12 +232,6 @@ parameter will be substituted when B_ORG is used in the [DEB] section of the rec
 This optional parameter defines an email adress. The value of this
 parameter will be substituted when B_MAIL is used in the [DEB] section of the recipe.
 
-`POSTBUILD`
-This can point to an optional script to be run after the build process is
-complete. The included clean script can for example be used here. If the
-postbuild command fails, the build is treated as failed: the build output is
-removed and the recipe is reported as failed.
-
 `PROXY`
 Point to a proxy hostname and port to use when connecting to network resources.
 This is a generic, optional proxy: it is passed to containers as the

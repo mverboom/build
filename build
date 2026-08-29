@@ -52,7 +52,6 @@ TODEBREPO="${TODEBREPO:-}"
 PKGPOSTFIX="${PKGPOSTFIX:-}"
 PKGMAIL="${PKGMAIL:-}"
 PKGORG="${PKGORG:-}"
-POSTBUILD="${POSTBUILD:-}"
 PROXY="${PROXY:-}"
 # Real build host name (captured on the host, passed to containers so
 # provenance records the actual build server, not the container hostname).
@@ -713,14 +712,6 @@ build_require_remove() {
    _sudo_pkg apt-get -qq -y --purge remove "${list[@]}"
 }
 
-# Run the recipe POSTBUILD command on the host (e.g. "clean -c"); in docker
-# mode the container is ephemeral, so host-side cleanup belongs here. Returns
-# non-zero on failure so the caller can fail the build (original behaviour).
-_run_postbuild() {
-   [[ -n "${POSTBUILD:-}" && $B_NOPKGRM == 0 ]] || return 0
-   $POSTBUILD || { ERR=1 output "Error running postbuild command $POSTBUILD"; return 255; }
-}
-
 # Build a recipe: install dependencies, set up environment, run build commands.
 # Parameters: recipe_name version
 build() {
@@ -1319,8 +1310,6 @@ B_SRCGUARD"
       # Clean up temp files
       rm -f "$envfile" "$buildfile" "$pkgcmdfile"
 
-      _run_postbuild || result=255
-
       if (( result != 0 )); then
          rm -rf "$B_INSTALLDIR"
          return 1
@@ -1376,8 +1365,6 @@ B_SRCGUARD"
    _BUILD_TMP=""
 
    [[ -n "$pkgs" && "$DEINSTDEP" == "yes" ]] && (( B_NOPKGRM == 0 )) && build_require_remove "$pkgs"
-   _run_postbuild || result=255
-
    if (( result != 0 )); then
       rm -rf "$B_INSTALLDIR"
       return 1
