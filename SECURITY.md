@@ -344,14 +344,23 @@ that only forwards to the allow-list).
 known-bad).**
 
 **Status: implemented.** The `[SECURITY]` `vulnscan=` key (`advisory` or
-`enforce`) enables an automatic post-build scan of the build tree with
-`osv-scanner` (baked into the Docker base image, pinned version + SHA-256
-verified). `enforce` fails the build on any HIGH/CRITICAL vulnerability;
-`advisory` reports but continues. Per-issue exceptions can be declared in the
-same `[SECURITY]` section (`vulnscan-ignore=ID1,ID2`); the build script
-generates the osv-scanner config from that list and applies it to the whole
-scan, so `enforce` stays active for everything else. Findings are always
-logged in a copy-pasteable `[SECURITY]` format. See `BUILD.md` for the
+`enforce`) enables an automatic post-build scan of the **staged package
+tree** — only what actually ships in the produced package. The installed
+tree (`$B_INSTALLDIR`) is inventoried with `syft` (baked into the Docker base
+image, pinned version + SHA-256 verified) into a CycloneDX SBOM, and the SBOM
+is checked with `osv-scanner` (also baked into the image, pinned + verified)
+against the OSV database. Scanning the staged tree rather than the whole
+build tree means build-only tooling (dev dependencies, vendored test deps,
+the build toolchain itself) does not trigger findings. `enforce` fails the
+build on any HIGH/CRITICAL vulnerability; `advisory` reports but continues.
+Per-issue exceptions can be declared in the same `[SECURITY]` section
+(`vulnscan-ignore=ID1,ID2`), plus a global `VULNSCAN_IGNORE` list in
+`~/.buildrc` for reviewed advisories that recur across recipes; the build
+script generates the osv-scanner config from those lists and applies it to
+the whole scan, so `enforce` stays active for everything else. Findings are
+always logged in a copy-pasteable `[SECURITY]` format. Build-tree-wide
+visibility (dev deps, vendored test deps) is provided separately by the
+`security-scan` tool without failing builds. See `BUILD.md` for the
 recipe-facing documentation.
 
 After resolving dependencies (and before packaging), generate an SBOM
@@ -390,10 +399,12 @@ in `configure`/`*.m4`/`CMakeLists.txt`/`Makefile`/`package.json` scripts).
 `enforce` fails the build on any hit; `advisory` reports but continues. A
 global `SRCGUARD` default in `~/.buildrc` is also supported. Per-file
 exceptions can be declared in the same `[SECURITY]` section
-(`srcguard-ignore=path/to/file`, paths relative to the build root); all hits
-in an ignored file are suppressed, so `enforce` stays active for everything
-else. Findings are always logged in a copy-pasteable `[SECURITY]` format. See
-`BUILD.md` for the recipe-facing documentation.
+(`srcguard-ignore=path/to/file`, paths relative to the build root; glob
+patterns are supported); all hits in an ignored file are suppressed, so
+`enforce` stays active for everything else. A global `SRCGUARD_IGNORE` list
+in `~/.buildrc` (also glob-capable) is merged with the recipe's list. Findings
+are always logged in a copy-pasteable `[SECURITY]` format. See `BUILD.md`
+for the recipe-facing documentation.
 
 A lightweight, high-signal pre-build check: scan the fetched source
 tree for build scripts that perform network access or decode embedded

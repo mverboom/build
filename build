@@ -773,7 +773,7 @@ build() {
 
    # Vulnerability scanning (SECURITY.md group F4): read optional recipe
    # [SECURITY] key. advisory = warn but continue; enforce = fail the build on
-   # any HIGH/CRITICAL vulnerability in the resolved build-time dependencies.
+   # any HIGH/CRITICAL vulnerability in the staged package tree (what ships).
    # Unset = no scan. The scan runs automatically after the BUILD section
    # (B_VULNSCAN is appended to the build command below). A recipe's
    # [SECURITY] vulnscan= overrides the global VULNSCAN default from ~/.buildrc.
@@ -782,6 +782,9 @@ build() {
    # Per-issue vulnerability exceptions ([SECURITY] vulnscan-ignore=ID1,ID2).
    # B_VULNSCAN turns this into an osv-scanner config applied to the whole scan.
    B_VULNSCAN_IGNORE=$(recipe_item_get "$B_NAME" SECURITY vulnscan-ignore) || true
+   # Merge global exception IDs (VULNSCAN_IGNORE in ~/.buildrc) with the
+   # recipe's list; both are applied (the scan enforces on everything else).
+   [[ -n "${VULNSCAN_IGNORE:-}" ]] && B_VULNSCAN_IGNORE="${B_VULNSCAN_IGNORE:+${B_VULNSCAN_IGNORE},}${VULNSCAN_IGNORE}"
 
    # Static build-script guard (SECURITY.md group F6): read optional recipe
    # [SECURITY] key. advisory = warn but continue; enforce = fail the build on
@@ -792,15 +795,19 @@ build() {
    # global SRCGUARD default from ~/.buildrc.
    B_SRCGUARD_POLICY=$(recipe_item_get "$B_NAME" SECURITY srcguard) || true
    [[ -z "$B_SRCGUARD_POLICY" ]] && B_SRCGUARD_POLICY="${SRCGUARD:-}"
-   # Per-file exceptions ([SECURITY] srcguard-ignore=path/to/file). Paths are
-   # relative to the build root; all hits in an ignored file are suppressed.
-   # B_SRCGUARD filters its findings against this list, so srcguard=enforce
-   # stays active for everything else.
+   # Per-file exceptions ([SECURITY] srcguard-ignore=path/glob). Paths are
+   # relative to the build root and may contain glob patterns (e.g.
+   # */Makefile.in); all hits in an ignored file are suppressed. B_SRCGUARD
+   # filters its findings against this list, so srcguard=enforce stays
+   # active for everything else. Global ignore patterns (SRCGUARD_IGNORE in
+   # ~/.buildrc) are merged with the recipe's list.
    B_SRCGUARD_IGNORE=$(recipe_item_get "$B_NAME" SECURITY srcguard-ignore) || true
+   [[ -n "${SRCGUARD_IGNORE:-}" ]] && B_SRCGUARD_IGNORE="${B_SRCGUARD_IGNORE:+${B_SRCGUARD_IGNORE},}${SRCGUARD_IGNORE}"
 
    # Build root: where the recipe's BUILD section runs and sources are checked
    # out. Docker: /tmp (the entrypoint cd's there). Native: the per-build temp
-   # dir. B_VULNSCAN/B_SRCGUARD scan this tree.
+   # dir. B_SRCGUARD scans this tree; B_VULNSCAN scans the staged tree
+   # ($B_INSTALLDIR) instead, so only what ships is checked.
    if [[ "$BUILDMODE" == "docker" ]]; then
       B_BUILDROOT="/tmp"
    else
@@ -1081,22 +1088,33 @@ build() {
    }
    export -f B_LINKFILE
 
-   # Scan the build tree for known vulnerabilities in resolved build-time
-   # dependencies (SECURITY.md group F4). Uses osv-scanner (baked into the
-   # Docker base image). Policy from B_VULNSCAN_POLICY: advisory (warn but
-   # continue) or enforce (fail on any HIGH/CRITICAL vulnerability). Scans
-   # $B_BUILDROOT by default, or a path given as the first argument.
+   # Scan the staged package tree (SECURITY.md group F4): only what actually
+   # ships in the produced package is scanned, not the whole build tree, so
+   # build-only tooling (dev dependencies, vendored test deps, the toolchain)
+   # does not trigger findings. syft (baked into the Docker base image)
+   # inventories the installed tree in $B_INSTALLDIR (node_modules,
+   # site-packages dist-info, Go module info in compiled binaries, ...) into
+   # a CycloneDX SBOM; osv-scanner checks the SBOM against the OSV database.
+   # Policy from B_VULNSCAN_POLICY: advisory (warn but continue) or enforce
+   # (fail on any HIGH/CRITICAL vulnerability).
    # Per-issue exceptions come from the recipe's [SECURITY] section
    # (B_VULNSCAN_IGNORE, comma-separated IDs); they are turned into an
-   # osv-scanner config passed via --config so they apply to every
-   # lockfile/manifest in the scan (an in-tree osv-scanner.toml would only
-   # apply to the directory it sits in).
+   # osv-scanner config passed via --config so they apply to the whole scan.
    # shellcheck disable=SC2317
    B_VULNSCAN() {
-      local target="${1:-${B_BUILDROOT:-.}}"
+      local target="${B_INSTALLDIR:-}"
       local policy="${B_VULNSCAN_POLICY:-}"
       [[ -n "$policy" ]] || return 0
 
+      [[ -d "$target" ]] || {
+         output "B_VULNSCAN: staged package tree $target not found, skipping scan"
+         return 0
+      }
+      command -v syft > /dev/null 2>&1 || {
+         output "B_VULNSCAN: syft not available in build environment"
+         [[ "$policy" == "enforce" ]] && return 1
+         return 0
+      }
       command -v osv-scanner > /dev/null 2>&1 || {
          output "B_VULNSCAN: osv-scanner not available in build environment"
          [[ "$policy" == "enforce" ]] && return 1
@@ -1108,11 +1126,26 @@ build() {
          return 0
       }
 
+      # Inventory the staged tree into a CycloneDX SBOM. The default dir-scan
+      # catalogers already cover installed Python packages (dist-info) and Go
+      # module info in binaries; javascript-package-cataloger is added because
+      # it is image-scan-only by default, but it is the only cataloger that
+      # reads installed node_modules (node_modules/*/package.json).
+      local sbom
+      sbom=$(mktemp "${TMPDIR:-/tmp}/vulnscan-sbom-XXXXXX.cdx.json")
+      if ! syft "dir:$target" --select-catalogers "+javascript-package-cataloger" \
+            -o "cyclonedx-json=$sbom" > /dev/null 2>&1; then
+         output "B_VULNSCAN: syft failed to inventory $target"
+         rm -f "$sbom"
+         [[ "$policy" == "enforce" ]] && return 1
+         return 0
+      fi
+
       # Generate the osv-scanner config from the recipe's [SECURITY]
       # vulnscan-ignore list (if any) and apply it to the whole scan.
       local config_args=() cfg=""
       if [[ -n "${B_VULNSCAN_IGNORE:-}" ]]; then
-         cfg="${B_BUILDROOT:-.}/.osv-scanner-recipe.toml"
+         cfg=$(mktemp "${TMPDIR:-/tmp}/vulnscan-cfg-XXXXXX.toml")
          : > "$cfg"
          local _id
          IFS=',' read -ra _ids <<< "$B_VULNSCAN_IGNORE" || true
@@ -1126,7 +1159,9 @@ build() {
       fi
 
       local json total highcrit
-      json=$(osv-scanner scan --format=json --recursive --allow-no-lockfiles "${config_args[@]}" "$target" 2>/dev/null) || true
+      json=$(osv-scanner scan --sbom "$sbom" --format=json ${config_args[@]+"${config_args[@]}"} 2>/dev/null) || true
+      rm -f "$sbom"
+      [[ -n "$cfg" ]] && rm -f "$cfg"
       total=$(printf '%s\n' "$json" | jq '[.results[]?.packages[]?.vulnerabilities[]?] | length' 2>/dev/null)
       total="${total:-0}"
       highcrit=$(printf '%s\n' "$json" | jq '[.results[]?.packages[]?.vulnerabilities[]?.database_specific.severity? | select(. == "HIGH" or . == "CRITICAL")] | length' 2>/dev/null)
@@ -1215,7 +1250,10 @@ build() {
             for _p in "${_ignore_paths[@]}"; do
                _p="${_p//[[:space:]]/}"
                [[ -n "$_p" ]] || continue
-               if [[ "$_rel" == "$_p" ]]; then
+               # _p is an unquoted glob pattern (e.g. */Makefile.in) matched
+               # against the hit path relative to the scan target.
+               # shellcheck disable=SC2053
+               if [[ "$_rel" == $_p ]]; then
                   _suppressed=1
                   break
                fi
@@ -1264,7 +1302,8 @@ build() {
 
    # Append the vulnerability scan to the build command so it runs after the
    # recipe's BUILD section (post-build, pre-package) when a policy is set.
-   # B_VULNSCAN scans $B_BUILDROOT (the build tree) for lockfiles/manifests.
+   # B_VULNSCAN inventories the staged package tree ($B_INSTALLDIR) with syft
+   # and checks the SBOM with osv-scanner, so only what ships is scanned.
    if [[ -n "$B_VULNSCAN_POLICY" ]]; then
       CMD="$CMD
 B_VULNSCAN"
@@ -2471,7 +2510,7 @@ readonly -a BUILD_ENV_VARS=(
    # these from .buildrc: TODEBREPO for the -r repo push, INSTDEP so required
    # build dependencies are installed (native mode installs via sudo), and the
    # global VULNSCAN/SRCGUARD scan policies.
-   TODEBREPO INSTDEP VULNSCAN SRCGUARD
+   TODEBREPO INSTDEP VULNSCAN SRCGUARD VULNSCAN_IGNORE SRCGUARD_IGNORE
 )
 
 # Prepare the build environment script for use inside a Docker container.

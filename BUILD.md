@@ -411,11 +411,14 @@ default; if neither is set, the scan does not run.
 
 vulnscan
 
-Enables automatic vulnerability scanning of the resolved build-time
-dependencies (see `SECURITY.md` group F4). After the `[BUILD]` section runs,
-the build tree is scanned with `osv-scanner` (baked into the Docker base
-image) for known vulnerabilities in lockfiles/manifests (npm, pip, cargo, go,
-maven, etc.). Supported values:
+Enables automatic vulnerability scanning of the staged package tree — only
+what actually ships in the produced package (see `SECURITY.md` group F4).
+After the `[BUILD]` section runs, the installed tree (`$B_INSTALLDIR`) is
+inventoried with `syft` (both baked into the Docker base image) into a
+CycloneDX SBOM, and the SBOM is checked with `osv-scanner` against the OSV
+database. Because only the staged tree is scanned, build-only tooling (dev
+dependencies, vendored test deps, the build toolchain) does not trigger
+findings. Supported values:
 
 - `advisory` — report findings but never fail the build.
 - `enforce` — fail the build if any HIGH or CRITICAL severity vulnerability
@@ -447,9 +450,12 @@ srcguard-ignore
 
 Comma-separated list of file paths (relative to the build root) to suppress
 from the srcguard scan. All hits in an ignored file are skipped, so
-`srcguard=enforce` stays active for everything else. The key may be repeated
-to split the list over multiple lines; all lines are merged. Use comment
-lines above the key to document why each exception exists.
+`srcguard=enforce` stays active for everything else. Entries may contain glob
+patterns (e.g. `*/Makefile.in`), which is useful for generated files that
+re-trigger on every version bump. The key may be repeated to split the list
+over multiple lines; all lines are merged. Global ignore patterns can be set
+in `~/.buildrc` via `SRCGUARD_IGNORE=` and are merged with the recipe's list.
+Use comment lines above the key to document why each exception exists.
 
 Example:
 
@@ -784,14 +790,14 @@ fails. When `[INFO]` `commit=` is set, the resolved `HEAD` must match that
 SHA exactly (A2). In `STRICT` mode, a git checkout without a `gpgkey` is
 refused.
 
-`B_VULNSCAN [path]`
+`B_VULNSCAN`
 
-Scans the build tree for known vulnerabilities in resolved build-time
-dependencies (SECURITY.md group F4) using `osv-scanner`. It is run
-automatically after the `[BUILD]` section when the `[SECURITY]` `vulnscan=`
-key is set, so recipes normally do not need to call it. The optional `path`
-argument overrides the default scan target (the build root). Behaviour is
-controlled by `vulnscan=advisory` (warn only) or `vulnscan=enforce` (fail on
+Inventories the staged package tree (`$B_INSTALLDIR` — what actually ships)
+with `syft` and checks the resulting SBOM for known vulnerabilities
+(SECURITY.md group F4) using `osv-scanner`. It is run automatically after the
+`[BUILD]` section when the `[SECURITY]` `vulnscan=` key is set, so recipes
+normally do not need to call it. Behaviour is controlled by
+`vulnscan=advisory` (warn only) or `vulnscan=enforce` (fail on
 HIGH/CRITICAL). Per-issue exceptions from the recipe's `[SECURITY]`
 `vulnscan-ignore=` key are applied to the scan automatically (see the
 `vulnscan` section above).
@@ -806,8 +812,8 @@ recipes normally do not need to call it. The optional `path` argument
 overrides the default scan target (the build root). Behaviour is controlled by
 `srcguard=advisory` (warn only) or `srcguard=enforce` (fail on any hit).
 Per-file exceptions from the recipe's `[SECURITY]` `srcguard-ignore=` key
-(paths relative to the build root) are filtered out automatically (see the
-`srcguard` section above). Heuristic; may produce false positives.
+(paths/globs relative to the build root) are filtered out automatically (see
+the `srcguard` section above). Heuristic; may produce false positives.
 
 `B_LINKFILES <source directory> <destination directory>`
 

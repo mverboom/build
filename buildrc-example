@@ -80,3 +80,13 @@ BUILDDISTRO=bookworm
 # recipe sets its own srcguard= key. A recipe's [SECURITY] srcguard= overrides
 # this. Heuristic; may produce false positives, so advisory is recommended.
 #SRCGUARD=advisory
+# Global srcguard ignore patterns (SECURITY.md group F6), merged with every
+# recipe's [SECURITY] srcguard-ignore= list. Entries are file paths relative
+# to the build root and may contain glob patterns. Useful for generated files
+# (autotools output) that false-positive on every version bump. Note: files
+# ignored here are never checked, so keep this list short and reviewed.
+#SRCGUARD_IGNORE=*/Makefile.in,*/Makefile.am
+# Global vulnerability exception IDs (SECURITY.md group F4), merged with every
+# recipe's [SECURITY] vulnscan-ignore= list. Use for reviewed advisories that
+# recur across recipes; keep documented and periodically re-reviewed.
+#VULNSCAN_IGNORE=

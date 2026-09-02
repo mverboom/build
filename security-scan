@@ -4,10 +4,15 @@
 # without rebuilding (SECURITY.md groups F4/F6).
 #
 # For each recipe with a cache entry, extracts the cached source archives and
-# runs the same scans the build script runs post-build:
+# scans the source tree:
 #   * B_SRCGUARD - static grep for suspicious build-script patterns
 #   * B_VULNSCAN - osv-scanner over lockfiles/manifests (via the Docker base
 #     image, which is the only place osv-scanner is installed)
+#
+# Note: during builds the build script only scans the staged package tree
+# (what ships) with syft + osv-scanner. This tool complements that by giving
+# build-tree-wide visibility (dev dependencies, vendored test deps) without
+# failing builds.
 #
 # Findings are filtered against the recipe's existing [SECURITY] section
 # (vulnscan-ignore= / srcguard-ignore=), so only *new* findings are reported,
@@ -64,7 +69,8 @@ usage() {
 Usage: security-scan [options]
 
 Check the cached sources of all recipes for security findings without
-rebuilding. Runs the same scans the build script runs post-build:
+rebuilding. Complements the build-time scans (which only cover the staged
+package tree, i.e. what ships) with build-tree-wide visibility:
 
   * srcguard - static grep for suspicious build-script patterns (F6)
   * vulnscan - osv-scanner over lockfiles/manifests (F4, via Docker image)
@@ -165,6 +171,9 @@ _scan_recipe() {
    local ignore_vuln ignore_src
    ignore_vuln=$(_sec_item "$recipe" vulnscan-ignore)
    ignore_src=$(_sec_item "$recipe" srcguard-ignore)
+   # Merge global ignore patterns (SRCGUARD_IGNORE in ~/.buildrc), same as
+   # the build script does; entries may contain glob patterns.
+   [[ -n "${SRCGUARD_IGNORE:-}" ]] && ignore_src="${ignore_src:+${ignore_src},}${SRCGUARD_IGNORE}"
 
    tree=$(mktemp -p "$TMPDIR" -d "security-scan-$recipe-XXXXXX") || { (( QUIET == 0 )) && printf '%s\n' "== $recipe: no scannable source in cache"; return 2; }
    if ! _extract_cache "$recipe" "$tree"; then
@@ -188,7 +197,8 @@ _scan_recipe() {
                IFS=',' read -ra ps <<< "$ignore_src"
                for p in "${ps[@]}"; do
                   p="${p//[[:space:]]/}"
-                  [[ -n "$p" && "$rel" == "$p" ]] && { suppressed=1; break; }
+                  # shellcheck disable=SC2053  # p is an unquoted glob pattern
+                  [[ -n "$p" && "$rel" == $p ]] && { suppressed=1; break; }
                done
             fi
             (( suppressed == 0 )) && kept+="$hit"$'\n'

@@ -15,6 +15,17 @@ RUN wget -q -O /usr/local/bin/osv-scanner \
     && echo "${OSV_SCANNER_SHA256}  /usr/local/bin/osv-scanner" | sha256sum -c - \
     && chmod +x /usr/local/bin/osv-scanner
 
+# syft: SBOM generator used by B_VULNSCAN to inventory the staged package
+# tree (what ships) before osv-scanner checks it (SECURITY.md group F4).
+# Pinned version + SHA-256 verified. amd64 binary (the build host is amd64).
+ARG SYFT_VERSION=v1.51.1
+ARG SYFT_SHA256=8fcb33017a0dc1058298c923c436d19dfa68ae93968e0b423248542e3afb9fc3
+RUN wget -q -O /tmp/syft.tar.gz \
+        "https://github.com/anchore/syft/releases/download/${SYFT_VERSION}/syft_${SYFT_VERSION#v}_linux_amd64.tar.gz" \
+    && echo "${SYFT_SHA256}  /tmp/syft.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/syft.tar.gz -C /usr/local/bin syft \
+    && rm -f /tmp/syft.tar.gz
+
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
