@@ -45,7 +45,7 @@ _build_recipe_names() {
    # shell. (Side effect: any commands in .buildrc do run, per completion.)
    local value
    value=$(
-      # shellcheck source=~/.buildrc
+      # shellcheck disable=SC1090  # ~/.buildrc is host-specific
       source "$buildrc"
       printf '%s' "${RECIPEDIR:-}"
    )

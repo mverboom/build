@@ -117,7 +117,7 @@ echo building gitver
 EOF
 
    # Source the build script without running main().
-   # shellcheck disable=SC1091
+   # shellcheck disable=SC1090  # path to the sourced build script
    BUILD_TEST_SOURCED=1 source "$BUILD_SCRIPT"
 
    # Common globals the functions under test rely on (SC2034: consumed by

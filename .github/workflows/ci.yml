@@ -1,0 +1,29 @@
+# Static checks + unit tests. GitHub Actions compatible; this Gitea instance
+# runs these workflows with act_runner (label "ubuntu-latest", a Debian-based
+# image, so apt-get has shellcheck and bats).
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install shellcheck
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends shellcheck
+      - name: Lint scripts
+        run: shellcheck build cacheclean security-scan security-scan-apply torepo build-completion test/helper.bash
+
+  bats:
+    name: unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install bats
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends bats
+      - name: Run test suite
+        run: bats test

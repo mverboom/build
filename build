@@ -176,7 +176,7 @@ email=""
 # hostname (build-<recipe>) -- those paths are bind-mounted at their host
 # values.
 if [[ -f "$HOME/.buildrc" ]]; then
-   # shellcheck source=~/.buildrc
+   # shellcheck disable=SC1090,SC1091  # ~/.buildrc is host-specific
    source "$HOME/.buildrc"
 elif [[ ! -f /.dockerenv ]]; then
    printf '%s\n' "No configuration file found."
@@ -185,7 +185,9 @@ fi
 
 # OS detection
 [[ -f /etc/os-release ]] || { printf '%s\n' "Unable to determine os, no /etc/os-release."; exit 1; }
+# shellcheck disable=SC1091  # system file, exists on Debian-based hosts
 source /etc/os-release
+# shellcheck disable=SC2153  # NAME is defined by /etc/os-release
 OS="$NAME"
 
 # Trap for temp dir cleanup
@@ -838,7 +840,7 @@ build() {
    # These are exported for native mode and dumped to env script for Docker mode.
 
    # Download/cached retrieval of build sources
-   # shellcheck disable=SC2317
+   # shellcheck disable=SC2317,SC2329
    B_GET() {
       (( $# < 3 )) && { >&2 printf '%s\n' "Insufficient arguments to B_GET."; return 1; }
       local method="$1"
@@ -1008,7 +1010,7 @@ build() {
    # in recipes so that tag signatures (A1) and pinned commits (A2) are enforced.
    # Parameters: <ref>  e.g. "v$B_VERSION" or "tags/v$B_VERSION"
    # Uses B_GPGKEY (A1), B_COMMIT (A2) and B_STRICT from the build environment.
-   # shellcheck disable=SC2317
+   # shellcheck disable=SC2317,SC2329
    B_GITCHECKOUT() {
       (( $# < 1 )) && { >&2 printf '%s\n' "Insufficient arguments to B_GITCHECKOUT."; return 1; }
       local ref="$1"
@@ -1061,7 +1063,7 @@ build() {
    # Create symlinks for all files in a source directory to a destination directory
    # Parameters: [-r] source_dir dest_dir
    #   -r  recurse into subdirectories
-   # shellcheck disable=SC2317
+   # shellcheck disable=SC2317,SC2329
    B_LINKFILES() {
       local rec=0
       [[ "$1" == "-r" ]] && { rec=1; shift; }
@@ -1088,7 +1090,7 @@ build() {
 
    # Create a symlink for a single file to a destination directory
    # Parameters: source_file dest_dir
-   # shellcheck disable=SC2317
+   # shellcheck disable=SC2317,SC2329
    B_LINKFILE() {
       local src="$1"
       local dst="$2"
@@ -1110,7 +1112,7 @@ build() {
    # Per-issue exceptions come from the recipe's [SECURITY] section
    # (B_VULNSCAN_IGNORE, comma-separated IDs); they are turned into an
    # osv-scanner config passed via --config so they apply to the whole scan.
-   # shellcheck disable=SC2317
+   # shellcheck disable=SC2317,SC2329
    B_VULNSCAN() {
       local target="${B_INSTALLDIR:-}"
       local policy="${B_VULNSCAN_POLICY:-}"
@@ -1228,7 +1230,7 @@ build() {
    # (B_SRCGUARD_IGNORE, comma-separated paths relative to the build root);
    # all hits in an ignored file are suppressed, so srcguard=enforce stays
    # active for everything else.
-   # shellcheck disable=SC2317
+   # shellcheck disable=SC2317,SC2329
    B_SRCGUARD() {
       local target="${1:-${B_BUILDROOT:-.}}"
       local policy="${B_SRCGUARD_POLICY:-}"
@@ -1747,7 +1749,7 @@ version_get() {
    export B_ARCH B_FILES
 
    # Find the newest tag for a git repository with filtering options
-   # shellcheck disable=SC2317
+   # shellcheck disable=SC2317,SC2329
    B_GITVER() {
       local exclude='-e "alpha\|beta\|preview\|rc\|a$\|b$\|b[0-9]*$"'
       local include=""
@@ -1794,7 +1796,7 @@ version_get() {
    }
 
    # Get the last commit date for a GitLab repository
-   # shellcheck disable=SC2317
+   # shellcheck disable=SC2317,SC2329
    B_GITLABVER() {
       local USR
       local REPO
@@ -1805,7 +1807,7 @@ version_get() {
    }
 
    # Get the last commit date for a GitHub repository
-   # shellcheck disable=SC2317
+   # shellcheck disable=SC2317,SC2329
    B_GITHUBVER() {
       local URL="$1"
       local BRANCH="${2:-}"
@@ -1813,7 +1815,7 @@ version_get() {
    }
 
    # Get the latest version for a Sourceforge project
-   # shellcheck disable=SC2317
+   # shellcheck disable=SC2317,SC2329
    B_SFVER() {
       local URL="$1"
       # A4: force HTTPS for the SourceForge RSS feed (a known weak link).
@@ -1823,7 +1825,7 @@ version_get() {
 
    # Branch head commit date as %Y%m%d, read from the loose commit object
    # (A4: http: is rewritten to https:, like the other fetch helpers).
-   # shellcheck disable=SC2317
+   # shellcheck disable=SC2317,SC2329
    B_GITDATE() {
       local URL="$1"
       URL="${URL/#http:/https:}"
@@ -1838,14 +1840,14 @@ version_get() {
    }
 
    # Latest published GitHub release tag
-   # shellcheck disable=SC2317
+   # shellcheck disable=SC2317,SC2329
    B_GITHUBREL() {
       local URL="$1"
       wget -q -O - "https://api.github.com/repos/${URL/*github.com\//}/releases/latest" | jq -r '.tag_name | sub("^v";"")'
    }
 
    # Get the last changed date for an SVN repository
-   # shellcheck disable=SC2317
+   # shellcheck disable=SC2317,SC2329
    B_SVNDATE() {
       date -d "$(svn info --non-interactive --trust-server-cert "$1" | grep 'Last Changed Date:' | cut -d':' -f2-)" "+%Y%m%d"
    }
@@ -2141,7 +2143,7 @@ distro_apt_generate() {
    fi
 
    # --- Sources: custom repositories + per-repo proxy + keys + auth ---
-   local id url suite comps proxy key auth authfile arch signedby host opts scheme
+   local id url suite comps proxy key auth authfile arch host opts scheme
    local proxyconf="$cfgdir/apt.conf.d/99build-proxy"
    : > "$proxyconf"
    for id in "${REPO_ORDER[@]}"; do
@@ -2405,7 +2407,7 @@ _cache_stem() {
       head="${rest%%-*}"
       tail="${rest#*-}"
       if [[ "$tail" =~ ^[0-9] ]]; then
-         printf '%s' "${f%-$tail}"
+         printf '%s' "${f%-"$tail"}"
          return 0
       fi
       rest="$tail"
@@ -2578,6 +2580,9 @@ docker_prepare_env() {
       # BUILD section builds other recipes) can find the mounted build/torepo
       # scripts. The build wrapper runs via non-login su, so the default PATH
       # does not include $HOME/bin.
+      # PATH must be written literally into the env script (expanded inside
+      # the container, not here).
+      # shellcheck disable=SC2016
       printf 'export PATH="%s/bin:$PATH"\n' "$HOME"
 
       # Function definitions (exported from build() function scope)

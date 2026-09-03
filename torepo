@@ -23,6 +23,7 @@ set -u
 
 # Source configuration
 # shellcheck source=~/.toreporc
+# shellcheck disable=SC1090  # ~/.toreporc is host-specific
 [[ -f ~/.toreporc ]] && source ~/.toreporc
 
 usage() {
@@ -54,6 +55,7 @@ main() {
       # Use repo-add on the destination system to wrap whatever you are using.
       # Only remove the local package once repo-add succeeded, so a failed
       # publish does not lose the built file.
+      # shellcheck disable=SC2029  # $flags/$repo/$filename expand client-side on purpose
       if ssh "$SERVER" "repo-add $flags $repo /tmp/$filename"; then
          rm "$pkg"
       else
@@ -63,6 +65,7 @@ main() {
    done
 
    (( ret != 0 )) && return 1
+   # shellcheck disable=SC2029  # $POST is a remote command from the config
    [[ -n "${POST:-}" ]] && ssh "$SERVER" "$POST"
    return 0
 }

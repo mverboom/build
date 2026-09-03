@@ -59,6 +59,7 @@ ONLY_RECIPE=""
 
 # Source configuration (same file the build script uses)
 # shellcheck source=~/.buildrc
+# shellcheck disable=SC1090  # ~/.buildrc is host-specific
 [[ -f "$HOME/.buildrc" ]] && source "$HOME/.buildrc"
 CACHEDIR="${CACHEDIR:-$HOME/cache}"
 RECIPEDIR="${RECIPEDIR:-$HOME/recipes}"
