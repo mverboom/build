@@ -421,8 +421,11 @@ dependencies, vendored test deps, the build toolchain) does not trigger
 findings. Supported values:
 
 - `advisory` — report findings but never fail the build.
-- `enforce` — fail the build if any HIGH or CRITICAL severity vulnerability
-  is found.
+- `enforce` — fail the build if any vulnerability at or above the severity
+  threshold is found. The threshold is `VULNSCAN_SEVERITY` in `~/.buildrc`
+  (default `HIGH`, i.e. HIGH and CRITICAL fail; LOW and MODERATE always
+  pass). Set it to `CRITICAL` to fail on CRITICAL only, or
+  `MODERATE`/`MEDIUM`/`LOW` to be stricter.
 
 vulnscan-ignore
 
@@ -797,8 +800,9 @@ with `syft` and checks the resulting SBOM for known vulnerabilities
 (SECURITY.md group F4) using `osv-scanner`. It is run automatically after the
 `[BUILD]` section when the `[SECURITY]` `vulnscan=` key is set, so recipes
 normally do not need to call it. Behaviour is controlled by
-`vulnscan=advisory` (warn only) or `vulnscan=enforce` (fail on
-HIGH/CRITICAL). Per-issue exceptions from the recipe's `[SECURITY]`
+`vulnscan=advisory` (warn only) or `vulnscan=enforce` (fail on findings at
+or above the `VULNSCAN_SEVERITY` threshold, default HIGH). Per-issue
+exceptions from the recipe's `[SECURITY]`
 `vulnscan-ignore=` key are applied to the scan automatically (see the
 `vulnscan` section above).
 

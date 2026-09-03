@@ -63,9 +63,16 @@ STRICT=0
 
 # Vulnerability scanning default (SECURITY.md group F4). Global default for
 # the [SECURITY] vulnscan= recipe key: advisory (warn but continue) or enforce
-# (fail on any HIGH/CRITICAL vulnerability). Empty = no scan unless a recipe
-# sets its own vulnscan= key. A recipe's [SECURITY] vulnscan= overrides this.
+# (fail on findings at or above VULNSCAN_SEVERITY). Empty = no scan unless a
+# recipe sets its own vulnscan= key. A recipe's [SECURITY] vulnscan= overrides
+# this.
 VULNSCAN="${VULNSCAN:-}"
+
+# Severity level at which vulnscan=enforce fails (SECURITY.md group F4).
+# GitHub/OSV severity scale: LOW < MODERATE < HIGH < CRITICAL. Default HIGH
+# (enforce fails on HIGH and CRITICAL; LOW/MODERATE always pass). Set to
+# CRITICAL to fail on CRITICAL only, or MODERATE/MEDIUM/LOW to be stricter.
+VULNSCAN_SEVERITY="${VULNSCAN_SEVERITY:-HIGH}"
 
 # Static build-script guard default (SECURITY.md group F6). Global default for
 # the [SECURITY] srcguard= recipe key: advisory (warn but continue) or enforce
@@ -773,12 +780,15 @@ build() {
 
    # Vulnerability scanning (SECURITY.md group F4): read optional recipe
    # [SECURITY] key. advisory = warn but continue; enforce = fail the build on
-   # any HIGH/CRITICAL vulnerability in the staged package tree (what ships).
+   # findings at or above the VULNSCAN_SEVERITY threshold (default HIGH) in
+   # the staged package tree (what ships).
    # Unset = no scan. The scan runs automatically after the BUILD section
    # (B_VULNSCAN is appended to the build command below). A recipe's
    # [SECURITY] vulnscan= overrides the global VULNSCAN default from ~/.buildrc.
    B_VULNSCAN_POLICY=$(recipe_item_get "$B_NAME" SECURITY vulnscan) || true
    [[ -z "$B_VULNSCAN_POLICY" ]] && B_VULNSCAN_POLICY="${VULNSCAN:-}"
+   # Severity threshold for enforce failures (VULNSCAN_SEVERITY, see above).
+   B_VULNSCAN_SEVERITY="${VULNSCAN_SEVERITY:-HIGH}"
    # Per-issue vulnerability exceptions ([SECURITY] vulnscan-ignore=ID1,ID2).
    # B_VULNSCAN turns this into an osv-scanner config applied to the whole scan.
    B_VULNSCAN_IGNORE=$(recipe_item_get "$B_NAME" SECURITY vulnscan-ignore) || true
@@ -821,7 +831,7 @@ build() {
    export B_VERSION B_INSTALLDIR B_ARCH B_INSTANCE B_CACHEDIR B_NAME B_BUILDNR B_FILES B_FORCE B_PF B_DISTRODIR B_DISTRO
    export B_GPGKEY B_COMMIT B_SHA256 B_ALLOW_INSECURE B_GPGKEYFILE B_STRICT
    export B_GITTAG
-   export B_VULNSCAN_POLICY B_BUILDROOT B_VULNSCAN_IGNORE
+   export B_VULNSCAN_POLICY B_BUILDROOT B_VULNSCAN_IGNORE B_VULNSCAN_SEVERITY
    export B_SRCGUARD_POLICY B_SRCGUARD_IGNORE
 
    # Define build environment functions (used in both native and Docker modes)
@@ -1096,7 +1106,7 @@ build() {
    # site-packages dist-info, Go module info in compiled binaries, ...) into
    # a CycloneDX SBOM; osv-scanner checks the SBOM against the OSV database.
    # Policy from B_VULNSCAN_POLICY: advisory (warn but continue) or enforce
-   # (fail on any HIGH/CRITICAL vulnerability).
+   # (fail on findings at or above the B_VULNSCAN_SEVERITY threshold).
    # Per-issue exceptions come from the recipe's [SECURITY] section
    # (B_VULNSCAN_IGNORE, comma-separated IDs); they are turned into an
    # osv-scanner config passed via --config so they apply to the whole scan.
@@ -1164,7 +1174,17 @@ build() {
       [[ -n "$cfg" ]] && rm -f "$cfg"
       total=$(printf '%s\n' "$json" | jq '[.results[]?.packages[]?.vulnerabilities[]?] | length' 2>/dev/null)
       total="${total:-0}"
-      highcrit=$(printf '%s\n' "$json" | jq '[.results[]?.packages[]?.vulnerabilities[]?.database_specific.severity? | select(. == "HIGH" or . == "CRITICAL")] | length' 2>/dev/null)
+      # Enforce threshold: fail only on findings at or above this GitHub/OSV
+      # severity level (LOW < MODERATE < HIGH < CRITICAL). Default HIGH.
+      local sev cond
+      sev="${B_VULNSCAN_SEVERITY:-HIGH}"
+      case "${sev^^}" in
+         CRITICAL)        cond='. == "CRITICAL"' ;;
+         MODERATE|MEDIUM) cond='. == "MODERATE" or . == "HIGH" or . == "CRITICAL"' ;;
+         LOW)             cond='. != null' ;;
+         *)               cond='. == "HIGH" or . == "CRITICAL"' ;;
+      esac
+      highcrit=$(printf '%s\n' "$json" | jq "[.results[]?.packages[]?.vulnerabilities[]?.database_specific.severity? | select($cond)] | length" 2>/dev/null)
       highcrit="${highcrit:-0}"
 
       if (( total == 0 )); then
@@ -1185,14 +1205,14 @@ build() {
       fi
 
       if (( highcrit > 0 )); then
-         output "B_VULNSCAN: $highcrit HIGH/CRITICAL vulnerability(ies) found ($total total)"
+         output "B_VULNSCAN: $highcrit >=$sev vulnerability(ies) found ($total total)"
          if [[ "$policy" == "enforce" ]]; then
             output "B_VULNSCAN: enforce mode - failing build"
             return 1
          fi
          output "B_VULNSCAN: advisory mode - continuing"
       else
-         output "B_VULNSCAN: $total vulnerability(ies) found, none HIGH/CRITICAL - continuing"
+         output "B_VULNSCAN: $total vulnerability(ies) found, none at or above $sev - continuing"
       fi
       return 0
    }
@@ -2504,7 +2524,7 @@ readonly -a BUILD_ENV_VARS=(
    RECIPEDIR LOGDIR PKGDIR PKGPOSTFIX PKGMAIL PKGORG
    B_GPGKEY B_COMMIT B_SHA256 B_ALLOW_INSECURE B_GPGKEYFILE B_STRICT distr rel
    B_GITTAG
-   B_VULNSCAN_POLICY B_BUILDROOT B_SRCGUARD_POLICY B_VULNSCAN_IGNORE B_SRCGUARD_IGNORE
+   B_VULNSCAN_POLICY B_VULNSCAN_SEVERITY B_BUILDROOT B_SRCGUARD_POLICY B_VULNSCAN_IGNORE B_SRCGUARD_IGNORE
    BUILD_HOST
    # Nested builds (meta recipes) run natively inside the container and need
    # these from .buildrc: TODEBREPO for the -r repo push, INSTDEP so required

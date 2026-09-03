@@ -352,7 +352,9 @@ is checked with `osv-scanner` (also baked into the image, pinned + verified)
 against the OSV database. Scanning the staged tree rather than the whole
 build tree means build-only tooling (dev dependencies, vendored test deps,
 the build toolchain itself) does not trigger findings. `enforce` fails the
-build on any HIGH/CRITICAL vulnerability; `advisory` reports but continues.
+build on findings at or above the severity threshold (`VULNSCAN_SEVERITY` in
+`~/.buildrc`, default HIGH — GitHub/OSV scale LOW < MODERATE < HIGH <
+CRITICAL); `advisory` reports but continues.
 Per-issue exceptions can be declared in the same `[SECURITY]` section
 (`vulnscan-ignore=ID1,ID2`), plus a global `VULNSCAN_IGNORE` list in
 `~/.buildrc` for reviewed advisories that recur across recipes; the build

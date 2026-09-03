@@ -71,9 +71,13 @@ BUILDDISTRO=bookworm
 #STRICT=1
 # Vulnerability scanning default (SECURITY.md group F4). Global default for
 # the [SECURITY] vulnscan= recipe key: advisory (warn but continue) or enforce
-# (fail on any HIGH/CRITICAL vulnerability). Empty = no scan unless a recipe
-# sets its own vulnscan= key. A recipe's [SECURITY] vulnscan= overrides this.
+# (fail on findings at or above VULNSCAN_SEVERITY). Empty = no scan unless a
+# recipe sets its own vulnscan= key. A recipe's [SECURITY] vulnscan= overrides
+# this.
 #VULNSCAN=enforce
+# Severity level at which vulnscan=enforce fails. GitHub/OSV scale:
+# LOW < MODERATE < HIGH < CRITICAL. Default HIGH (fail on HIGH and CRITICAL).
+#VULNSCAN_SEVERITY=HIGH
 # Static build-script guard default (SECURITY.md group F6). Global default for
 # the [SECURITY] srcguard= recipe key: advisory (warn but continue) or enforce
 # (fail on any suspicious build-script pattern). Empty = no guard unless a
