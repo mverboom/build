@@ -2946,7 +2946,9 @@ _docker_run() {
    container_id=$(docker run -d "${docker_args[@]}" "$image")
    if [[ -z "$container_id" ]]; then
       ERR=1 output "Failed to start Docker container."
-      [[ -n "${bdt_subdir:-}" ]] && rmdir "$bdt_subdir" 2>/dev/null || true
+      if [[ -n "${bdt_subdir:-}" ]]; then
+         rmdir "$bdt_subdir" 2>/dev/null || true
+      fi
       rm -rf "$_BUILD_APT_DIR" 2>/dev/null
       return 1
    fi
@@ -3005,7 +3007,9 @@ _docker_run() {
       # container is still alive, then remove it and drop the now-empty subdir.
       docker exec "$container_id" find /tmp -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
       docker rm -f "$container_id" > /dev/null 2>&1
-      [[ -n "${bdt_subdir:-}" ]] && rmdir "$bdt_subdir" 2>/dev/null || true
+      if [[ -n "${bdt_subdir:-}" ]]; then
+         rmdir "$bdt_subdir" 2>/dev/null || true
+      fi
       rm -rf "$_BUILD_APT_DIR" 2>/dev/null
       return 1
    fi
