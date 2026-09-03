@@ -3642,4 +3642,11 @@ main() {
    return "$retval"
 }
 
-main "$@"
+# Normally run main. When BUILD_TEST_SOURCED is set the script is being
+# sourced by the test suite (test/): skip main and drop the set -u strictness
+# so it does not leak into the sourcing (test) shell.
+if [[ -n "${BUILD_TEST_SOURCED:-}" ]]; then
+   set +u
+else
+   main "$@"
+fi
