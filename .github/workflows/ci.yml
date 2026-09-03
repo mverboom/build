@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        run: git clone --depth 1 --branch "${{ github.ref_name }}" "$GITHUB_SERVER_URL/git/$GITHUB_REPOSITORY.git" .
+        run: git clone --depth 1 --branch "${{ github.ref_name }}" "$GITHUB_SERVER_URL$GITHUB_REPOSITORY.git" .
       - name: Install shellcheck
         run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends shellcheck
       - name: Lint scripts
@@ -30,7 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        run: git clone --depth 1 --branch "${{ github.ref_name }}" "$GITHUB_SERVER_URL/git/$GITHUB_REPOSITORY.git" .
+        run: git clone --depth 1 --branch "${{ github.ref_name }}" "$GITHUB_SERVER_URL$GITHUB_REPOSITORY.git" .
       - name: Install bats
         run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends bats
       - name: Run test suite
