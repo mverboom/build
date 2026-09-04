@@ -399,8 +399,13 @@ item and best applied to a curated subset.
 suspicious build-script patterns (network access or embedded-blob decoding
 in `configure`/`*.m4`/`CMakeLists.txt`/`Makefile`/`package.json` scripts).
 `enforce` fails the build on any hit; `advisory` reports but continues. A
-global `SRCGUARD` default in `~/.buildrc` is also supported. Per-file
-exceptions can be declared in the same `[SECURITY]` section
+global `SRCGUARD` default in `~/.buildrc` is also supported. Third-party
+dependency source trees are never scanned: `node_modules`/`vendor` by name,
+and the Go module cache wherever it lives (`.go/pkg/mod` from the build
+script's exported `GOPATH`, `pkg/mod` for recipes using `GOPATH=$(pwd)`, or
+any explicit `GOMODCACHE`); the module cache churns between builds and its
+Makefiles legitimately download release tooling, so it is dependency noise.
+Per-file exceptions can be declared in the same `[SECURITY]` section
 (`srcguard-ignore=path/to/file`, paths relative to the build root; glob
 patterns are supported); all hits in an ignored file are suppressed, so
 `enforce` stays active for everything else. A global `SRCGUARD_IGNORE` list

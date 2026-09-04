@@ -449,6 +449,13 @@ embedded-blob decoding inside `configure`/`*.m4`/`CMakeLists.txt`/`Makefile`/
 It is heuristic and may produce false positives, so `advisory` is
 recommended when a recipe cannot allow-list its expected hits.
 
+Third-party dependency source trees are never scanned: `node_modules`/`vendor`
+by name, and the Go module cache wherever it lives (`pkg/mod` under the build
+tree, including the `.go/pkg/mod` location from the build script's exported
+`GOPATH`, or any explicit `GOMODCACHE`). Dependency Makefiles legitimately
+download release tooling and churn between builds, so they are dependency
+noise, not this project's build scripts.
+
 srcguard-ignore
 
 Comma-separated list of file paths (relative to the build root) to suppress

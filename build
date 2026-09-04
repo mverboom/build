@@ -1237,7 +1237,14 @@ build() {
       [[ -n "$policy" ]] || return 0
 
       # Suspicious patterns: network access or embedded-blob decoding in build
-      # scripts. Heuristic; may produce false positives.
+      # scripts. Heuristic; may produce false positives. Third-party dependency
+      # source trees are excluded: node_modules/vendor by name, and the Go
+      # module cache wherever it lives (the build script exports
+      # GOPATH="$TMP/.go" so the cache sits at .go/pkg/mod inside the scan
+      # tree; recipes that set GOPATH=$(pwd) get pkg/mod, and GOMODCACHE can
+      # be pointed anywhere). Dependency Makefiles legitimately download
+      # release tooling (curl/wget) and churn between builds, so they are
+      # dependency-source noise, not this project's build scripts.
       local hits
       hits=$(grep -rnIE \
          --include='configure' --include='configure.ac' --include='configure.in' \
@@ -1247,8 +1254,10 @@ build() {
          --include='*.spec' --include='meson.build' --include='build.rs' \
          --exclude-dir='.git' --exclude-dir='node_modules' --exclude-dir='vendor' \
          --exclude-dir='target' --exclude-dir='.venv' --exclude-dir='venv' \
+         --exclude-dir='.go' \
          'curl|wget|git clone|git fetch|go get|svn checkout|hg clone|base64 -d|base64 --decode|xxd -r|uudecode' \
-         "$target" 2>/dev/null) || true
+         "$target" 2>/dev/null \
+         | grep -v '/pkg/mod/') || true
 
       if [[ -z "$hits" ]]; then
          output "B_SRCGUARD: no suspicious build-script patterns found"
