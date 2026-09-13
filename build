@@ -778,7 +778,7 @@ build() {
    B_ALLOW_INSECURE=$(recipe_item_get "$B_NAME" INFO allow_insecure) || true
    B_GPGKEYFILE=$(recipe_item_get "$B_NAME" INFO gpgkeyfile) || true
    B_GITTAG=$(recipe_item_get "$B_NAME" INFO gittag) || true
-   B_STRICT="${STRICT:-0}"
+   B_STRICT="$STRICT"
 
    # Vulnerability scanning (SECURITY.md group F4): read optional recipe
    # [SECURITY] key. advisory = warn but continue; enforce = fail the build on
@@ -1174,8 +1174,6 @@ build() {
       json=$(osv-scanner scan --sbom "$sbom" --format=json ${config_args[@]+"${config_args[@]}"} 2>/dev/null) || true
       rm -f "$sbom"
       [[ -n "$cfg" ]] && rm -f "$cfg"
-      total=$(printf '%s\n' "$json" | jq '[.results[]?.packages[]?.vulnerabilities[]?] | length' 2>/dev/null)
-      total="${total:-0}"
       # Enforce threshold: fail only on findings at or above this GitHub/OSV
       # severity level (LOW < MODERATE < HIGH < CRITICAL). Default HIGH.
       local sev cond
@@ -1186,8 +1184,13 @@ build() {
          LOW)             cond='. != null' ;;
          *)               cond='. == "HIGH" or . == "CRITICAL"' ;;
       esac
-      highcrit=$(printf '%s\n' "$json" | jq "[.results[]?.packages[]?.vulnerabilities[]?.database_specific.severity? | select($cond)] | length" 2>/dev/null)
-      highcrit="${highcrit:-0}"
+      # One JSON parse for both counts (all findings, and those at/above the
+      # threshold); jq prints them one per line, total first.
+      local counts
+      counts=$(printf '%s\n' "$json" | jq -r \
+         "[.results[]?.packages[]?.vulnerabilities[]?] as \$v | (\$v | length), ([\$v[]? | .database_specific.severity? | select($cond)] | length)" 2>/dev/null)
+      total=$(printf '%s\n' "$counts" | sed -n 1p); total="${total:-0}"
+      highcrit=$(printf '%s\n' "$counts" | sed -n 2p); highcrit="${highcrit:-0}"
 
       if (( total == 0 )); then
          output "B_VULNSCAN: no known vulnerabilities found"
@@ -1530,24 +1533,19 @@ package() {
    fi
    local type
    type=$(recipe_item_get "$pkg" PKG type)
-   # Only the first declared package type is processed: every case above
-   # returned on the first iteration, so a "deb,rpm" type effectively meant
-   # deb. Keep that behaviour explicitly.
+   # Only the first declared package type is processed, so a "deb,rpm" type
+   # effectively means deb. Keep that behaviour explicitly.
    local pkgtype="${type%%[, ]*}"
-   case "$pkgtype" in
-   "deb")
-      if [[ "$OS" == "Debian GNU/Linux" ]]; then
-         package_deb "$pkg" "$version" "$ID"
-         return $?
-      fi
-      ERR=1 output "Debian packaging requires Debian (running on $OS)."
-      return 1
-      ;;
-   *)
+   if [[ "$pkgtype" != "deb" ]]; then
       ERR=1 output "Unknown package type ($pkgtype)."
       return 1
-      ;;
-   esac
+   fi
+   if [[ "$OS" == "Debian GNU/Linux" ]]; then
+      package_deb "$pkg" "$version" "$ID"
+      return $?
+   fi
+   ERR=1 output "Debian packaging requires Debian (running on $OS)."
+   return 1
 }
 
 # Generate a SLSA-style provenance sidecar for a built package (SECURITY.md
@@ -1961,10 +1959,6 @@ check_version_built() {
 # is_debian_distro() and by the hidden --list-distros helper (for bash
 # completion).
 readonly -a KNOWN_DISTROS=(trixie bookworm sid bullseye buster stretch jessie)
-
-known_distros() {
-   printf '%s\n' "${KNOWN_DISTROS[@]}"
-}
 
 # Check if the given distro is a Debian-based distribution.
 # Parameters: distro_name
@@ -2411,9 +2405,8 @@ _docker_autoprune() {
 # Parameters: filename
 _cache_stem() {
    local f="$1"
-   local rest="$f" head tail
+   local rest="$f" tail
    while [[ "$rest" == *-* ]]; do
-      head="${rest%%-*}"
       tail="${rest#*-}"
       if [[ "$tail" =~ ^[0-9] ]]; then
          printf '%s' "${f%-"$tail"}"
@@ -2430,7 +2423,7 @@ _cache_stem() {
 # efficiency (avoiding re-clones) is preserved. No-op when MAXCACHEKEEP is 0 or
 # empty, or when CACHEDIR does not exist. Never fatal.
 _cache_prune() {
-   local keep="${MAXCACHEKEEP:-3}"
+   local keep="$MAXCACHEKEEP"
    (( keep > 0 )) || return 0
    [[ -d "$CACHEDIR" ]] || return 0
    local pkg f base stem
@@ -2469,7 +2462,7 @@ _cache_prune() {
 # removes the oldest so the build output does not grow without bound. No-op when
 # MAXBUILDKEEP is 0 or empty, or when DESTDIR does not exist. Never fatal.
 _build_prune() {
-   local keep="${MAXBUILDKEEP:-1}"
+   local keep="$MAXBUILDKEEP"
    (( keep > 0 )) || return 0
    [[ -d "$DESTDIR" ]] || return 0
    local distro arch name
@@ -2709,6 +2702,27 @@ _docker_add_proxy() {
    [[ -n "$PROXY" ]] && _dap_ref+=("-e" "http_proxy=${PROXY}" "-e" "https_proxy=${PROXY}")
 }
 
+# Append -v mounts for the build and torepo scripts to a docker args array, so
+# nested 'build' invocations (meta recipes) and $TODEBREPO work inside the
+# container. Shared by _docker_run() (build runs) and docker_shell() (-S dev
+# shell). Parameters: array_name (nameref)
+_docker_mount_scripts() {
+   local -n _dms_ref="$1"
+   # type -P (PATH-only lookup) is required: `command -v build` would resolve
+   # to the build() shell function defined in this very script.
+   local build_script_path
+   build_script_path=$(type -P build 2>/dev/null || true)
+   [[ -z "$build_script_path" ]] && build_script_path="${BASH_SOURCE[0]}"
+   if [[ -n "$build_script_path" && -f "$build_script_path" ]]; then
+      _dms_ref+=("-v" "${build_script_path}:${HOME}/bin/build:ro")
+   fi
+   local torepo_path
+   torepo_path=$(command -v torepo 2>/dev/null || true)
+   if [[ -n "$torepo_path" && -f "$torepo_path" ]]; then
+      _dms_ref+=("-v" "${torepo_path}:${HOME}/bin/torepo:ro")
+   fi
+}
+
 # Run a Docker container for a build and/or package phase.
 # Parameters: image envfile [buildfile] [pkgcmdfile]
 #   buildfile  - if given, the build phase runs (with DEBUGSHELL sentinel
@@ -2769,25 +2783,10 @@ _docker_run() {
    # fallback; Docker-in-Docker is not available). Build-only: the package
    # phase never invokes build/torepo (the host pushes top-level packages).
    if [[ $build_mode == 1 ]]; then
-      # The build script itself (same mechanism as the -S dev shell).
-      # type -P (PATH-only lookup) is required: `command -v build` would
-      # resolve to the build() shell function defined in this very script.
-      local build_script_path
-      build_script_path=$(type -P build 2>/dev/null || true)
-      # Fallback: use the running script's own path.
-      if [[ -z "$build_script_path" ]]; then
-         build_script_path="${BASH_SOURCE[0]}"
-      fi
-      if [[ -n "$build_script_path" && -f "$build_script_path" ]]; then
-         docker_args+=("-v" "${build_script_path}:${HOME}/bin/build:ro")
-      fi
-      # torepo + its config: nested builds push their packages (-r) from inside
-      # the container via $TODEBREPO (exported in BUILD_ENV_VARS).
-      local torepo_path
-      torepo_path=$(command -v torepo 2>/dev/null || true)
-      if [[ -n "$torepo_path" && -f "$torepo_path" ]]; then
-         docker_args+=("-v" "${torepo_path}:${HOME}/bin/torepo:ro")
-      fi
+      # The build and torepo scripts (same mechanism as the -S dev shell).
+      # torepo's config: nested builds push their packages (-r) from inside the
+      # container via $TODEBREPO (exported in BUILD_ENV_VARS).
+      _docker_mount_scripts docker_args
       [[ -f "$HOME/.toreporc" ]] && docker_args+=("-v" "$(readlink -f "$HOME/.toreporc"):${HOME}/.toreporc:ro")
    fi
 
@@ -3137,24 +3136,8 @@ docker_shell() {
    # custom repos, per-repo proxy, keys, auth) -- never host /etc/apt.
    docker_add_apt_config docker_args "$distro" || return 1
 
-   # Mount the build script into the container so 'build' command works inside
-   # (type -P: PATH-only, as `command -v build` resolves to the build() function).
-   local build_script_path
-   build_script_path=$(type -P build 2>/dev/null || true)
-   # Fallback: use the running script's own path
-   if [[ -z "$build_script_path" ]]; then
-      build_script_path="${BASH_SOURCE[0]}"
-   fi
-   if [[ -n "$build_script_path" && -f "$build_script_path" ]]; then
-      docker_args+=("-v" "${build_script_path}:${HOME}/bin/build:ro")
-   fi
-
-   # Also mount the torepo script if available
-   local torepo_path
-   torepo_path=$(command -v torepo 2>/dev/null || true)
-   if [[ -n "$torepo_path" && -f "$torepo_path" ]]; then
-      docker_args+=("-v" "${torepo_path}:${HOME}/bin/torepo:ro")
-   fi
+   # Mount the build and torepo scripts so both commands work inside the shell.
+   _docker_mount_scripts docker_args
 
    # Environment variables
    # Set BUILDMODE=native so that builds inside the container run natively
@@ -3386,7 +3369,7 @@ main() {
    # completion does not duplicate the distro list. Runs before sanity_check
    # to avoid requiring Docker or a valid build configuration.
    if [[ "${1:-}" == "--list-distros" ]]; then
-      known_distros
+      printf '%s\n' "${KNOWN_DISTROS[@]}"
       return 0
    fi
 

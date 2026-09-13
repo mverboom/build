@@ -23,7 +23,7 @@ jobs:
       - name: Install shellcheck
         run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends shellcheck
       - name: Lint scripts
-        run: shellcheck build cacheclean security-scan security-scan-apply torepo build-completion test/helper.bash
+        run: shellcheck build cacheclean security-scan torepo build-completion test/helper.bash
 
   bats:
     name: unit tests

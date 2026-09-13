@@ -121,11 +121,8 @@ if [[ -n "${BUILD_DEPS:-}" ]]; then
       else
          dep_failed=1
       fi
-   elif command -v dnf > /dev/null 2>&1; then
-      # shellcheck disable=SC2086
-      run_pkg "$deps_log" dnf install -y ${BUILD_DEPS} || dep_failed=1
    else
-      printf '%s\n' "Error: No supported package manager found." >&2
+      printf '%s\n' "Error: apt-get not found (build images are Debian-based)." >&2
       exit 1
    fi
 fi
@@ -179,15 +176,6 @@ if [[ -n "${HOST_UID:-}" ]]; then
    # it for pulled images.)
    printf 'builduser ALL=(ALL) NOPASSWD:ALL\n' > /etc/sudoers.d/builduser
    chmod 440 /etc/sudoers.d/builduser
-   # 20260725 MV: Don't know why this is done, disabled, should already be correct owner
-   #for dir in "${B_INSTALLDIR:-}" "${B_CACHEDIR:-}" "${DESTDIR:-}" "${LOGDIR:-}" "${PKGDIR:-}"; do
-   #   if [[ -n "${dir:-}" ]] && [[ -d "${dir}" ]]; then
-   #      chown -R builduser:builduser "${dir}" 2>/dev/null || true
-   #   fi
-   #done
-else
-   # No UID provided, run as root
-   :
 fi
 
 # --- Execute build and/or package commands ---
@@ -252,8 +240,6 @@ else
       if command -v apt-get > /dev/null 2>&1; then
          run_pkg "$deps_log" apt-get update || true
          run_pkg "$deps_log" apt-get -y install sudo || true
-      elif command -v dnf > /dev/null 2>&1; then
-         run_pkg "$deps_log" dnf install -y sudo || true
       fi
       # Passwordless sudo for builduser is configured above for all modes.
       exec su - builduser -s /bin/bash

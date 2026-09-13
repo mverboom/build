@@ -16,9 +16,9 @@ of any upstream source is propagated to consumers quickly and silently.
 This document exists to make that risk explicit and to lay out concrete
 reductions implementable inside this codebase.
 
-It is a *recommendations document only*. No behaviour described here is
-implemented yet; each section is a proposal to be reviewed and accepted
-before code is written.
+Each mitigation below is marked with its status. Groups A, B2, D1, F4 and F6
+are implemented; the remaining items are proposals to be reviewed and
+accepted before code is written.
 
 ---
 
@@ -77,8 +77,8 @@ Threats 4–5 are mitigated by **output signing + provenance + retention
 | Stage | Code path | Risk |
 |------|-----------|------|
 | Version check | `B_GITVER` (`git ls-remote --tags`), `B_GITHUBVER`/`B_GITLABVER` (unauthenticated REST), `B_SFVER` (SourceForge RSS) | Newest tag/commit becomes the "version" with no authorship check. A moved tag is silently built. |
-| Source fetch | `B_GET` (`git clone`, `wget`, `go get`, `svn`, `hg`) | No commit signature verification. No checksum/SBOM pinning. Plain `http` allowed. TLS not enforced. |
-| Build deps | `apt-get install` of `[REQUIRED]` inside container; entrypoint runs `apt-get update > /dev/null 2>&1` | No apt pinning. `apt-get update` failure swallowed, so a malicious mirror/MITM could inject packages unnoticed. Non-reproducible. |
+| Source fetch | `B_GET` (`git clone`, `wget`, `go get`, `svn`, `hg`) | Commit signature verification (A1) and checksums (A3) are opt-in per recipe; insecure schemes are refused unless `allow_insecure=1` (A4). |
+| Build deps | `apt-get install` of `[REQUIRED]` inside container; entrypoint runs `apt-get update` via `run_pkg` | No apt pinning. Update/install failures abort the build (B2 implemented), but packages remain unpinned and non-reproducible. |
 | Build | Recipe `[BUILD]` shell runs arbitrary code from fetched source | No isolation between network and build. Recipe code runs as `builduser` with broad mounted dirs. |
 | Build-time deps | `pip`, `npm`, `cargo`, `go get`, `vcpkg`/`conan`, `cmake FetchContent`, git submodules, autoconf/m4 macros run inside `[BUILD]` | No lockfile/hash enforcement. No registry pinning (dependency confusion, typosquatting). No vulnerability scanning of resolved deps. Hidden payload (XZ pattern) not detected. |
 | Package | `fakeroot dpkg --build`; control file from unvalidated strings | `.deb` is unsigned. No integrity metadata attached. |
@@ -106,66 +106,22 @@ documentation. `gpgkeyfile` lets a recipe ship the public key locally so A1
 works in network-restricted build environments; otherwise `B_GITCHECKOUT`
 falls back to fetching from keyservers.
 
-**A1. Verify git tag/commit signatures.**
-`B_GET git` currently does `git clone` then `git checkout tags/v$B_VERSION`.
-Add GPG verification:
-
-```bash
-git verify-tag --raw "v$B_VERSION" || { output "Tag signature invalid/missing"; return 1; }
-```
-
-Allow recipes to declare an expected signer in a new `[INFO]` key:
-
-```
-gpgkey=<40-char fingerprint or keyring id>
-```
-
-`git` already ships in the container; adding `gnupg` is one Dockerfile
-line. Recipes without a `gpgkey` could be allowed but warned, or refused
-when a strict mode is enabled.
-
-**A2. Support pinned commits/SHAs in recipes.**
-A recipe today only knows a version *string*, then checks out
-`tags/v$B_VERSION`. Tags can be moved by upstream. Add optional fields:
-
-```
-commit=<40-char sha>
-sha256=<hex digest of a fetched http asset>
-```
-
-Refuse to build if the resolved ref doesn't match the pinned commit. This
-makes "what was built" deterministic and auditable, and makes
-version-string-only recipes the explicitly opt-in default rather than the
-only option.
-
-**A3. Verify checksums for `http`/`sf` downloads.**
-`B_GET http` blindly runs `wget -O "$target" "$url"`. Let recipes declare
-`sha256=<…>` (or a `.sha256` sibling URL) and verify with `sha256sum -c`
-before caching. Reject unsigned plain `http` unless explicitly allowed.
-
-**A4. Enforce HTTPS / reject downgrade.**
-Add a sanity check that `url` starts with `https://`, `git@`, or
-`ssh://`. Pass `wget --https-only --secure-protocol=TLSv1_2`. The
-`B_SFVER` SourceForge `http` RSS fetch is a weak link to address.
-
 ### B. Build & base-image reproducibility — medium effort
+
+**Status: B2 (failure visibility) implemented; B1 and B3 remain proposals.**
 
 **B1. Pin Docker base images by digest.**
 `docker/Dockerfile.*` use `FROM debian:trixie` — a tag that moves. Pin to
-`debian:trixie@sha256:…` and record the digest. `docker_image_select`
-returns `build-trixie:latest`; builds should record the resolved image
-digest (`docker inspect --format='{{index .RepoDigests 0}}'`) into the
-provenance sidecar (see D1).
+`debian:trixie@sha256:…`. (The resolved image ID is already recorded in the
+provenance sidecar, see D1.)
 
 **B2. Make `apt-get` failures visible and reproducible.**
-The entrypoint does `apt-get update > /dev/null 2>&1` then installs deps,
-swallowing errors. At minimum:
 
-- fail the build when `apt-get update` exits non-zero,
-- log the installed package versions (`dpkg -l` snapshot) into provenance.
-
-`clean` already provides a baseline-snapshot mechanism that could be
-reused to make `[REQUIRED]` installs reproducible per build.
+**Status: implemented (failure visibility).** The entrypoint runs apt through
+`run_pkg`: `apt-get update` and the install abort the build on non-zero exit,
+and the dependency output is persisted into the build log. The
+installed-package snapshot is recorded in the provenance sidecar (D1). Apt
+*pinning* for reproducibility is still a proposal.
 
 **B3. Hermetic build phase (separate fetch from build).**
 The container currently has network access for the whole build. A strong
@@ -184,6 +140,10 @@ for the build phase once sources are populated. `[REQUIRED]` dependency
 installation must finish before the network is removed.
 
 ### C. Recipe trust & build-system provenance
+
+**Status: partially implemented.** The recipe-directory `git rev-parse HEAD` is
+recorded in the provenance sidecar (D1); recipe signing/clean-tree enforcement
+(C1) and execution confinement (C2) remain proposals.
 
 **C1. Sign and verify recipes.**
 Recipes are executable shell — they are the highest-trust input. If
@@ -214,21 +174,6 @@ source-integrity pins (`commit`/`gpgkey`/`sha256`), the Docker image ID
 (content digest), the real build host, a sorted `dpkg-query` snapshot of
 installed packages (B2), and a UTC timestamp. See `BUILD.md` for details.
 
-This project is a self-contained build service — exactly what SLSA's
-Build track targets. After a successful build, write a JSON sidecar next
-to each `.deb` recording:
-
-- recipe name + `git rev-parse HEAD` of recipe dir,
-- resolved source URL(s), tag/commit, and any verified signature,
-- Docker image digest used (B1),
-- `dpkg -l` snapshot of build deps (B2),
-- start/end time, build host,
-- `B_BUILDNR` / package ID.
-
-This is low effort (the script already holds all these values) and gives
-consumers something to verify against. It corresponds to **SLSA Build L1**
-("provenance exists").
-
 **D2. Sign the produced packages.**
 `.deb` files can be signed with `dpkg-sig`, and/or the apt repo's
 `Release`/`InRelease` files signed with a project GPG key. Currently
@@ -245,6 +190,8 @@ especially benefit: consumers can diff SBOMs between versions to spot
 suspicious new dependencies (the XZ pattern).
 
 ### E. Repository & transport hardening — low effort, high value
+
+**Status: not implemented.**
 
 **E1. Replace `scp` + `ssh repo-add` with an integrity-preserving push.**
 `torepo` currently:
@@ -279,6 +226,8 @@ check that a package was built by the trusted build host from a signed
 source.
 
 ### F. Build-time dependency integrity (transitive dependencies) — high impact, the XZ-class threat
+
+**Status: F4 and F6 implemented; F1, F2, F3, F5 and F7 remain proposals.**
 
 The mitigations in groups A–E verify the *primary* source the recipe
 fetches. They do not cover what the build process itself pulls in while
@@ -365,22 +314,6 @@ visibility (dev deps, vendored test deps) is provided separately by the
 `security-scan` tool without failing builds. See `BUILD.md` for the
 recipe-facing documentation.
 
-After resolving dependencies (and before packaging), generate an SBOM
-of the resolved dependency set and scan it against a vulnerability
-database. Suitable tools that cover many ecosystems in one pass:
-
-- **osv-scanner** (Google) — reads lockfiles/SBOMs across npm, pip,
-  cargo, go, maven, gem, composer, nuget, etc. and queries the
-  authoritative OSV.dev database.
-- **syft** (generate SBOM) + **grype** (scan SBOM) — Anchore toolchain,
-  also scans container images and the built `.deb`.
-- **trivy** — filesystem/repo/image scanning in one tool.
-- Per-language: `pip-audit`, `npm audit`/`pnpm audit`, `cargo audit`,
-  `govulncheck`, `bundle-audit`.
-
-For frequent-update software this is especially valuable: it surfaces a
-newly-disclosed vulnerable transitive dependency before it ships.
-
 **F5. Reproducible-build verification against a trusted reference.**
 For high-value recipes, keep a trusted reference build of a known-good
 version and compare a new build of the *same* inputs with
@@ -413,25 +346,6 @@ in `~/.buildrc` (also glob-capable) is merged with the recipe's list. Findings
 are always logged in a copy-pasteable `[SECURITY]` format. See `BUILD.md`
 for the recipe-facing documentation.
 
-A lightweight, high-signal pre-build check: scan the fetched source
-tree for build scripts that perform network access or decode embedded
-payloads — exactly the XZ signature (`build-to-host.m4` calling
-`awk`/`sed` to decode a hidden `.xz`, `curl`/`wget`/`git clone` inside
-`configure`/`m4`/`cmake`/`Makefile`). Concretely:
-
-- grep the source tree for network-fetching commands inside
-  `configure*`, `*.m4`, `CMakeLists.txt`, `Makefile*`, `*.cmake`,
-  `package.json` scripts;
-- flag any build script that decodes/evals embedded binary blobs
-  (`base64 -d`, `xxd -r`, `eval`, `bash -c` on extracted content);
-- warn (or fail in strict mode) on `curl|wget|git|svn|go get` invoked
-  from anywhere under the build root other than the recipe's own
-  `B_GET` calls.
-
-This is heuristic and will produce false positives, so default to
-advisory and let recipes allow-list expected patterns. It would,
-however, have caught the XZ `build-to-host.m4` extraction step.
-
 **F7. Prefer git-tag builds over maintainer tarballs; diff tarball vs
 git export.**
 The XZ payload existed only in the release tarball, not in the git
@@ -455,34 +369,33 @@ The proposals map onto the [SLSA Build track](https://slsa.dev/spec/v1.0-rc2/lev
 | Build L2 | Signed provenance, generated by a hosted build service | D1 + D2 |
 | Build L3 | Hardened build service (isolated, non-forgeable) | B3 + C2 + F3 |
 
-Today the project sits at **Build L0** (no provenance, no signing, no
-hardening). The roadmap below reaches L1/L2 with modest effort and L3
-with the hermetic-build work.
+Today the project sits at **Build L1** (D1 provenance exists; no signing or
+hardening yet). The roadmap below reaches L2 with modest effort and L3 with
+the hermetic-build work.
 
 ---
 
 ## 5. Prioritised roadmap
 
-If only a few things are done, these give the most reduction per effort:
+Remaining work, most reduction per effort first:
 
 1. **B1 + D2** — pin image digest, sign packages. Closes the "is this
    even from us?" gap for consumers.
-2. **A1 + A2** — verify tag signatures, allow pinned commits. Closes the
-   "did we build what the maintainer actually released?" gap, the most
-   common real attack vector for frequent-update software.
-3. **F1 + F4** — enforce hashed lockfiles per language and scan resolved
-   dependencies for known vulnerabilities. Directly addresses the XZ-class
-   build-time dependency threat, which A/B do not cover.
-4. **B3 + F3** — hermetic / allow-listed build phase. Defends against
-   backdoors that fetch at build time, the modern threat model.
-5. **D1 + D3** — provenance + consumer verification. Gives a story
-   equivalent to SLSA Build L1/L2 and lets the whole downstream estate
-   verify rather than trust.
+2. **F1 + F3** — enforce hashed lockfiles per language and allow-list the
+   build-phase network. Directly addresses the XZ-class build-time
+   dependency threat, which the primary-source checks (A) do not cover.
+3. **B3 + F2** — hermetic build phase and a vetted package mirror.
+   Defends against backdoors that fetch at build time.
+4. **D3 + E1/E2/E3** — SBOM per package, integrity-preserving push, and
+   artifact/provenance retention.
+5. **C1 + C2** — recipe signing/clean-tree enforcement and execution
+   confinement.
 
-F5 (reproducible-build verification) and F6 (static build-script guard)
-are higher-effort, high-value additions for a curated subset of
-security-critical recipes (anything that ends up in `sshd`, `sudo`,
-privilege boundary, etc.).
+F5 (reproducible-build verification) is a higher-effort, high-value
+addition for a curated subset of security-critical recipes (anything
+that ends up in `sshd`, `sudo`, a privileged boundary, etc.).
+
+Already implemented: A1–A4, B2, D1, F4, F6.
 
 Each item is independently shippable and testable on the `build`
 container.

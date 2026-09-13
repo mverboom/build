@@ -13,7 +13,7 @@ cd build
 # commit pins are read from [INFO]; see SECURITY.md group A)
 B_GITCHECKOUT v$B_VERSION
 mkdir -p $B_INSTALLDIR/usr/bin
-cp build torepo debclean $B_INSTALLDIR/usr/bin
+cp build torepo $B_INSTALLDIR/usr/bin
 [PKG]
 type=deb
 torepo=y
