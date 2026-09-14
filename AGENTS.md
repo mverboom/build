@@ -5,6 +5,7 @@ ssh build
 
 The git repository you are working in here is available on that system in the directory:
 
-/home/builduser/bin/build.git
+/home/builduser/bin
 
-The important script have been synlinked to /home/builduser/bin that is in the PATH.
+That directory is the git worktree (branch `docker`); the scripts there are tracked files, not
+symlinks. Sync it with `git pull --ff-only origin docker`.
