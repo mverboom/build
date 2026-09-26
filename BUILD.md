@@ -240,6 +240,14 @@ commands (`B_GET`, `wget`, `git`, ...). It is not mandatory; if unset, the
 build connects directly. A per-distro override is possible (see
 APT / REPOSITORIES).
 
+`APT_PROXY`
+Optional apt-only proxy (e.g. an apt-cacher such as aptproxy). Unlike `PROXY`,
+it is not passed to generic commands: it is written into the containers apt
+configuration as a global `Acquire::http::Proxy`, so only apt traffic goes
+through it while `B_GET`/`git`/`wget` connect directly. Per-repository
+`proxy=`/`DIRECT` settings override it for individual repository hosts, and a
+per-distro override is possible (see APT / REPOSITORIES).
+
 `BUILD_REPOS_DIR`
 Directory holding per-distro apt/repository configuration files (defaults to
 `~/.build-repos.d`). See the APT / REPOSITORIES section.
@@ -260,6 +268,10 @@ The following may be set in a per-distro file:
 
 `PROXY`
 Optional distro-specific generic proxy. Overrides the global `PROXY` from
+`~/.buildrc` for builds of this distro.
+
+`APT_PROXY`
+Optional distro-specific apt-only proxy. Overrides the global `APT_PROXY` from
 `~/.buildrc` for builds of this distro.
 
 `NO_DEFAULT_REPOS`

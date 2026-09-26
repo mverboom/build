@@ -53,6 +53,12 @@ PKGPOSTFIX="${PKGPOSTFIX:-}"
 PKGMAIL="${PKGMAIL:-}"
 PKGORG="${PKGORG:-}"
 PROXY="${PROXY:-}"
+# Optional apt-only proxy (e.g. an apt-cacher/aptproxy), independent of the
+# generic PROXY: written into the containers apt config as a global
+# Acquire::http::Proxy, so only apt traffic is proxied while B_GET/git/wget
+# stay direct. May be overridden per distro; a per-repo proxy= directive
+# overrides it for that repository host.
+APT_PROXY="${APT_PROXY:-}"
 # Real build host name (captured on the host, passed to containers so
 # provenance records the actual build server, not the container hostname).
 BUILD_HOST="$(hostname 2>/dev/null)"
@@ -2149,6 +2155,12 @@ distro_apt_generate() {
    local id url suite comps proxy key auth authfile arch host opts scheme
    local proxyconf="$cfgdir/apt.conf.d/99build-proxy"
    : > "$proxyconf"
+   # Global apt-only proxy (APT_PROXY), independent of the generic PROXY: apt
+   # fetches go through it while B_GET/git/wget stay direct. Host-specific
+   # per-repo proxy= directives below take precedence over it.
+   if [[ -n "${APT_PROXY:-}" ]]; then
+      printf 'Acquire::http::Proxy "%s";\n' "$APT_PROXY" >> "$proxyconf"
+   fi
    for id in "${REPO_ORDER[@]}"; do
       url="${REPO_URL[$id]:-}"; suite="${REPO_SUITE[$id]:-}"
       comps="${REPO_COMPONENTS[$id]:-main}"
