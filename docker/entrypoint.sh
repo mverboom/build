@@ -102,7 +102,7 @@ trap bdt_cleanup EXIT
 
 # Build log file (defined early so dependency output can be appended to it).
 log_dir="${LOGDIR:-/tmp}"
-log_file="${log_dir}/${B_NAME:-build}-${B_ARCH:-all}.log"
+log_file="${log_dir}/${B_DISTRO:-unknown}/${B_NAME:-build}-${B_ARCH:-all}.log"
 deps_log="/tmp/build-deps.log"
 : > "$deps_log"
 dep_failed=0

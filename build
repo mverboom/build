@@ -214,6 +214,19 @@ output() {
    [[ -n "${ERR:-}" ]] && (>&2 printf '%s\n' "$1") || printf '%s\n' "$1"
 }
 
+# Directory holding this run's per-recipe logs. Grouped by target distribution
+# (B_DISTRO) so multi-distro builds on one host (trixie/bookworm/android) do
+# not overwrite each other's recipe logs.
+b_logdir() {
+   printf '%s/%s' "$LOGDIR" "${B_DISTRO:-unknown}"
+}
+
+# Path to the per-recipe build log for a recipe/arch on the current distro.
+# Parameters: recipe arch
+b_logfile() {
+   printf '%s/%s-%s.log' "$(b_logdir)" "$1" "$2"
+}
+
 # Print a short head/tail excerpt of a build log. Used to surface the failure
 # reason in quiet mode (QUIET == 1): there the live Docker log stream is
 # discarded (docker logs -f > /dev/null) and the native build pipeline is
@@ -237,7 +250,7 @@ _log_excerpt() {
 _fail_excerpt() {
    (( QUIET == 1 )) || return 0
    printf '%s\n' "$1 $2 $3:" >&2
-   _log_excerpt "$LOGDIR/${2}-${4}.log"
+   _log_excerpt "$(b_logfile "$2" "$4")"
 }
 
 # Download $url to $target over HTTPS-only wget (unless allow_insecure), under
@@ -446,7 +459,7 @@ _send_summary() {
             # ones that were already built (work_build unset) or succeeded.
             [[ "${work_build[$i]:-}" != "0" ]] && continue
             printf '%s\n' "${work_recipes[$i]} ${work_version[$i]}:"
-            log="$LOGDIR/${work_recipes[$i]}-${work_arch[${work_recipes[$i]}]}.log"
+            log=$(b_logfile "${work_recipes[$i]}" "${work_arch[${work_recipes[$i]}]}")
             _log_excerpt "$log" 1
             printf '\n'
          done
@@ -1419,16 +1432,18 @@ B_SRCGUARD"
    trap 'rm -rf "${B_INSTALLDIR:-}" 2>/dev/null; exit 130' INT TERM
 
    pushd "$TMP" > /dev/null || return 1
+   local native_log
+   native_log=$(b_logfile "$B_NAME" "$B_ARCH")
    if [[ "$QUIET" == "1" ]]; then
-      bash "${opts[@]}" "$CMD" 2>&1 | tee "$LOGDIR/${B_NAME}-${B_ARCH}.log" > /dev/null
+      bash "${opts[@]}" "$CMD" 2>&1 | tee "$native_log" > /dev/null
    else
-      bash "${opts[@]}" "$CMD" 2>&1 | tee "$LOGDIR/${B_NAME}-${B_ARCH}.log"
+      bash "${opts[@]}" "$CMD" 2>&1 | tee "$native_log"
    fi
    # Capture exit status of the bash command (first in pipeline), not tee
    result=${PIPESTATUS[0]}
    if (( result != 0 )) && [[ -n "$DEBUGSHELL" ]]; then
       printf '%s\n' "## Build failed. Dropping to shell."
-      printf '%s\n' "## See $LOGDIR/${B_NAME}-${B_ARCH}.log for build information."
+      printf '%s\n' "## See $native_log for build information."
       printf '%s\n' "## Any changes to the build root will be removed after exit."
       printf '%s\n' "## Type exit to return."
       printf '%s\n' ""
@@ -1687,7 +1702,8 @@ package_deb() {
       printf '%s\n' "$INFO" | sed "s/B_VERSION/$pkgversion/" | sed "s/B_ARCH/$B_ARCH/" > "$TMP/build/DEBIAN/control"
 
       cd "$TMP" || return 1
-      local pkglog="$LOGDIR/${B_NAME}-${B_ARCH}.log"
+      local pkglog
+      pkglog=$(b_logfile "$B_NAME" "$B_ARCH")
       # Append packaging output to the per-recipe log so build + package output
       # for a recipe live in one place. In native mode, also show it live when
       # not quiet; in docker mode the entrypoint already echoes the log on
@@ -2604,6 +2620,9 @@ docker_prepare_env() {
       # Helpers used by the containerized functions above
       declare -f _b_wget_fetch _b_verify_copy _b_pkg_id _b_installdir _b_gpg_ensure_key _b_git_refresh _cache_store
 
+      # Per-distro log directory helper (used by the generated package command)
+      declare -f b_logdir
+
       # Utility functions needed by packaging
       declare -f output
 
@@ -2662,7 +2681,7 @@ case "\$pkg_type" in
    "deb")
       pkgfile=\$(package_deb "\$pkg" "\$version") || exit 1
       if [[ -n "\$pkgfile" ]]; then
-         printf '%s' "\$pkgfile" > "\${LOGDIR}/.package-result-\${pkg}.txt"
+         printf '%s' "\$pkgfile" > "\$(b_logdir)/.package-result-\${pkg}.txt"
       else
          printf 'package_deb returned empty result\n' >&2
          exit 1
@@ -2957,7 +2976,7 @@ _docker_run() {
    # per-recipe log first so each run starts fresh -- otherwise the entrypoint
    # appends across runs and verbose mode replays stale output from previous
    # builds, making failures hard to read.
-   : > "$LOGDIR/${B_NAME}-${B_ARCH}.log" 2>/dev/null || true
+   : > "$(b_logfile "$B_NAME" "$B_ARCH")" 2>/dev/null || true
 
    # Capture the image ID (content digest) for provenance (SECURITY.md D1).
    # RepoDigests is empty for locally-built images, so use the image ID.
@@ -3092,7 +3111,8 @@ docker_package_only() {
 
    (( pkg_result != 0 )) && return 1
 
-   local result_file="$LOGDIR/.package-result-${pkg}.txt"
+   local result_file
+   result_file="$(b_logdir)/.package-result-${pkg}.txt"
    if [[ ! -f "$result_file" ]]; then
       return 2   # exited 0 but no result file
    fi
@@ -3400,6 +3420,12 @@ main() {
    distro_dir
    export B_DISTRO
 
+   # Group logs and package result files per target distribution (see
+   # b_logdir) so a multi-distro build session cannot overwrite another
+   # distro's output. Created as the unprivileged build user so the
+   # bind-mounted directory stays writable by the container's builduser.
+   (( DO_BUILD != 0 || DO_PACKAGE != 0 )) && mkdir -p "$(b_logdir)"
+
    # Load per-distro apt/repository configuration (may override PROXY for this
    # distro and declare custom repositories). Must run after distro_dir sets
    # B_DISTRO/B_DISTRODIR and before PROXY is exported below.
@@ -3531,7 +3557,8 @@ main() {
 
                # In Docker mode, build+package was combined. Read result file.
                if [[ "$BUILDMODE" == "docker" ]] && (( DO_PACKAGE != 0 )); then
-                  local result_file="$LOGDIR/.package-result-${work_recipes[$i]}.txt"
+                  local result_file
+                  result_file="$(b_logdir)/.package-result-${work_recipes[$i]}.txt"
                   if [[ -f "$result_file" ]]; then
                      work_package[i]=$(cat "$result_file")
                      work_packaged[i]=0

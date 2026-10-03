@@ -81,3 +81,11 @@ setup() {
    grep -q "package_deb ()" "$BT_ENVFILE"
    grep -q "recipe_section_get ()" "$BT_ENVFILE"
 }
+
+@test "docker_prepare_env exports the per-distro log dir helper" {
+   docker_prepare_env "$BT_ENVFILE"
+
+   run bash -c "source '$BT_ENVFILE' > /dev/null && B_DISTRO=trixie b_logdir"
+   [ "$status" -eq 0 ]
+   [[ "$output" == "$BT_FIXTURE/log/trixie" ]]
+}

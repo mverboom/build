@@ -186,6 +186,9 @@ Temporary directory where the software building takes place.
 
 `LOG` (defaults to ~/log)
 Log directory where output of the build process for each build is stored.
+Logs are grouped in a per-distribution subdirectory (`<LOGDIR>/<distro>/`,
+e.g. `~/log/build/trixie/`) so builds for different distributions do not
+overwrite each other.
 
 `RECIPEDIR` (defaults to ~/recipes)
 Directory with recipe files.

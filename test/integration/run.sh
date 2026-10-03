@@ -186,6 +186,11 @@ t_happy() {
 
    # Package list entry with build number.
    assert_contains "$(cat "$SB/recipes/pkglist")" "gitver_1.2.0_all"
+
+   # Logs are grouped per target distro; the host truncate path and the
+   # container entrypoint must agree, and no distro-less log is left behind.
+   assert_file "$SB/log/trixie/gitver-all.log"
+   assert_no_glob "$SB/log/gitver-all.log"
 }
 
 # Forced version via recipe@version skips the version check section.
