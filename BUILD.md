@@ -582,8 +582,11 @@ Example: `B_GITDATE https://github.com/user/repo`
 
 `B_GITHUBREL <github repository uri>`
 
-This function uses the GitHub API to determine the tag of the latest release
-published for the project. A leading `v` is stripped from the tag.
+This function determines the tag of the latest release published for the
+project. It follows the `https://github.com/<owner>/<repo>/releases/latest`
+redirect (a plain web request, so it is not subject to the GitHub API rate
+limit) and falls back to the REST API if the redirect cannot be parsed. A
+leading `v` is stripped from the tag.
 
 Example: `B_GITHUBREL https://github.com/user/repo`
 

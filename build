@@ -1872,7 +1872,20 @@ version_get() {
    # shellcheck disable=SC2317,SC2329
    B_GITHUBREL() {
       local URL="$1"
-      wget -q -O - "https://api.github.com/repos/${URL/*github.com\//}/releases/latest" | jq -r '.tag_name | sub("^v";"")'
+      local repo="${URL/*github.com\//}"
+      local tag
+      # Resolve via the /releases/latest redirect: the same "latest published
+      # release" the REST API reports, but a plain web request that is not
+      # subject to the 60 req/hour API rate limit (shared by everything behind
+      # the build host's proxy). Fall back to the API if the redirect is
+      # unparseable.
+      tag=$(wget -q --spider -S "https://github.com/${repo}/releases/latest" 2>&1 |
+         sed -n 's#^  Location: .*/releases/tag/##p' | head -1)
+      if [[ -z "$tag" ]]; then
+         tag=$(wget -q -O - "https://api.github.com/repos/${repo}/releases/latest" |
+            jq -r '.tag_name // empty')
+      fi
+      printf '%s\n' "${tag#v}"
    }
 
    # Get the last changed date for an SVN repository
